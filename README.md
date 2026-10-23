@@ -1,15 +1,71 @@
 # order-sourcing
 
-Retail network, bounded context **Order Sourcing** (Core, commerce tier).
+Retail network, bounded context **Order Sourcing** (Core, commerce tier): decides, as late as the promise allows, which node
+and path will fulfil each shipment group.
 
-Decides, as late as the promise allows, which node and path will actually fulfil each shipment group. Keeps assignments in a virtual queue, re-optimises them against current capacity and cost until the release point, sends the group to the node, reassigns on rejection or expiry, and locks the assignment once the node commits.
+## Disclaimer
 
-Status: under construction. The design is proposed in
-[retail-network-docs](https://iqvo.github.io/retail-network-docs/contexts/order-sourcing); `model/model.yaml` there is the single source of truth.
+This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.
+
+The design is proposed in [retail-network-docs](https://iqvo.github.io/retail-network-docs/contexts/order-sourcing); `model/model.yaml` there is the single source of truth.
 This repository is a service of the retail network, not of the warehouse-systems fleet; the fleet reaches the network only through the
 `vendor-connectivity` Vendor API.
 
-Runtime: Go, hexagonal, real PostgreSQL and Kafka only (`DATABASE_URL`, `KAFKA_BROKERS` are mandatory), CloudEvents 1.0 on every message
-(`com.retailnetwork.commerce.order-sourcing.<entity>.<Event>`), transactional outbox.
+## What it does
+
+- **Queues** one `FulfillmentAssignment` per shipment group of a placed order and keeps it in a virtual queue, re-optimising the candidate
+  (node, path, cost) against current capacity until the release point. A group nobody can serve is `UNSOURCEABLE` at once.
+- **Releases** the group to one node at a time, **reassigns** on rejection or expiry (the refusing node is excluded for that promise revision) and
+  **locks** the assignment when the node commits; the node never changes after the lock.
+- **Follows** the group through `SHIPPED` and `DELIVERED`, decides cancel requests (`FulfillmentCancelled` before the lock,
+  `FulfillmentCancelRefused` after it) and applies revised promises in every non-terminal state.
+- Everything it knows about the network (nodes, lanes, departures, waves, service areas, listings, scorecards, book pressure) is a local read model
+  fed by sibling events; it calls no other service.
+
+Aggregates, invariants and every assumption the model left open: [docs/adr/0002](docs/adr/0002-aggregates-invariants-and-assumptions.md).
+Consumed contracts and read models: [docs/adr/0003](docs/adr/0003-consumed-contracts-and-local-read-models.md).
+
+## REST API
+
+Contract: [`apis/openapi.yaml`](apis/openapi.yaml). No authentication. Errors are RFC 9457 `application/problem+json` (`type` is a slug such as
+`not-found`, `illegal-transition`, `concurrent-update`, `validation-failed`, `assignment-locked`, `release-in-flight`, `stale-assignment-version`).
+Every state-changing request needs an `Idempotency-Key` header: a repeat with the same request replays the first response for 24 hours.
+
+| Method and path | Operation |
+| --- | --- |
+| `GET /assignments?state=&nodeId=&orderId=` | list assignments |
+| `GET /assignments/{assignmentId}` | read one assignment |
+| `POST /assignments/{assignmentId}:reoptimise` | re-run the candidate search of a queued assignment |
+| `GET /healthz`, `GET /readyz` | liveness, readiness |
+
+## Events
+
+Published (contract [`apis/asyncapi.yaml`](apis/asyncapi.yaml), catalogue in [ADR 0004](docs/adr/0004-cloudevents-envelope-and-type-catalogue.md)),
+CloudEvents 1.0 structured JSON, type `com.retailnetwork.commerce.order-sourcing.assignment.<Event>`, `subject` and Kafka key = `assignmentId`:
+
+- `retailnetwork.order-sourcing.events`: `FulfillmentReleasedToNode`, `FulfillmentReassigned`, `FulfillmentLocked`, `FulfillmentShipped`,
+  `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused`, `FulfillmentConstraintRevised`.
+- `retailnetwork.order-sourcing.analytics`: `FulfillmentQueued`, `FulfillmentDelivered`.
+
+Consumed (32 types from nine topics): `customer-ordering` (placed, cancelled), `delivery-promise` (`PromiseRevised`, `PromiseBookExhausted`),
+`last-mile-delivery` (wave scheduled, capacity changed, cancelled), `linehaul-transportation` (departure scheduled, capacity changed, cancelled;
+`BookingMoved`, `BookingFailed`), `node-performance` (`NodeScorecardUpdated`), `node-topology` (node, lane, service-area and region events),
+`offer-availability` (listing and catalog-item events), `shipping-and-tracking` (`PackageDelivered`), `vendor-connectivity` (purchase-order outcomes,
+`VendorShipmentConfirmed`). Delivery is at-least-once with a stable event id and an inbox on the consuming side ([ADR 0005](docs/adr/0005-outbox-relay-attempt-cap-sweep-and-shutdown.md)).
+
+## Run it
+
+Real PostgreSQL and Kafka only. `DATABASE_URL`, `KAFKA_BROKERS` and the nine `*_CONSUMER_GROUP` variables are mandatory (a boot error names the
+missing one); the embedded migrations run at boot, the outbox relay and the queue sweep are always on.
+
+```sh
+export DATABASE_URL=postgres://user:***@localhost:5432/order_sourcing?sslmode=disable
+export KAFKA_BROKERS=localhost:29092   # whatever your broker advertises
+# plus one <PRODUCER>_CONSUMER_GROUP per consumed topic, see docs/runtime.md
+go run ./cmd/api                       # listens on :8080 (HTTP_ADDR)
+```
+
+All settings, the probes, the shutdown order and the outbox runbook: [docs/runtime.md](docs/runtime.md). Development: `make check` (format, vet, lint, tests),
+`make coverage`, `make mutation`, `make bdd`, `make integration` (Docker), `make vuln`; see [HARNESS.md](HARNESS.md).
 
 See `docs/adr/` for decisions and `docs/before-first-release.md` for the packaging checklist.

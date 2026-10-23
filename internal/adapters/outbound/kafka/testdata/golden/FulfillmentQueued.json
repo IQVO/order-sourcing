@@ -1,0 +1,24 @@
+{
+  "specversion": "1.0",
+  "id": "11111111-1111-4111-8111-111111111111",
+  "source": "/retailnetwork/order-sourcing",
+  "type": "com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentQueued",
+  "subject": "asg-7f3c2d10",
+  "datacontenttype": "application/json",
+  "dataschema": "urn:retailnetwork:order-sourcing:analytics:FulfillmentQueued:v1",
+  "time": "2026-10-22T14:10:00Z",
+  "data": {
+    "assignmentId": "asg-7f3c2d10",
+    "orderId": "ord-1",
+    "groupNo": 1,
+    "promiseId": "prm-1",
+    "deliverByLatest": "2026-10-22T14:10:00Z",
+    "lines": [
+      {
+        "lineNo": 1,
+        "catalogItemId": "cat-1",
+        "quantity": 2
+      }
+    ]
+  }
+}

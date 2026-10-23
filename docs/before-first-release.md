@@ -13,6 +13,18 @@ the fleet reference). The chart is NOT generated: it is shaped by what the servi
 `IQVO/pick-face-replenishment` (Kafka consumers, MCP, analytics, frontend) and
 `IQVO/task-interleaving`.
 
+## Status of this service
+
+| # | State |
+| --- | --- |
+| 1 | Done. `cmd/api` wires Postgres and Kafka only; the boot errors name `DATABASE_URL`, `KAFKA_BROKERS` and each `*_CONSUMER_GROUP` (`cmd/api/main_test.go`). |
+| 2 | Done. The godog runner is `features/features_test.go`; there is no Go file at the root. |
+| 3, 4 | Done. `docker build .` succeeds and `docker run --rm <image>` exits with the `DATABASE_URL` boot error. |
+| 5-9 | Follow-up, out of scope for the build campaign: the Helm chart `charts/order-sourcing/` and its tests are not written yet. The chart must render all nine `*_CONSUMER_GROUP` values, `SWEEP_INTERVAL` and the variables of `docs/runtime.md`. |
+| 10 | Done. `ci.yml` has no `web` or `docs-api-drift` job; `api-lint` stays (both specs and both rulesets exist). |
+| 11 | Repository admin task. |
+| 12 | `make vuln` is clean at the last build (see the final report). |
+
 | # | Item | Done when | Guarded by |
 |---|------|-----------|------------|
 | 1 | **Real runtime only.** `cmd/api` wires Postgres and Kafka; the in-memory adapters (`internal/adapters/outbound/memory`) are test doubles. No `*_MODE`/permissive fallback, no default that boots "healthy" without `DATABASE_URL` or `KAFKA_BROKERS`. | `cmd/**` has no import of the memory package; the binary exits at boot on missing `DATABASE_URL`, `KAFKA_BROKERS` or a consumer group id. | `TestRuntimeBinaryHasNoInMemoryAdapters` (`internal/architecture/runtime_no_memory_fitness_test.go`). The boot-error behaviour has no generic sensor: cover it in `cmd/api` tests and in the chart test (row 8). |

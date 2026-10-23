@@ -243,7 +243,7 @@ v3 makes the guides LOAD and puts sensors INSIDE the agent loop, for Claude Code
 | Fast gate | `make check-fast` (fmt-check, vet, arch-test, tests of changed packages) | seconds | Stop hook, before "done" |
 | Guide freshness | `scripts/harness/guide_lint.py` / `make guide-lint` (CI job `guide-lint`) | CPU, ms | PR |
 | Red-sensor loop | `scripts/harness/red_issue.py` steps in scheduled jobs -> `harness:red` issue | none | weekly |
-| Advisory AI review | `.github/workflows/ai-review.yml` (needs `ANTHROPIC_API_KEY`; no-ops without it) | API spend | PR into develop |
+| Advisory AI review | `.github/workflows/ai-review.yml` (needs an API key secret; no-ops without it) | API spend | PR into develop |
 | Health report | `scripts/harness-health.py` (does it WORK: skills load, hooks wired, scheduled runs green) | gh calls | weekly cron |
 
 Rules live ONLY in `hook.py`; the three adapters translate events and cannot drift. The hooks block
@@ -308,7 +308,7 @@ tell which repos are behind the template and by how much.
 
 ## Harness² comparison (v4)
 
-Google-Research's Harness² (arXiv:2610.14224, "Recursive Agent Harnessing for an Open World")
+The Harness² research paper (arXiv:2610.14224, "Recursive Agent Harnessing for an Open World")
 edits an agent's own harness DURING a task (Propose-Probe-Compose: propose an edit, probe it
 against the same task with no ground truth needed, compose the winner) and keeps a persistent
 "improvement harness" of adopted edits across tasks. This template's v1-v3 harness only ever

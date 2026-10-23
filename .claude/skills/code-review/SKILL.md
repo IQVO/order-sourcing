@@ -5,8 +5,6 @@ disable-model-invocation: true
 argument-hint: "[git range]"
 ---
 
-<!-- TEMPLATE NOTE (warehouse-harness-template v2): adapt every repo-specific example in this file (file paths, type names, field names) to THIS repo real code. Do not copy-paste verbatim. -->
-
 Perform a pre-commit semantic code review of the current uncommitted
 changes (or, if `$ARGUMENTS` names a branch/commit range, review that
 diff instead — e.g. `/code-review origin/develop..HEAD`).
@@ -39,8 +37,8 @@ linter already catches.
    instead of depending on a port. Ports contain interfaces only.
 5. **Error handling that swallows or over-wraps.** Check that domain/
    application errors map cleanly to RFC 7807 problem details at the
-   HTTP boundary (`internal/adapters/inbound/http/errors.go`'s existing
-   mapping table) rather than being stringified/re-wrapped repeatedly on
+   HTTP boundary (`internal/adapters/inbound/http/errors.go`'s
+   `problemCatalogue`) rather than being stringified/re-wrapped repeatedly on
    the way out.
 6. **A new Kafka `GroupID` assigned an inline string literal** rather
    than a named const/var/function call — this fleet has a real incident
@@ -53,10 +51,9 @@ linter already catches.
    fleet-wide revert) — a reintroduced auth check is very likely
    accidental (an agent "helpfully" adding back something that looks
    missing) and should be flagged even if the code itself looks correct.
-8. **Anything that would surprise the sibling-context boundary.** If this
-   repo's `AGENTS.md`/`CLAUDE.md` documents a stricter rule (e.g. "no
-   outbound calls to sibling contexts"), check the diff doesn't
-   reintroduce exactly that.
+8. **Anything that would surprise the sibling-context boundary.** This context calls no sibling (ADR 0003) and
+   consumes only the topics of `.claude/rules/integration-events.md`; check the diff doesn't add an outbound call, a
+   direct read of sibling data, or a consumer without an inbox claim (`writer.claim`).
 
 ## Output format
 
