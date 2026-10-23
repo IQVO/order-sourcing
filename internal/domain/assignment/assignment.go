@@ -229,3 +229,15 @@ func (a *Assignment) CancelReason() string { return a.cancelReason }
 
 // UpdatedAt returns the instant of the last change.
 func (a *Assignment) UpdatedAt() time.Time { return a.updatedAt }
+
+// CurrentNodeID is the node the assignment is on: the candidate node while it
+// has a candidate, otherwise the node of the latest release, otherwise "".
+func (a *Assignment) CurrentNodeID() string {
+	if a.candidate != nil {
+		return a.candidate.NodeID
+	}
+	if last, ok := a.lastRelease(); ok {
+		return last.NodeID
+	}
+	return ""
+}

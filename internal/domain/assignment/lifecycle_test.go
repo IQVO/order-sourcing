@@ -238,3 +238,21 @@ func TestMovePickup(t *testing.T) {
 	wantErr(t, a.MovePickup("-x", "dep-y", at(7)), shared.ErrValidation)
 	wantErr(t, mustRelease(t).MovePickup("", "dep-y", at(7)), shared.ErrIllegalTransition)
 }
+
+func TestCurrentNodeID(t *testing.T) {
+	if got := mustQueue(t).CurrentNodeID(); got != "node-a" {
+		t.Fatalf("queued: %q", got)
+	}
+	if got := mustLock(t).CurrentNodeID(); got != "node-a" {
+		t.Fatalf("locked: %q", got)
+	}
+	u := unsourceable(t)
+	if got := u.CurrentNodeID(); got != "node-a" {
+		t.Fatalf("unsourceable after a release keeps the last released node: %q", got)
+	}
+	fresh, _, err := Queue(newInput(), nil, time.Time{}, t0)
+	wantNoErr(t, err)
+	if got := fresh.CurrentNodeID(); got != "" {
+		t.Fatalf("unsourceable without a release: %q", got)
+	}
+}
