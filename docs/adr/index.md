@@ -1,0 +1,13 @@
+# Architecture decision records
+
+The decisions of `order-sourcing`, in the order they were taken. The ADR bodies
+are immutable; a changed decision gets a new ADR that supersedes the old one.
+The *Status* column is copied from each ADR's own `## Status` section.
+
+| ADR | Title | Status |
+| --- | --- | --- |
+| [0001](./0001-order-sourcing-bounded-context.md) | Order Sourcing is a bounded context of the retail network | Accepted (bootstrap) |
+| [0002](./0002-aggregates-invariants-and-assumptions.md) | the FulfillmentAssignment aggregate, its invariants and the assumptions the model left open | Accepted (2026-10-23) |
+| [0003](./0003-consumed-contracts-and-local-read-models.md) | consumed contracts, local read models and relationships | Accepted (2026-10-23) |
+| [0004](./0004-cloudevents-envelope-and-type-catalogue.md) | CloudEvents envelope and type catalogue | Accepted (2026-10-23) |
+| [0005](./0005-outbox-relay-attempt-cap-sweep-and-shutdown.md) | outbox relay, attempt cap, queue sweep and shutdown order | Accepted (2026-10-23) |

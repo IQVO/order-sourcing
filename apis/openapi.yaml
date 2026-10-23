@@ -1,0 +1,381 @@
+openapi: 3.0.3
+info:
+  title: Order Sourcing API
+  version: 0.1.0
+  contact:
+    name: order-sourcing maintainers
+    url: https://github.com/IQVO/order-sourcing
+  description: >-
+    REST contract of the order-sourcing bounded context of the retail network,
+    derived from retail-network-docs model/model.yaml
+    (contexts[order-sourcing].rest) and adjusted by the cross-context decisions
+    G5, G10, G12, G13, G14, G20 and G26. Order Sourcing decides which vendor
+    node and path fulfil each shipment group: it keeps a FulfillmentAssignment
+    per group in a virtual queue, re-optimises it until its release point,
+    releases it to one node (a purchase order through vendor-connectivity),
+    reassigns on rejection or expiry, and locks it when the node accepts. This
+    surface is the network-ops planner's: list and inspect assignments, and ask
+    for an immediate re-optimisation of a QUEUED one. Every other change
+    arrives as a Kafka event (see apis/asyncapi.yaml). No PII is held or
+    returned by this context. No authentication, consistent with the rest of
+    the network. Errors are RFC 9457 problem details. The shared problem types
+    are not-found (404), illegal-transition (409), concurrent-update (409) and
+    validation-failed (422); the model's Err names add assignment-locked,
+    release-in-flight, node-excluded, stale-assignment-version (409) and
+    candidate-breaks-promise (422).
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Assignments
+    description: FulfillmentAssignment, one per shipment group of a customer order.
+paths:
+  /assignments:
+    get:
+      tags: [Assignments]
+      operationId: listAssignments
+      summary: List fulfillment assignments (ListAssignments)
+      description: >-
+        Filters combine with AND; an empty result is 200 with an empty list.
+        nodeId matches the current candidate node (QUEUED), or the node of the
+        latest release (RELEASED and later). Results are ordered by
+        assignmentId ascending and capped by limit.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AssignmentState'
+        - name: nodeId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: orderId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of assignments returned. Defaults to 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: The matching assignments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentList'
+        '422':
+          description: validation-failed (ErrValidation), an invalid state or limit query parameter.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /assignments/{assignmentId}:
+    get:
+      tags: [Assignments]
+      operationId: getAssignment
+      summary: Get one fulfillment assignment (GetAssignment)
+      description: One assignment with its release history, excluded nodes and current candidate.
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+      responses:
+        '200':
+          description: The assignment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assignment'
+        '404':
+          description: not-found (ErrNotFound), no assignment has that id.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /assignments/{assignmentId}:reoptimise:
+    post:
+      tags: [Assignments]
+      operationId: reoptimiseAssignment
+      summary: Re-optimise a queued assignment now (ReoptimiseAssignment)
+      description: >-
+        Re-runs the candidate search (AssignmentCost = legs + crossRegionPenalty
+        + scorecardPenalty + bookPressurePenalty, ties to the witness node)
+        over the current read models, skipping excluded nodes and any candidate
+        whose eta is after deliverByLatest. Allowed only while QUEUED. If the
+        best node changes the assignment moves (FulfillmentReassigned is
+        published) and releaseAt follows the new candidate (VirtualQueue); if no
+        candidate is left the assignment becomes UNSOURCEABLE at once
+        (FulfillmentUnsourceable, gap G26). A repeat on unchanged read models
+        changes nothing. The Idempotency-Key replays the first response for 24
+        hours.
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReoptimiseRequest'
+      responses:
+        '200':
+          description: The assignment after re-optimisation (unchanged if the best candidate is the current one).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assignment'
+        '404':
+          description: not-found (ErrNotFound), no assignment has that id.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: >-
+            assignment-locked (ErrAssignmentLocked), release-in-flight
+            (ErrReleaseInFlight), node-excluded (ErrNodeExcluded),
+            stale-assignment-version (ErrStaleAssignmentVersion),
+            illegal-transition (ErrIllegalTransition, the assignment is
+            UNSOURCEABLE or CANCELLED), or concurrent-update (ErrConcurrentUpdate).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                locked:
+                  value:
+                    type: assignment-locked
+                    title: Assignment is locked
+                    status: 409
+                    detail: The node accepted the purchase order; the assignment can no longer move.
+                inFlight:
+                  value:
+                    type: release-in-flight
+                    title: A release is pending
+                    status: 409
+                    detail: The group is released to a node and awaits its acknowledgement.
+        '422':
+          description: >-
+            candidate-breaks-promise (ErrCandidateBreaksPromise), or
+            validation-failed (ErrValidation), an invalid request body or an
+            Idempotency-Key longer than 128 characters.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+components:
+  parameters:
+    AssignmentId:
+      name: assignmentId
+      in: path
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: A repeated key returns the stored response of the first call (24 hours).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Problem type slug, for example assignment-locked.
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    AssignmentState:
+      type: string
+      enum: [QUEUED, RELEASED, LOCKED, SHIPPED, DELIVERED, UNSOURCEABLE, CANCELLED]
+    Tier:
+      type: string
+      enum: [SAME_DAY, NEXT_DAY, TWO_DAY, STANDARD]
+    ReleaseOutcome:
+      type: string
+      enum: [ACCEPTED, REJECTED, EXPIRED, PENDING]
+    PromiseConstraint:
+      type: object
+      required: [promiseId, tier, deliverByLatest, witnessNodeId, revisionNo]
+      properties:
+        promiseId:
+          type: string
+        tier:
+          $ref: '#/components/schemas/Tier'
+        deliverByLatest:
+          type: string
+          format: date-time
+        witnessNodeId:
+          type: string
+          description: The node of the promise's witness path; the assigned node may differ.
+        revisionNo:
+          type: integer
+          minimum: 0
+          description: The promise revision applied (0 until delivery-promise revises it, gap G13). Node exclusions reset when it changes.
+    Candidate:
+      type: object
+      required: [nodeId, pickupDepartureId, legs, deliveryWaveId, eta, cost, pickupCutoffAt]
+      properties:
+        nodeId:
+          type: string
+        pickupDepartureId:
+          type: string
+        pickupCutoffAt:
+          type: string
+          format: date-time
+          description: The pickup departure's cutoff at this node; the requiredShipBy of a release.
+        legs:
+          type: array
+          description: Departure ids after the pickup, in travel order.
+          items:
+            type: string
+        deliveryWaveId:
+          type: string
+        eta:
+          type: string
+          format: date-time
+        cost:
+          type: integer
+          minimum: 0
+          description: AssignmentCost in cost points (ADR 0002, A12).
+    Release:
+      type: object
+      required: [releaseNo, nodeId, releasedAt, requiredShipBy, outcome]
+      properties:
+        releaseNo:
+          type: integer
+          minimum: 1
+        nodeId:
+          type: string
+        releasedAt:
+          type: string
+          format: date-time
+        requiredShipBy:
+          type: string
+          format: date-time
+        outcome:
+          $ref: '#/components/schemas/ReleaseOutcome'
+        reasonCode:
+          type: string
+          description: Present when the node rejected (the vendor's reason code).
+    ExcludedNode:
+      type: object
+      required: [nodeId, reason]
+      properties:
+        nodeId:
+          type: string
+        reason:
+          type: string
+    Line:
+      type: object
+      required: [catalogItemId, quantity]
+      properties:
+        lineNo:
+          type: integer
+          minimum: 1
+        catalogItemId:
+          type: string
+        listingId:
+          type: string
+          description: The listing of the released node; absent while QUEUED.
+        quantity:
+          type: integer
+          minimum: 1
+    Assignment:
+      type: object
+      required: [assignmentId, orderId, groupNo, destinationPostalPrefix, state, assignmentVersion, promise, lines, releases, excludedNodes, trackingNumbers]
+      properties:
+        assignmentId:
+          type: string
+        orderId:
+          type: string
+        groupNo:
+          type: integer
+          minimum: 1
+        destinationPostalPrefix:
+          type: string
+          description: The postal prefix of the destination (from CustomerOrderPlaced); never an address.
+        state:
+          $ref: '#/components/schemas/AssignmentState'
+        assignmentVersion:
+          type: integer
+          minimum: 1
+        promise:
+          $ref: '#/components/schemas/PromiseConstraint'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/Line'
+        candidate:
+          allOf:
+            - $ref: '#/components/schemas/Candidate'
+          description: The current best candidate; absent when none meets deliverByLatest (UNSOURCEABLE) or the assignment is CANCELLED.
+        releaseAt:
+          type: string
+          format: date-time
+          description: VirtualQueue release point (best candidate's pickup cutoff - node handling time - vendor ack budget); present while QUEUED.
+        releases:
+          type: array
+          items:
+            $ref: '#/components/schemas/Release'
+        excludedNodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExcludedNode'
+        lockedAt:
+          type: string
+          format: date-time
+        lockReason:
+          type: string
+        pickupDepartureId:
+          type: string
+          description: The pickup departure of the locked path; follows BookingMoved.
+        trackingNumbers:
+          type: array
+          items:
+            type: string
+        shippedAt:
+          type: string
+          format: date-time
+        deliveredAt:
+          type: string
+          format: date-time
+        cancelReason:
+          type: string
+    AssignmentList:
+      type: object
+      required: [assignments]
+      properties:
+        assignments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Assignment'
+    ReoptimiseRequest:
+      type: object
+      properties:
+        assignmentVersion:
+          type: integer
+          minimum: 1
+          description: Optional. The version the caller last read; a mismatch is 409 stale-assignment-version.

@@ -27,6 +27,9 @@ COVERAGE_THRESHOLD := 90
 # not necessarily the biggest package, the one with the most branching
 # domain logic (see HARNESS.md's mutation-testing section).
 MUTATION_FAST_PKG  := ./internal/domain/assignment
+# Every domain package is mutation-tested (campaign rule 6): `make mutation` and the
+# CI `mutation-fast` job loop over each internal/domain/<pkg>.
+MUTATION_PKGS      := $(sort $(wildcard internal/domain/*))
 # The exhaustive scheduled run — kept in sync with the `mutation` CI job.
 MUTATION_FULL_PKG  := ./internal/domain
 
@@ -49,7 +52,7 @@ help:
 	@echo "                 (testcontainers boots its own Postgres/Kafka; needs only Docker; not in check)"
 	@echo "  bdd            go test ./... -run TestFeatures -v — godog/Gherkin acceptance"
 	@echo "  arch-test      go test ./internal/architecture/... -v — hexagonal fitness"
-	@echo "  mutation       gremlins on $(MUTATION_FAST_PKG) — the fast blocking subset"
+	@echo "  mutation       gremlins on every internal/domain/<pkg> (the blocking subset)"
 	@echo "  mutation-full  gremlins on $(MUTATION_FULL_PKG) — the exhaustive scheduled run"
 	@echo "  vuln           govulncheck ./... — supply-chain / stdlib CVE sensor"
 	@echo ""
@@ -122,7 +125,7 @@ mutation:
 		echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)"; \
 		exit 1; \
 	fi
-	$(GREMLINS) unleash $(MUTATION_FAST_PKG)
+	@set -e; for p in $(MUTATION_PKGS); do echo "== gremlins unleash ./$$p"; $(GREMLINS) unleash ./$$p; done
 
 mutation-full:
 	@if ! command -v $(GREMLINS) >/dev/null 2>&1; then \

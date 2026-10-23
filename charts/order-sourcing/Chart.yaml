@@ -1,0 +1,12 @@
+apiVersion: v2
+name: order-sourcing
+description: Order Sourcing — assigns customer-order lines to fulfilment nodes (virtual queue, re-optimisation, release); consumes nine retail-network topics and publishes Assignment events on retailnetwork.order-sourcing.events
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/IQVO/order-sourcing
+keywords:
+  - ddd
+  - hexagonal-architecture
+  - retail-network
+  - golang
