@@ -1,0 +1,14 @@
+DROP TABLE IF EXISTS idempotency_keys;
+DROP TABLE IF EXISTS processed_events;
+DROP TABLE IF EXISTS outbox_events;
+DROP TABLE IF EXISTS rm_book_pressure;
+DROP TABLE IF EXISTS rm_scorecards;
+DROP TABLE IF EXISTS rm_discontinued_items;
+DROP TABLE IF EXISTS rm_listings;
+DROP TABLE IF EXISTS rm_regions;
+DROP TABLE IF EXISTS rm_service_areas;
+DROP TABLE IF EXISTS rm_waves;
+DROP TABLE IF EXISTS rm_departures;
+DROP TABLE IF EXISTS rm_lanes;
+DROP TABLE IF EXISTS rm_nodes;
+DROP TABLE IF EXISTS assignments;
