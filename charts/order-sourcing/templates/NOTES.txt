@@ -1,0 +1,33 @@
+{{ .Chart.Name }} has been deployed.
+
+Release:   {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+Service:   {{ include "order-sourcing.fullname" . }} ({{ .Values.service.type }}, port {{ .Values.service.port }})
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+Ingress:   http://{{ .host }}{{ (index .paths 0).path }}
+{{- end }}
+{{- else if .Values.gatewayApi.enabled }}
+Gateway API HTTPRoute enabled — routed via the parentRefs/hosts configured in gatewayApi.*.
+{{- else }}
+To reach it locally:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "order-sourcing.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080/healthz
+{{- end }}
+
+Assignment events are relayed from the transactional outbox onto
+retailnetwork.order-sourcing.events ({{ .Values.kafka.brokers }}); Postgres and Kafka are
+the only runtime.
+
+The nine consumers are ON, each under its own stable consumer group:
+  customer-ordering        group {{ .Values.config.customerOrderingConsumerGroup }}, topic retailnetwork.customer-ordering.events
+  delivery-promise         group {{ .Values.config.deliveryPromiseConsumerGroup }}, topic retailnetwork.delivery-promise.events
+  last-mile-delivery       group {{ .Values.config.lastMileDeliveryConsumerGroup }}, topic retailnetwork.last-mile-delivery.events
+  linehaul-transportation  group {{ .Values.config.linehaulTransportationConsumerGroup }}, topic retailnetwork.linehaul-transportation.events
+  node-performance         group {{ .Values.config.nodePerformanceConsumerGroup }}, topic retailnetwork.node-performance.events
+  node-topology            group {{ .Values.config.nodeTopologyConsumerGroup }}, topic retailnetwork.node-topology.events
+  offer-availability       group {{ .Values.config.offerAvailabilityConsumerGroup }}, topic retailnetwork.offer-availability.events
+  shipping-and-tracking    group {{ .Values.config.shippingAndTrackingConsumerGroup }}, topic retailnetwork.shipping-and-tracking.events
+  vendor-connectivity      group {{ .Values.config.vendorConnectivityConsumerGroup }}, topic retailnetwork.vendor-connectivity.events

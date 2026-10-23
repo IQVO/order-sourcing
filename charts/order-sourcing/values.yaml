@@ -1,0 +1,205 @@
+# Default values for order-sourcing. One component only: the api Deployment
+# (cmd/api = REST API + nine Kafka consumers + virtual-queue sweep + outbox relay).
+# There is no MCP server, frontend, projector or reports component.
+
+replicaCount: 1
+
+# The release job tags the image with the release version and packages this
+# chart with --app-version set to the same value, so an empty tag resolves to
+# the image published for that chart.
+image:
+  repository: ghcr.io/iqvo/order-sourcing
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+# The image runs as uid/gid 1000 (Dockerfile USER 1000) and writes nothing to
+# disk, so the root filesystem is read-only.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: order-sourcing.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Gateway API alternative to the ingress: block above (default off). Routes to
+# the api Service only.
+gatewayApi:
+  enabled: false
+  parentRefs:
+    - name: ""
+      namespace: ""
+      sectionName: "http"
+  hosts:
+    - path: /
+      pathType: PathPrefix
+  stripPath: true
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# HorizontalPodAutoscaler (autoscaling/v2), default off. When on, the
+# Deployment omits replicas so the HPA owns them. More than one replica is safe
+# for the outbox relay (FOR UPDATE SKIP LOCKED), the version-guarded aggregate
+# writes and the consumers (stable groups, inbox dedupe on the CloudEvents id);
+# it has not been load-tested.
+autoscaling:
+  api:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+# Environment read by cmd/api. Every key maps 1:1 to one env var.
+config:
+  httpAddr: ":8080"                  # HTTP_ADDR
+  logLevel: "info"                   # LOG_LEVEL: debug | info | warn | error
+  # EVENT_PUBLISHER: "kafka" is the only publisher. The outbox relay always
+  # runs; any other value is refused at render and by the binary at boot.
+  eventPublisher: "kafka"
+  # OUTBOX_RELAY_INTERVAL: Go duration or plain seconds. Empty = not rendered
+  # (binary default 1s).
+  outboxRelayInterval: ""
+  # OUTBOX_MAX_ATTEMPTS: failures before the relay excludes a row; 0 = unlimited.
+  outboxMaxAttempts: 20
+  # SWEEP_INTERVAL: period of the virtual-queue sweep (Go duration). Empty =
+  # not rendered (binary default 15s).
+  sweepInterval: ""
+  # SHUTDOWN_DRAIN_DELAY: wait between /readyz flipping to 503 and closing the
+  # listener. Always rendered, in whole seconds ("5s", "0s"), because the
+  # terminationGracePeriodSeconds guard is computed from it.
+  shutdownDrainDelay: "5s"
+  # One STABLE consumer group id per consumed topic. All nine are REQUIRED:
+  # an empty one makes the chart refuse to render (and cmd/api refuse to
+  # boot). Use a service-prefixed value; a stable id is what lets a
+  # rescheduled pod resume from its committed offsets. Never derive it from
+  # the pod name.
+  # CUSTOMER_ORDERING_CONSUMER_GROUP: STABLE group id of the customer-ordering consumer (topic
+  # retailnetwork.customer-ordering.events). REQUIRED, service-prefixed, never the pod name.
+  customerOrderingConsumerGroup: ""
+  # DELIVERY_PROMISE_CONSUMER_GROUP: STABLE group id of the delivery-promise consumer (topic
+  # retailnetwork.delivery-promise.events). REQUIRED, service-prefixed, never the pod name.
+  deliveryPromiseConsumerGroup: ""
+  # LAST_MILE_DELIVERY_CONSUMER_GROUP: STABLE group id of the last-mile-delivery consumer (topic
+  # retailnetwork.last-mile-delivery.events). REQUIRED, service-prefixed, never the pod name.
+  lastMileDeliveryConsumerGroup: ""
+  # LINEHAUL_TRANSPORTATION_CONSUMER_GROUP: STABLE group id of the linehaul-transportation consumer (topic
+  # retailnetwork.linehaul-transportation.events). REQUIRED, service-prefixed, never the pod name.
+  linehaulTransportationConsumerGroup: ""
+  # NODE_PERFORMANCE_CONSUMER_GROUP: STABLE group id of the node-performance consumer (topic
+  # retailnetwork.node-performance.events). REQUIRED, service-prefixed, never the pod name.
+  nodePerformanceConsumerGroup: ""
+  # NODE_TOPOLOGY_CONSUMER_GROUP: STABLE group id of the node-topology consumer (topic
+  # retailnetwork.node-topology.events). REQUIRED, service-prefixed, never the pod name.
+  nodeTopologyConsumerGroup: ""
+  # OFFER_AVAILABILITY_CONSUMER_GROUP: STABLE group id of the offer-availability consumer (topic
+  # retailnetwork.offer-availability.events). REQUIRED, service-prefixed, never the pod name.
+  offerAvailabilityConsumerGroup: ""
+  # SHIPPING_AND_TRACKING_CONSUMER_GROUP: STABLE group id of the shipping-and-tracking consumer (topic
+  # retailnetwork.shipping-and-tracking.events). REQUIRED, service-prefixed, never the pod name.
+  shippingAndTrackingConsumerGroup: ""
+  # VENDOR_CONNECTIVITY_CONSUMER_GROUP: STABLE group id of the vendor-connectivity consumer (topic
+  # retailnetwork.vendor-connectivity.events). REQUIRED, service-prefixed, never the pod name.
+  vendorConnectivityConsumerGroup: ""
+
+# The chart refuses to render unless database.url or database.existingSecret is
+# set: cmd/api runs on real Postgres and exits at boot without DATABASE_URL.
+database:
+  url: ""
+  existingSecret: ""
+  existingSecretKey: "DATABASE_URL"
+  # Key, in the same secret, of a DIRECT (non-pooled, session-mode) Postgres
+  # DSN used ONLY by the golang-migrate boot step (it holds a session advisory
+  # lock a transaction-pooling proxy cannot honour). Rendered with
+  # `optional: true`: a secret without the key still starts the pod and the
+  # binary falls back to DATABASE_URL. Empty = not rendered.
+  migrationsExistingSecretKey: "MIGRATIONS_DATABASE_URL"
+
+# KAFKA_BROKERS is MANDATORY (comma-separated host:port): the relay, the nine
+# consumers and /readyz all dial Kafka. Consumed topics:
+# retailnetwork.{customer-ordering,delivery-promise,last-mile-delivery,
+# linehaul-transportation,node-performance,node-topology,offer-availability,
+# shipping-and-tracking,vendor-connectivity}.events; produced:
+# retailnetwork.order-sourcing.events (+ the analytics topic).
+kafka:
+  brokers: ""
+
+# Extra env vars appended to the api container as a raw list. The chart refuses
+# EVENT_PUBLISHER other than "kafka", any *_MODE variable and any
+# *_CONSUMER_GROUP (use config.*ConsumerGroup).
+extraEnv: []
+
+# The Postgres dial at boot is bounded (internal/bootretry: 5 attempts, 15 s of
+# backoff). periodSeconds * failureThreshold gives the kubelet a ~60 s window.
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 2
+  failureThreshold: 30
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 3
+  periodSeconds: 5
+
+# The graceful shutdown of cmd/api is sequential: SHUTDOWN_DRAIN_DELAY (5s) +
+# HTTP drain (shutdownTimeout 10s) + consumers and sweep (workerDrainTimeout
+# 10s) + outbox relay (10s) = 35s. The chart refuses a grace period that does
+# not EXCEED drain delay + 30s: a shorter one SIGKILLs the consumers or the
+# relay mid-drain. 60 leaves a margin for slow workers.
+terminationGracePeriodSeconds: 60
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
