@@ -8,6 +8,8 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/claudioed/order-sourcing/internal/adapters/outbound/postgres/pgtx"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -34,3 +36,6 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 
 	return pgxpool.NewWithConfig(ctx, config)
 }
+
+// BindTx returns ctx carrying tx, so a UnitOfWork started under it joins tx.
+func BindTx(ctx context.Context, tx pgx.Tx) context.Context { return pgtx.With(ctx, tx) }

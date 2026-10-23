@@ -158,6 +158,7 @@ CREATE TABLE idempotency_keys (
     key        text        NOT NULL,
     status     integer     NOT NULL,
     body       bytea       NOT NULL,
+    headers    jsonb       NOT NULL DEFAULT '{}',
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (route, key)
 );
