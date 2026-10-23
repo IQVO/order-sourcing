@@ -97,8 +97,8 @@ func WithMaxAttempts(n int) Option {
 	}
 }
 
-// NewRelay constructs a relay draining store into sink.
-func NewRelay(store Store, sink Sink, logger *slog.Logger, opts ...Option) *Relay {
+// NewOutboxRelay constructs a relay draining store into sink.
+func NewOutboxRelay(store Store, sink Sink, logger *slog.Logger, opts ...Option) *Relay {
 	if logger == nil {
 		logger = slog.Default()
 	}

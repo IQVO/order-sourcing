@@ -7,7 +7,8 @@ import (
 	"context"
 	"net/http"
 	"strconv"
-	"strings"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/claudioed/order-sourcing/internal/application/repository"
 	"github.com/claudioed/order-sourcing/internal/application/views"
@@ -40,23 +41,27 @@ type Server struct {
 	Idempotency func(http.Handler) http.Handler // nil = no key required (unit tests only)
 }
 
-const reoptimiseSuffix = ":reoptimise"
-
 // Handler builds the router.
 func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, statusBody{Status: "ok"}) })
-	mux.HandleFunc("GET /readyz", s.handleReadyz)
-	mux.HandleFunc("GET /assignments", s.handleList)
-	// The Go mux cannot put a literal after a wildcard, so the custom-method
-	// suffix is split off by hand.
-	mux.HandleFunc("GET /assignments/{id}", s.handleGet)
-	var post http.Handler = http.HandlerFunc(s.handleReoptimise)
-	if s.Idempotency != nil {
-		post = s.Idempotency(post)
-	}
-	mux.Handle("POST /assignments/{id}", post)
-	return rejectNUL(mux)
+	r := chi.NewRouter()
+	r.Use(rejectNUL)
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, statusBody{Status: "ok"}) })
+	r.Get("/readyz", s.handleReadyz)
+	r.Get("/assignments", s.handleList)
+	r.Get("/assignments/{id}", s.handleGet)
+	r.Group(func(r chi.Router) {
+		if s.Idempotency != nil {
+			r.Use(s.Idempotency)
+		}
+		r.Post("/assignments/{id}:reoptimise", s.handleReoptimise)
+	})
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		writeProblem(w, r, notFoundResource, "no resource matches the requested path")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		writeProblem(w, r, methodNotAllowed, "the method is not allowed on this path")
+	})
+	return r
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +92,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
-	v, err := s.Get.GetAssignment(r.Context(), assignment.ID(r.PathValue("id")))
+	v, err := s.Get.GetAssignment(r.Context(), assignment.ID(chi.URLParam(r, "id")))
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -100,12 +105,7 @@ type reoptimiseRequest struct {
 }
 
 func (s *Server) handleReoptimise(w http.ResponseWriter, r *http.Request) {
-	raw := r.PathValue("id")
-	id, ok := strings.CutSuffix(raw, reoptimiseSuffix)
-	if !ok {
-		writeProblem(w, r, notFoundResource, "no resource matches the requested path")
-		return
-	}
+	id := chi.URLParam(r, "id")
 	var body reoptimiseRequest
 	if err := decodeOptionalJSON(r, &body); err != nil {
 		writeError(w, r, err)

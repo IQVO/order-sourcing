@@ -73,7 +73,7 @@ func (k *sink) Send(_ context.Context, msgs ...outbox.Message) error {
 func TestRelayOncePublishesInOrderAndOnlyOnce(t *testing.T) {
 	st, sk := &store{}, &sink{}
 	st.add("a", "b", "c")
-	r := relay.NewRelay(st, sk, quiet())
+	r := relay.NewOutboxRelay(st, sk, quiet())
 	if n, err := r.RelayOnce(context.Background()); n != 3 || err != nil {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
@@ -85,7 +85,7 @@ func TestRelayOncePublishesInOrderAndOnlyOnce(t *testing.T) {
 func TestRelayStopsAtTheFirstFailureAndKeepsOrder(t *testing.T) {
 	st, sk := &store{}, &sink{failOn: "b"}
 	st.add("a", "b", "c")
-	r := relay.NewRelay(st, sk, quiet())
+	r := relay.NewOutboxRelay(st, sk, quiet())
 	n, err := r.RelayOnce(context.Background())
 	var sf *outbox.SendFailure
 	if n != 1 || !errors.As(err, &sf) || sf.Message.EventType != "b" {
@@ -105,7 +105,7 @@ func TestAttemptCapParksAPoisonRowAndLogsIt(t *testing.T) {
 	st.add("bad", "ok")
 	var logged []string
 	h := slog.New(slog.NewTextHandler(writerFunc(func(p []byte) { logged = append(logged, string(p)) }), nil))
-	r := relay.NewRelay(st, sk, h, relay.WithMaxAttempts(2))
+	r := relay.NewOutboxRelay(st, sk, h, relay.WithMaxAttempts(2))
 	for range 2 {
 		_, _ = r.RelayOnce(context.Background())
 	}
@@ -124,7 +124,7 @@ func (f writerFunc) Write(p []byte) (int, error) { f(p); return len(p), nil }
 func TestOptionsIgnoreNonsense(t *testing.T) {
 	st, sk := &store{}, &sink{}
 	st.add("a", "b", "c")
-	r := relay.NewRelay(st, sk, nil, relay.WithBatchSize(2), relay.WithBatchSize(-1), relay.WithInterval(0), relay.WithMaxAttempts(-5))
+	r := relay.NewOutboxRelay(st, sk, nil, relay.WithBatchSize(2), relay.WithBatchSize(-1), relay.WithInterval(0), relay.WithMaxAttempts(-5))
 	if n, _ := r.RelayOnce(context.Background()); n != 2 {
 		t.Fatalf("batch size 2 wins over the ignored -1: %d", n)
 	}
@@ -134,7 +134,7 @@ func TestRunDrainsUntilCancelled(t *testing.T) {
 	st, sk := &store{}, &sink{}
 	st.add("a", "b", "c")
 	ctx, cancel := context.WithCancel(context.Background())
-	r := relay.NewRelay(st, sk, quiet(), relay.WithBatchSize(2), relay.WithInterval(time.Millisecond))
+	r := relay.NewOutboxRelay(st, sk, quiet(), relay.WithBatchSize(2), relay.WithInterval(time.Millisecond))
 	done := make(chan error, 1)
 	go func() { done <- r.Run(ctx) }()
 	deadline := time.After(2 * time.Second)
@@ -166,7 +166,7 @@ func TestLogSinkAcceptsEverything(t *testing.T) {
 func TestRunStopsAtOnceWhenAlreadyCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := relay.NewRelay(&store{}, &sink{}, quiet()).Run(ctx); !errors.Is(err, context.Canceled) {
+	if err := relay.NewOutboxRelay(&store{}, &sink{}, quiet()).Run(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run = %v", err)
 	}
 }

@@ -22,6 +22,8 @@ type problem struct {
 	title  string
 }
 
+var methodNotAllowed = problem{http.StatusMethodNotAllowed, "method-not-allowed", "Method not allowed"}
+
 var internalProblem = problem{http.StatusInternalServerError, "internal-error", "Internal server error"}
 
 // Problems the middleware writes itself, before any use case runs.

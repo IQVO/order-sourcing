@@ -121,8 +121,9 @@ func TestReoptimiseRejectsWhatIsNotTheAction(t *testing.T) {
 		code         int
 		slug         string
 	}{
-		"no action suffix": {"/assignments/asg-1", `{}`, 404, "resource-not-found"},
-		"other action":     {"/assignments/asg-1:cancel", `{}`, 404, "resource-not-found"},
+		"no action suffix": {"/assignments/asg-1", `{}`, 405, "method-not-allowed"},
+		"other action":     {"/assignments/asg-1:cancel", `{}`, 405, "method-not-allowed"},
+		"unknown path":     {"/nowhere", `{}`, 404, "resource-not-found"},
 		"unknown field":    {"/assignments/asg-1:reoptimise", `{"nope":1}`, 400, "malformed-request"},
 		"trailing data":    {"/assignments/asg-1:reoptimise", `{} {}`, 400, "malformed-request"},
 		"bad json":         {"/assignments/asg-1:reoptimise", `{`, 400, "malformed-request"},
