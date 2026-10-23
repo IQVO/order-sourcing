@@ -6,7 +6,6 @@ import (
 
 	"github.com/claudioed/order-sourcing/internal/application/views"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
-	"github.com/claudioed/order-sourcing/internal/domain/shared"
 	"github.com/claudioed/order-sourcing/internal/domain/sourcing"
 )
 
@@ -91,10 +90,8 @@ func (uc *QueueAssignment) queueGroup(ctx context.Context, cmd QueueAssignmentCo
 // releaseNow releases an assignment to the option's node on the world the
 // option was found in.
 func (uc *QueueAssignment) releaseNow(ctx context.Context, a *assignment.Assignment, best *sourcing.Option, world sourcing.World, now time.Time) error {
-	lines, ok := sourcing.ResolveLines(world, best.Candidate.NodeID, a.Lines())
-	if !ok {
-		return shared.Invalid("the best option cannot ship every line")
-	}
+	// The search only returns nodes that ship every line (see ReleaseToNode).
+	lines, _ := sourcing.ResolveLines(world, best.Candidate.NodeID, a.Lines())
 	before := a.Version()
 	events, err := a.Release(&best.Candidate, lines, now)
 	if err != nil {

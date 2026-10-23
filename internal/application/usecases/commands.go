@@ -81,10 +81,9 @@ func (uc *ReleaseToNode) Execute(ctx context.Context, id assignment.ID) (views.A
 		if best == nil {
 			return a.Release(nil, nil, now)
 		}
-		lines, ok := sourcing.ResolveLines(world, best.Candidate.NodeID, a.Lines())
-		if !ok {
-			return nil, shared.Invalid("the best option cannot ship every line")
-		}
+		// The search only returns nodes that ship every line, so the listings resolve; a missing
+		// listing would fail the aggregate's own check.
+		lines, _ := sourcing.ResolveLines(world, best.Candidate.NodeID, a.Lines())
 		return a.Release(&best.Candidate, lines, now)
 	})
 }
