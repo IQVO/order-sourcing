@@ -320,6 +320,17 @@ func TestPathDepthAndLoops(t *testing.T) {
 	long := append(slices.Clone(chain[:4]), dep("c3b", "l", "n4", "n5", 20, 20, 21), dep("c4b", "l", "n5", "ds-1", 22, 22, 23))
 	w.Nodes["n5"] = network.Node{ID: "n5", Type: "SORTATION_CENTER", Status: network.StatusActive}
 	w.Departures = long
+	w.Waves = []network.Wave{wave("late", 100, 120, 126)} // the late arrival (h23) still meets this wave: only the length rules the path out
+	r := request()
+	r.DeliverByLatest = h(200)
+	if got := Search(w, r); len(got) != 0 {
+		t.Fatalf("a path of %d departures is too long: %v", MaxDepartures+1, got)
+	}
+	w.Departures = chain
+	if got := Search(w, r); len(got) != 1 {
+		t.Fatalf("the %d-departure path reaches the same wave: %v", MaxDepartures, got)
+	}
+	w.Departures = long
 	if got := Search(w, request()); len(got) != 0 {
 		t.Fatalf("a path of %d departures is too long: %v", MaxDepartures+1, got)
 	}
