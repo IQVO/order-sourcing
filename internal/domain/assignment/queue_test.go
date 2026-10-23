@@ -107,6 +107,10 @@ func TestQueueAcceptsTheBoundaries(t *testing.T) {
 	if _, _, err := Queue(in, cand("node-a"), at(2), t0); err != nil {
 		t.Fatalf("boundaries must be accepted: %v", err)
 	}
+	in.Lines = []Line{{LineNo: MaxInt32, CatalogItemID: "c", Quantity: 1}}
+	if _, _, err := Queue(in, cand("node-a"), at(2), t0); err != nil {
+		t.Fatalf("the highest lineNo must be accepted: %v", err)
+	}
 	in.Lines = make([]Line, MaxLines)
 	for i := range in.Lines {
 		in.Lines[i] = Line{CatalogItemID: "c", Quantity: 1}
@@ -151,6 +155,10 @@ func TestCandidateInvariants(t *testing.T) {
 	})
 	if _, _, err := Queue(newInput(), onTime, at(2), t0); err != nil {
 		t.Fatalf("eta equal to deliverByLatest and MaxLegs legs are allowed: %v", err)
+	}
+	free := mut(func(c *Candidate) { c.Cost = 0 })
+	if _, _, err := Queue(newInput(), free, at(2), t0); err != nil {
+		t.Fatalf("a zero cost is not negative: %v", err)
 	}
 	if _, _, err := Queue(newInput(), cand("node-a"), time.Time{}, t0); err == nil {
 		t.Fatal("a candidate needs a releaseAt")

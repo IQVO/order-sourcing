@@ -130,3 +130,21 @@ func TestRestoreRejectsCorruptSnapshots(t *testing.T) {
 		})
 	}
 }
+
+// A node that rejected the group stays in the history: only the LAST release may be
+// PENDING, earlier ones carry their final outcome.
+func TestRestoreAcceptsAReleaseHistory(t *testing.T) {
+	s := mustRelease(t).Snapshot()
+	current := s.Releases[0]
+	current.No = 2
+	s.Releases = []Release{
+		{No: 1, NodeID: "node-b", ReleasedAt: t0, RequiredShipBy: at(1), Outcome: OutcomeRejected},
+		current,
+	}
+	back, err := Restore(s)
+	wantNoErr(t, err)
+	got := back.Releases()
+	if len(got) != 2 || got[0].Outcome != OutcomeRejected || got[1].Outcome != OutcomePending {
+		t.Fatalf("history not preserved: %+v", got)
+	}
+}

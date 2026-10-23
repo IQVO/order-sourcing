@@ -1,0 +1,17 @@
+# Used by `helm lint` / `ct lint`: the chart refuses to render without the real
+# runtime's mandatory values (a database source, the Kafka brokers and the nine
+# consumer groups). Dummy DSN, no password; nothing here is ever dialled.
+database:
+  url: "postgres://u@example.invalid:5432/db"
+kafka:
+  brokers: "kafka.example.invalid:9092"
+config:
+  customerOrderingConsumerGroup: "order-sourcing-customer-ordering"
+  deliveryPromiseConsumerGroup: "order-sourcing-delivery-promise"
+  lastMileDeliveryConsumerGroup: "order-sourcing-last-mile-delivery"
+  linehaulTransportationConsumerGroup: "order-sourcing-linehaul-transportation"
+  nodePerformanceConsumerGroup: "order-sourcing-node-performance"
+  nodeTopologyConsumerGroup: "order-sourcing-node-topology"
+  offerAvailabilityConsumerGroup: "order-sourcing-offer-availability"
+  shippingAndTrackingConsumerGroup: "order-sourcing-shipping-and-tracking"
+  vendorConnectivityConsumerGroup: "order-sourcing-vendor-connectivity"

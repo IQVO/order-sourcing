@@ -1,0 +1,141 @@
+{{- include "order-sourcing.requireRealRuntime" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "order-sourcing.fullname" . }}
+  labels:
+    {{- include "order-sourcing.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  {{- if not .Values.autoscaling.api.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "order-sourcing.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "order-sourcing.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "order-sourcing.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "order-sourcing.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          # Every config.* value also reaches cmd/api through the chart
+          # ConfigMap; the explicit `env` entries below win over envFrom for
+          # the same key and carry the same values. tests/render_test.sh
+          # asserts the mount and that every variable cmd/api reads is rendered.
+          envFrom:
+            - configMapRef:
+                name: {{ include "order-sourcing.fullname" . }}
+          env:
+            - name: HTTP_ADDR
+              value: {{ .Values.config.httpAddr | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: EVENT_PUBLISHER
+              value: {{ .Values.config.eventPublisher | quote }}
+            - name: OUTBOX_MAX_ATTEMPTS
+              value: {{ .Values.config.outboxMaxAttempts | quote }}
+            - name: SHUTDOWN_DRAIN_DELAY
+              value: {{ .Values.config.shutdownDrainDelay | quote }}
+            {{- with .Values.config.outboxRelayInterval }}
+            - name: OUTBOX_RELAY_INTERVAL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.config.sweepInterval }}
+            - name: SWEEP_INTERVAL
+              value: {{ . | quote }}
+            {{- end }}
+            # One consumer per consumed topic, each under a STABLE group id
+            # from values (the chart refuses an empty one).
+            - name: CUSTOMER_ORDERING_CONSUMER_GROUP
+              value: {{ .Values.config.customerOrderingConsumerGroup | quote }}
+            - name: DELIVERY_PROMISE_CONSUMER_GROUP
+              value: {{ .Values.config.deliveryPromiseConsumerGroup | quote }}
+            - name: LAST_MILE_DELIVERY_CONSUMER_GROUP
+              value: {{ .Values.config.lastMileDeliveryConsumerGroup | quote }}
+            - name: LINEHAUL_TRANSPORTATION_CONSUMER_GROUP
+              value: {{ .Values.config.linehaulTransportationConsumerGroup | quote }}
+            - name: NODE_PERFORMANCE_CONSUMER_GROUP
+              value: {{ .Values.config.nodePerformanceConsumerGroup | quote }}
+            - name: NODE_TOPOLOGY_CONSUMER_GROUP
+              value: {{ .Values.config.nodeTopologyConsumerGroup | quote }}
+            - name: OFFER_AVAILABILITY_CONSUMER_GROUP
+              value: {{ .Values.config.offerAvailabilityConsumerGroup | quote }}
+            - name: SHIPPING_AND_TRACKING_CONSUMER_GROUP
+              value: {{ .Values.config.shippingAndTrackingConsumerGroup | quote }}
+            - name: VENDOR_CONNECTIVITY_CONSUMER_GROUP
+              value: {{ .Values.config.vendorConnectivityConsumerGroup | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "order-sourcing.databaseSecretName" . }}
+                  key: {{ .Values.database.existingSecretKey }}
+            {{- if .Values.database.migrationsExistingSecretKey }}
+            # A direct (non-pooled) connection used only for the
+            # golang-migrate step. `optional: true`: a secret without this key
+            # still starts the pod and the binary falls back to DATABASE_URL.
+            - name: MIGRATIONS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "order-sourcing.databaseSecretName" . }}
+                  key: {{ .Values.database.migrationsExistingSecretKey }}
+                  optional: true
+            {{- end }}
+            - name: KAFKA_BROKERS
+              value: {{ .Values.kafka.brokers | quote }}
+            {{- range .Values.extraEnv }}
+            - {{ toYaml . | nindent 14 | trim }}
+            {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

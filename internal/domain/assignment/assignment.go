@@ -80,14 +80,16 @@ func Queue(in New, best *Candidate, releaseAt, now time.Time) (*Assignment, []sh
 }
 
 func validateNew(in New) error {
-	switch {
-	case !shared.ValidID(string(in.ID)):
+	if !shared.ValidID(string(in.ID)) {
 		return shared.Invalid("assignmentId %q is not a valid id", in.ID)
-	case !shared.ValidID(in.OrderID):
+	}
+	if !shared.ValidID(in.OrderID) {
 		return shared.Invalid("orderId %q is not a valid id", in.OrderID)
-	case in.GroupNo < 1 || in.GroupNo > MaxInt32:
+	}
+	if in.GroupNo < 1 || in.GroupNo > MaxInt32 {
 		return shared.Invalid("groupNo must be between 1 and %d", MaxInt32)
-	case !shared.ValidTextN(in.DestinationPostalPrefix, MaxPrefix):
+	}
+	if !shared.ValidTextN(in.DestinationPostalPrefix, MaxPrefix) {
 		return shared.Invalid("destinationPostalPrefix must be 1 to %d printable characters", MaxPrefix)
 	}
 	if err := validatePromise(in.Promise); err != nil {
@@ -97,16 +99,19 @@ func validateNew(in New) error {
 }
 
 func validatePromise(p PromiseConstraint) error {
-	switch {
-	case !shared.ValidID(p.PromiseID):
+	if !shared.ValidID(p.PromiseID) {
 		return shared.Invalid("promiseId %q is not a valid id", p.PromiseID)
-	case !p.Tier.Valid():
+	}
+	if !p.Tier.Valid() {
 		return shared.Invalid("tier %q is not a service tier", p.Tier)
-	case p.DeliverByLatest.IsZero():
+	}
+	if p.DeliverByLatest.IsZero() {
 		return shared.Invalid("deliverByLatest is required")
-	case p.WitnessNodeID != "" && !shared.ValidID(p.WitnessNodeID):
+	}
+	if p.WitnessNodeID != "" && !shared.ValidID(p.WitnessNodeID) {
 		return shared.Invalid("witnessNodeId %q is not a valid id", p.WitnessNodeID)
-	case p.RevisionNo < 0 || p.RevisionNo > MaxInt32:
+	}
+	if p.RevisionNo < 0 || p.RevisionNo > MaxInt32 {
 		return shared.Invalid("revisionNo must be between 0 and %d", MaxInt32)
 	}
 	return nil
@@ -117,14 +122,16 @@ func validateLines(lines []Line) error {
 		return shared.Invalid("a group has 1 to %d lines", MaxLines)
 	}
 	for _, l := range lines {
-		switch {
-		case l.LineNo < 0 || l.LineNo > MaxInt32:
+		if l.LineNo < 0 || l.LineNo > MaxInt32 {
 			return shared.Invalid("lineNo must be between 0 and %d", MaxInt32)
-		case !shared.ValidID(l.CatalogItemID):
+		}
+		if !shared.ValidID(l.CatalogItemID) {
 			return shared.Invalid("catalogItemId %q is not a valid id", l.CatalogItemID)
-		case l.ListingID != "" && !shared.ValidID(l.ListingID):
+		}
+		if l.ListingID != "" && !shared.ValidID(l.ListingID) {
 			return shared.Invalid("listingId %q is not a valid id", l.ListingID)
-		case l.Quantity < 1 || l.Quantity > MaxInt32:
+		}
+		if l.Quantity < 1 || l.Quantity > MaxInt32 {
 			return shared.Invalid("quantity must be between 1 and %d", MaxInt32)
 		}
 	}
@@ -135,18 +142,22 @@ func validateLines(lines []Line) error {
 // not an excluded node (ErrNodeExcluded), eta <= deliverByLatest
 // (ErrCandidateBreaksPromise).
 func (a *Assignment) checkCandidate(c *Candidate) error {
-	switch {
-	case !shared.ValidID(c.NodeID) || !shared.ValidID(c.PickupDepartureID) || !shared.ValidID(c.DeliveryWaveID):
+	if !shared.ValidID(c.NodeID) || !shared.ValidID(c.PickupDepartureID) || !shared.ValidID(c.DeliveryWaveID) {
 		return shared.Invalid("a candidate needs valid nodeId, pickupDepartureId and deliveryWaveId")
-	case c.ETA.IsZero() || c.PickupCutoffAt.IsZero():
+	}
+	if c.ETA.IsZero() || c.PickupCutoffAt.IsZero() {
 		return shared.Invalid("a candidate needs eta and pickupCutoffAt")
-	case len(c.Legs) > MaxLegs || slices.ContainsFunc(c.Legs, func(l string) bool { return !shared.ValidID(l) }):
+	}
+	if len(c.Legs) > MaxLegs || slices.ContainsFunc(c.Legs, func(l string) bool { return !shared.ValidID(l) }) {
 		return shared.Invalid("a candidate has at most %d valid leg ids", MaxLegs)
-	case c.Cost < 0:
+	}
+	if c.Cost < 0 {
 		return shared.Invalid("cost must not be negative")
-	case a.isExcluded(c.NodeID):
+	}
+	if a.isExcluded(c.NodeID) {
 		return fmt.Errorf("%w: %s", ErrNodeExcluded, c.NodeID)
-	case c.ETA.After(a.promise.DeliverByLatest):
+	}
+	if c.ETA.After(a.promise.DeliverByLatest) {
 		return fmt.Errorf("%w: eta %s is after deliverByLatest %s", ErrCandidateBreaksPromise,
 			c.ETA.UTC().Format(time.RFC3339), a.promise.DeliverByLatest.UTC().Format(time.RFC3339))
 	}

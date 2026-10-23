@@ -68,4 +68,16 @@ go run ./cmd/api                       # listens on :8080 (HTTP_ADDR)
 All settings, the probes, the shutdown order and the outbox runbook: [docs/runtime.md](docs/runtime.md). Development: `make check` (format, vet, lint, tests),
 `make coverage`, `make mutation`, `make bdd`, `make integration` (Docker), `make vuln`; see [HARNESS.md](HARNESS.md).
 
+## Deploy
+
+`charts/order-sourcing/` is a Helm chart with one component, the `api` Deployment (REST API, nine consumers, queue sweep and outbox relay in one process), a Service,
+a ConfigMap mounted with `envFrom`, a Secret (or `database.existingSecret`) for `DATABASE_URL`, a ServiceAccount, and an HPA, Ingress or Gateway API HTTPRoute that are off by default.
+It refuses to render without `database.url`/`database.existingSecret`, `kafka.brokers` and all nine `config.*ConsumerGroup` values, and it keeps `terminationGracePeriodSeconds`
+above the binary's shutdown bounds. See [docs/runtime.md](docs/runtime.md#deployment-helm-chart).
+
+```sh
+helm template order-sourcing charts/order-sourcing -f charts/order-sourcing/ci/default-values.yaml   # dummy values, nothing is dialled
+bash charts/order-sourcing/tests/render_test.sh && python3 charts/order-sourcing/tests/test_service_selectors.py
+```
+
 See `docs/adr/` for decisions and `docs/before-first-release.md` for the packaging checklist.

@@ -96,14 +96,16 @@ func checkSnapshot(s Snapshot) error {
 
 func checkReleases(s Snapshot) error {
 	for i, r := range s.Releases {
-		switch {
-		case r.No != i+1:
+		if r.No != i+1 {
 			return fmt.Errorf("release at position %d is numbered %d", i, r.No)
-		case !shared.ValidID(r.NodeID) || r.ReleasedAt.IsZero() || r.RequiredShipBy.IsZero():
+		}
+		if !shared.ValidID(r.NodeID) || r.ReleasedAt.IsZero() || r.RequiredShipBy.IsZero() {
 			return fmt.Errorf("release %d needs nodeId, releasedAt and requiredShipBy", r.No)
-		case !r.Outcome.Valid():
+		}
+		if !r.Outcome.Valid() {
 			return fmt.Errorf("release %d has outcome %q", r.No, r.Outcome)
-		case r.Outcome == OutcomePending && i != len(s.Releases)-1:
+		}
+		if r.Outcome == OutcomePending && i != len(s.Releases)-1 {
 			return fmt.Errorf("release %d is PENDING but not the last", r.No)
 		}
 	}
