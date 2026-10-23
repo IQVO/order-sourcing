@@ -18,7 +18,7 @@ import (
 )
 
 // DLQSuffix is appended to a consumed topic to name its dead-letter topic
-// (warehouse.order-management.events.dlq for the demand consumer).
+// (retailnetwork.customer-ordering.events.dlq for the order consumer).
 const DLQSuffix = ".dlq"
 
 // DeadLetterWriter is the subset of *kafkago.Writer a dead-lettering
