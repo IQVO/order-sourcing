@@ -38,4 +38,4 @@ Aggregates, invariants and assumptions A1-A23 are in docs/adr/0002; consumed con
 
 ## Workflow
 GitFlow: feature/* -> PR into develop, CI green before merge, never push develop or main. lefthook: pre-commit fmt/vet/lint, pre-push `make check`. Commit and push after each step.
-Open follow-up: the Helm chart (docs/before-first-release.md rows 5-9).
+Deployment: charts/order-sourcing (api only, nine `config.*ConsumerGroup` values, grace period above the shutdown bounds), tested by charts/order-sourcing/tests; registry secrets (row 11) are a repo-admin task.

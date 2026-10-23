@@ -59,6 +59,27 @@ its own transaction, so a redelivered event changes nothing. Unknown types and u
   can overtake it.
 - Idempotency keys older than 24 h are purged on the next keyed write.
 
+## Deployment (Helm chart)
+
+`charts/order-sourcing/` renders the `api` component only. Every key under `config.*` maps 1:1 to one variable above.
+
+| Value | Variable | Rule |
+| --- | --- | --- |
+| `database.url` or `database.existingSecret` (+ `existingSecretKey`) | `DATABASE_URL` | Mandatory. Always a `secretKeyRef`; the chart Secret is created only from `database.url`; the DSN never lands in the ConfigMap. |
+| `database.migrationsExistingSecretKey` | `MIGRATIONS_DATABASE_URL` | `secretKeyRef` with `optional: true` (the binary falls back to `DATABASE_URL`); empty drops the variable. |
+| `kafka.brokers` | `KAFKA_BROKERS` | Mandatory. |
+| `config.<producer>ConsumerGroup` (nine) | `<PRODUCER>_CONSUMER_GROUP` | Mandatory, stable, service-prefixed (`order-sourcing-<producer>` in `ci/default-values.yaml`); a value containing `$(` (pod-name derived) is refused. |
+| `config.eventPublisher` | `EVENT_PUBLISHER` | Only `kafka`. |
+| `config.outboxRelayInterval`, `outboxMaxAttempts`, `sweepInterval`, `httpAddr`, `logLevel` | `OUTBOX_RELAY_INTERVAL`, `OUTBOX_MAX_ATTEMPTS`, `SWEEP_INTERVAL`, `HTTP_ADDR`, `LOG_LEVEL` | Optional ones are not rendered while empty, so the binary default applies. |
+| `config.shutdownDrainDelay` | `SHUTDOWN_DRAIN_DELAY` | Whole seconds (`5s`), always rendered. |
+| `terminationGracePeriodSeconds` | n/a | Default 60. The chart refuses a value that does not exceed `shutdownDrainDelay` + 30 s (HTTP 10 s + consumers and sweep 10 s + relay 10 s, see Boot and shutdown). |
+| `extraEnv` | n/a | Refuses `EVENT_PUBLISHER` other than `kafka`, any `*_MODE` and any `*_CONSUMER_GROUP`. |
+
+The pod runs as uid 1000 with a read-only root filesystem, `allowPrivilegeEscalation: false`, all capabilities dropped and the `RuntimeDefault` seccomp profile; liveness
+is `/healthz`, readiness `/readyz`, with a startup probe on `/healthz`. The chart tests are `charts/order-sourcing/tests/render_test.sh` (needs helm) and
+`test_service_selectors.py` (helm and PyYAML); the `chart-tests` CI job runs both on every push and the `helm-lint` job runs `ct lint` on pull requests.
+The image is `ghcr.io/iqvo/order-sourcing`; an empty `image.tag` resolves to the chart `appVersion`, which the `release` job sets to the release version.
+
 ## Tests
 
 `make check` (format, vet, build, lint, unit + handler + BDD tests), `make coverage` (90% over `internal/domain` and
