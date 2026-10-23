@@ -109,14 +109,13 @@ func ResolveLines(w World, nodeID string, lines []assignment.Line) ([]assignment
 }
 
 func boolRank(a, b bool) int { // true sorts first
-	switch {
-	case a == b:
+	if a == b {
 		return 0
-	case a:
-		return -1
-	default:
-		return 1
 	}
+	if a {
+		return -1
+	}
+	return 1
 }
 
 func sortedKeys[V any](m map[string]V) []string {

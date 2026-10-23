@@ -27,7 +27,9 @@ unleash:
     # differs. See HARNESS.md's mutation-testing section for the
     # tagless-switch-under-reports pitfall before assuming a low number
     # means missing tests.
-    # Measured (gremlins v0.6.0, one worker): assignment 99.2 / 82.7, sourcing >= 93.0 / 95.6, network 100 / 100, shared 100 / 100
-    # (efficacy / mutant coverage). The lowest of each, minus a margin, because one file serves every package.
-    efficacy: "90"
-    mutant-coverage: "80"
+    # Measured (gremlins v0.6.0, one worker, efficacy / mutant coverage): assignment 100 / 100, sourcing 97.7 / 97.8,
+    # network 100 / 100, shared 100 / 100. The lowest of each, minus a margin, because one file serves every package.
+    # sourcing's two survivors are not test gaps: AckBudget is a constant (gremlins does not instrument constant
+    # declarations) and `w.ID < best.ID` -> `<=` only differs for two waves with the same id and window.
+    efficacy: "95"
+    mutant-coverage: "90"
