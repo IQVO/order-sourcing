@@ -98,7 +98,7 @@ func checkReleases(s Snapshot) error {
 	for i, r := range s.Releases {
 		switch {
 		case r.No != i+1:
-			return fmt.Errorf("release %d is numbered %d", i+1, r.No)
+			return fmt.Errorf("release at position %d is numbered %d", i, r.No)
 		case !shared.ValidID(r.NodeID) || r.ReleasedAt.IsZero() || r.RequiredShipBy.IsZero():
 			return fmt.Errorf("release %d needs nodeId, releasedAt and requiredShipBy", r.No)
 		case !r.Outcome.Valid():
@@ -113,7 +113,7 @@ func checkReleases(s Snapshot) error {
 func checkExcluded(ex []ExcludedNode) error {
 	for i, e := range ex {
 		if !shared.ValidID(e.NodeID) || !shared.ValidTextN(e.Reason, MaxReason) {
-			return fmt.Errorf("excluded node %d needs a valid nodeId and reason", i+1)
+			return fmt.Errorf("excluded node at position %d needs a valid nodeId and reason", i)
 		}
 		if slices.ContainsFunc(ex[:i], func(o ExcludedNode) bool { return o.NodeID == e.NodeID }) {
 			return fmt.Errorf("node %s is excluded twice", e.NodeID)

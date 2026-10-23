@@ -144,13 +144,21 @@ func (a *Assignment) checkReleaseLines(lines []Line) error {
 	}
 	for i, l := range lines {
 		if l.ListingID == "" {
-			return shared.Invalid("line %d has no listingId", i+1)
+			return shared.Invalid("a release line has no listingId")
 		}
 		if l.CatalogItemID != a.lines[i].CatalogItemID || l.Quantity != a.lines[i].Quantity || l.LineNo != a.lines[i].LineNo {
-			return shared.Invalid("line %d differs from the group's line", i+1)
+			return shared.Invalid("a release line differs from the group's line")
 		}
 	}
 	return nil
+}
+
+// lastRelease returns the most recent release, if any.
+func (a *Assignment) lastRelease() (Release, bool) {
+	if len(a.releases) == 0 {
+		return Release{}, false
+	}
+	return a.releases[len(a.releases)-1], true
 }
 
 // pendingRelease returns the last release when it is PENDING with number no.
@@ -208,7 +216,7 @@ func (a *Assignment) RefuseRelease(no int, outcome Outcome, reasonCode string, b
 // on an assignment already locked by that release returns no events.
 func (a *Assignment) Lock(no int, acceptedAt, now time.Time) ([]shared.Event, error) {
 	if a.state.Committed() {
-		if n := len(a.releases); n > 0 && a.releases[n-1].No == no && a.releases[n-1].Outcome == OutcomeAccepted {
+		if last, ok := a.lastRelease(); ok && last.No == no && last.Outcome == OutcomeAccepted {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("%w: assignment %s is %s", ErrAssignmentLocked, a.id, a.state)
