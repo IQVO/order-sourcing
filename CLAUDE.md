@@ -3,7 +3,7 @@
 harness-template: v4
 
 Retail network, bounded context Order Sourcing (Core, commerce tier). Owns the FulfillmentAssignment aggregate: decides, as late as the promise allows, which node and path fulfil each shipment group (virtual queue, re-optimisation, release, reassignment, lock). Consumes nine sibling topics into local read models and calls no sibling.
-Design source of truth: IQVO/retail-network-docs `model/model.yaml` (context order-sourcing) plus the orchestrator's contracts-delta. This service belongs to the retail network, not the warehouse-systems fleet.
+Design source of truth: IQVO/warehouse-docs `network/model/model.yaml` (context order-sourcing) plus the orchestrator's contracts-delta. This service belongs to the retail network, not the warehouse-systems fleet.
 This project is a domain-driven design study, not associated with any company: never name a real company, brand or product in code, comments, ADRs, specs, tests or fixtures (README `## Disclaimer`).
 
 ## Commands
