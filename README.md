@@ -53,6 +53,34 @@ Consumed (32 types from nine topics): `customer-ordering` (placed, cancelled), `
 `offer-availability` (listing and catalog-item events), `shipping-and-tracking` (`PackageDelivered`), `vendor-connectivity` (purchase-order outcomes,
 `VendorShipmentConfirmed`). Delivery is at-least-once with a stable event id and an inbox on the consuming side ([ADR 0005](docs/adr/0005-outbox-relay-attempt-cap-sweep-and-shutdown.md)).
 
+## MCP server (read-only)
+
+`cmd/mcp` is a second, independent deployable (ADR 0006): the same two read use
+cases exposed to AI agents over the official MCP Go SDK, Streamable HTTP on
+`:8090` at `/mcp`, with an open `/healthz` and no auth (fleet decision). Two
+tools, one per read: `list_assignments(state?, nodeId?, orderId?, limit?)` and
+`get_assignment(assignmentId)`; typed errors carry the REST problem slug
+(`not-found`, `validation-failed`). It reads only: no Kafka, no consumers, no
+sweep, no outbox — `DATABASE_URL` (plus the optional
+`MIGRATIONS_DATABASE_URL`) is its only dependency, and it runs the idempotent
+boot migrations like `cmd/api`. `POST /assignments/{id}:reoptimise` stays
+REST-only. In the chart it is behind `mcp.enabled` (off by default), with its
+own ClusterIP Service and an optional Gateway API route
+(`/api/mcp/order-sourcing` rewritten to `/mcp`).
+
+## Web console remote
+
+`web/` is the `order_sourcing_mfe` Module Federation remote (ADR 0007): a
+small read-only UI the warehouse-console shell mounts under
+`/order-sourcing/*` — the virtual queue with its state/order/node filters and
+an assignment detail screen (promise, lines, candidate path, release history,
+excluded nodes). The API origin comes from the shell's runtime `/config.json`
+(`window.__WAREHOUSE_CONFIG__.apiOrigin` → `/api/order-sourcing`), never
+from the build. Dev/preview on `:4019`; served in-cluster by its own
+nginx-unprivileged pod behind `frontend.enabled` (off by default) at
+`/mfes/order-sourcing/`. `@warehouse/ui-kit` is a sibling checkout, so run
+npm commands from `web/` with `warehouse-ui-kit` next to this repository.
+
 ## Run it
 
 Real PostgreSQL and Kafka only. `DATABASE_URL`, `KAFKA_BROKERS` and the nine `*_CONSUMER_GROUP` variables are mandatory (a boot error names the

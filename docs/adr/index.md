@@ -11,3 +11,5 @@ The *Status* column is copied from each ADR's own `## Status` section.
 | [0003](./0003-consumed-contracts-and-local-read-models.md) | consumed contracts, local read models and relationships | Accepted (2026-10-23) |
 | [0004](./0004-cloudevents-envelope-and-type-catalogue.md) | CloudEvents envelope and type catalogue | Accepted (2026-10-23) |
 | [0005](./0005-outbox-relay-attempt-cap-sweep-and-shutdown.md) | outbox relay, attempt cap, queue sweep and shutdown order | Accepted (2026-10-23) |
+| [0006](./0006-mcp-server-adoption.md) | a read-only MCP server | Accepted (2026-10-24) |
+| [0007](./0007-console-remote.md) | a web console remote | Accepted (2026-10-24) |
