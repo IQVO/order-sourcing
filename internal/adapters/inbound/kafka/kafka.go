@@ -21,7 +21,10 @@ package kafka
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"net"
+	"syscall"
 	"time"
 
 	kafkago "github.com/segmentio/kafka-go"
@@ -139,20 +142,66 @@ type consumeLoop struct {
 	deadLetter  func(ctx context.Context, msg kafkago.Message, cause error) error
 }
 
+// maxTransientFetchFailures bounds the fetch resilience below: a stalled or
+// lost broker connection is retried with the same capped backoff as a failed
+// handling, but a broker still unreachable after this many consecutive
+// attempts fails the worker (the process exits non-zero, exactly as before,
+// so a genuinely dead broker is never silently retried forever).
+const maxTransientFetchFailures = 10
+
+// transientFetchError reports whether err is a lost or stalled broker
+// connection the reader itself recovers from by redialing on the next
+// FetchMessage: an idle TCP read that hit its deadline (long-lived consumer
+// connections hit these under conntrack or sidecar idle drops -- observed on
+// the local kind cluster, where every consumer's idle connection eventually
+// times out), a reset, a half-closed or a cleanly closed connection.
+// Everything else -- connection refused, protocol or group errors, a
+// canceled caller context -- stays fatal exactly as before.
+func transientFetchError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
+}
+
 // run fetches one message at a time and does not fetch the next until the
-// current one was handled successfully AND its offset committed. It
-// returns only when ctx is cancelled or FetchMessage itself fails.
+// current one was handled successfully AND its offset committed. It returns
+// only when ctx is cancelled, FetchMessage fails non-transiently, or a
+// transient broker-connection failure persists past
+// maxTransientFetchFailures consecutive attempts (a blip is slept off with
+// capped exponential backoff and fetched again; a successful fetch resets
+// the counter).
 func (l *consumeLoop) run(ctx context.Context) error {
 	policy := l.retry.withDefaults()
 	sleep := l.sleep
 	if sleep == nil {
 		sleep = sleepCtx
 	}
+	delay := policy.Initial
+	fetchFailures := 0
 	for {
 		msg, err := l.reader.FetchMessage(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			if fetchFailures < maxTransientFetchFailures && transientFetchError(err) {
+				fetchFailures++
+				l.logger.WarnContext(ctx, l.name+" broker connection stalled or lost; fetching again after the backoff",
+					"error", err, "attempt", fetchFailures, "backoff", delay.String())
+				if sleepErr := sleep(ctx, delay); sleepErr != nil {
+					return ctx.Err()
+				}
+				delay = policy.next(delay)
+				continue
+			}
 			return err
 		}
+		fetchFailures, delay = 0, policy.Initial
 		if err := l.handleWithDeadLetter(ctx, policy, sleep, msg); err != nil {
 			return err
 		}

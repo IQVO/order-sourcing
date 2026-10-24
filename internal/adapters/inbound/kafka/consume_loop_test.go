@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"os"
 	"reflect"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -40,15 +43,25 @@ type scriptedReader struct {
 	msgs      []kafkago.Message
 	next      int
 	commitErr []error // consumed one per CommitMessages call
-	fetchErr  error
+	fetchErrs []error // consumed one per FetchMessage call, BEFORE msgs
+	fetchErr  error   // returned once msgs and fetchErrs are exhausted
+	alwaysErr error   // returned once msgs and fetchErrs are exhausted, before fetchErr
 }
 
 func (r *scriptedReader) FetchMessage(ctx context.Context) (kafkago.Message, error) {
+	if len(r.fetchErrs) > 0 {
+		err := r.fetchErrs[0]
+		r.fetchErrs = r.fetchErrs[1:]
+		return kafkago.Message{}, err
+	}
 	if r.next < len(r.msgs) {
 		m := r.msgs[r.next]
 		r.next++
 		r.rec.add("fetch:%d", m.Offset)
 		return m, nil
+	}
+	if r.alwaysErr != nil {
+		return kafkago.Message{}, r.alwaysErr
 	}
 	if r.fetchErr != nil {
 		return kafkago.Message{}, r.fetchErr
@@ -319,5 +332,98 @@ func TestSleepCtx(t *testing.T) {
 	}
 	if time.Since(start) > time.Second {
 		t.Fatal("sleepCtx did not return promptly on cancel")
+	}
+}
+
+// idleTimeout is the error shape kafka-go surfaces when a long-lived broker
+// connection's read deadline fires on an idle topic: *net.OpError with
+// Timeout() true.
+func idleTimeout() error {
+	return &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}
+}
+
+func TestTransientFetchErrorClassification(t *testing.T) {
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+	for _, c := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"idle read timeout", idleTimeout(), true},
+		{"connection reset", &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}, true},
+		{"broken pipe", &net.OpError{Op: "write", Net: "tcp", Err: syscall.EPIPE}, true},
+		{"clean close", io.EOF, true},
+		{"wrapped clean close", fmtErrorw(io.EOF), true},
+		{"connection refused stays fatal", refused, false},
+		{"canceled context stays fatal", context.Canceled, false},
+		{"caller deadline stays fatal", context.DeadlineExceeded, false},
+		{"plain error stays fatal", errors.New("kafka: group rebalanced"), false},
+		{"nil", nil, false},
+	} {
+		if got := transientFetchError(c.err); got != c.want {
+			t.Fatalf("%s: transientFetchError = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func fmtErrorw(err error) error { return errors.Join(errors.New("fetch: "), err) }
+
+func TestFetchRetriesStalledBrokerConnectionsAndAResetFollowsSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	rec := &loopRecorder{}
+	r := &scriptedReader{rec: rec, fetchErrs: []error{idleTimeout(), idleTimeout()}, msgs: msgs(1), alwaysErr: idleTimeout()}
+	var slept []time.Duration
+	handled := 0
+	l := &consumeLoop{reader: r, logger: quietLogger(), name: "t",
+		sleep: func(_ context.Context, d time.Duration) error {
+			slept = append(slept, d)
+			if len(slept) == 3 { // two blips before the message, one after it
+				cancel()
+				return ctx.Err()
+			}
+			return nil
+		},
+		handle: func(context.Context, kafkago.Message) error { handled++; return nil }}
+	err := l.run(ctx)
+	commits := 0
+	for _, e := range rec.log() {
+		if e == "commit:0" {
+			commits++
+		}
+	}
+	if !errors.Is(err, context.Canceled) || handled != 1 || commits != 1 {
+		t.Fatalf("err %v handled %d commits %d", err, handled, commits)
+	}
+	// Before the message: backoff doubles from the initial 200ms. After the
+	// successful fetch the counter AND the delay reset, so the third sleep is
+	// the initial 200ms again, not the doubled 800ms.
+	if len(slept) != 3 || slept[0] != 200*time.Millisecond || slept[1] != 400*time.Millisecond || slept[2] != 200*time.Millisecond {
+		t.Fatalf("backoff sequence = %v", slept)
+	}
+}
+
+func TestAPersistentlyStalledBrokerStillFailsTheWorker(t *testing.T) {
+	rec := &loopRecorder{}
+	r := &scriptedReader{rec: rec, alwaysErr: idleTimeout()}
+	sleeps := 0
+	l := &consumeLoop{reader: r, logger: quietLogger(), name: "t",
+		sleep:  func(context.Context, time.Duration) error { sleeps++; return nil },
+		handle: func(context.Context, kafkago.Message) error { return nil }}
+	err := l.run(context.Background())
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() || sleeps != maxTransientFetchFailures {
+		t.Fatalf("err %v sleeps %d", err, sleeps)
+	}
+}
+
+func TestAFatalFetchErrorIsNotRetried(t *testing.T) {
+	rec := &loopRecorder{}
+	r := &scriptedReader{rec: rec, alwaysErr: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}}
+	sleeps := 0
+	l := &consumeLoop{reader: r, logger: quietLogger(), name: "t",
+		sleep:  func(context.Context, time.Duration) error { sleeps++; return nil },
+		handle: func(context.Context, kafkago.Message) error { return nil }}
+	if err := l.run(context.Background()); err == nil || sleeps != 0 {
+		t.Fatalf("err %v sleeps %d", err, sleeps)
 	}
 }
