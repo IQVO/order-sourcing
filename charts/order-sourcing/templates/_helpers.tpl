@@ -170,3 +170,10 @@ Deployment includes it, so a mis-set release fails `helm template` /
 {{- include "order-sourcing.requireNoInMemoryEnv" . -}}
 {{- include "order-sourcing.requireGracePeriod" . -}}
 {{- end -}}
+
+{{/*
+Fully qualified name of the MCP server Deployment/Service (cmd/mcp, ADR 0006).
+*/}}
+{{- define "order-sourcing.mcpFullname" -}}
+{{- include "order-sourcing.fullname" . }}-mcp
+{{- end }}

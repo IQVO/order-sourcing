@@ -40,7 +40,12 @@ WORKDIR /app
 # filesystem read-only. Logs go to stdout.
 COPY --from=build --chown=app:app /out/ ./
 USER 1000
-EXPOSE 8080
+# cmd/api serves HTTP on :8080 (this EXPOSE); cmd/mcp (the read-only MCP
+# server of docs/adr/0006-mcp-server-adoption.md) serves Streamable HTTP on
+# :8090 when the chart runs it with `command: ["/app/mcp"]` — one image, two
+# composition roots, so both ports are documented here.
+EXPOSE 8080 8090
+
 # cmd/api is the service's main binary (HTTP on :8080). Additional cmd/*
 # binaries are run by the chart with `command: ["/app/<dirname>"]`.
 ENTRYPOINT ["./api"]
