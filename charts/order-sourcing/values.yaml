@@ -1,6 +1,9 @@
-# Default values for order-sourcing. One component only: the api Deployment
-# (cmd/api = REST API + nine Kafka consumers + virtual-queue sweep + outbox relay).
-# There is no MCP server, frontend, projector or reports component.
+# Default values for order-sourcing. The api Deployment (cmd/api = REST API +
+# nine Kafka consumers + virtual-queue sweep + outbox relay) plus two OPTIONAL,
+# default-off components: the mcp Deployment (cmd/mcp, the read-only MCP server
+# of docs/adr/0006-mcp-server-adoption.md) and the frontend Deployment (the
+# order_sourcing_mfe web remote of docs/adr/0007-console-remote.md). There is
+# no projector or reports component.
 
 replicaCount: 1
 
@@ -164,6 +167,71 @@ database:
 # retailnetwork.order-sourcing.events (+ the analytics topic).
 kafka:
   brokers: ""
+
+# The read-only MCP server (docs/adr/0006-mcp-server-adoption.md): cmd/mcp,
+# a second deployable of the same image that serves the two assignment read
+# tools over Streamable HTTP. It reads Postgres (DATABASE_URL) and dials
+# nothing else: no Kafka, no outbox relay, no consumers, no sweep, no auth.
+mcp:
+  enabled: false
+  replicaCount: 1
+  httpAddr: ":8090"                  # MCP_ADDR; its port must equal mcp.service.targetPort
+  # SERVICE_VERSION reported at boot; empty = the chart's appVersion.
+  serviceVersion: ""
+  # ENVIRONMENT name reported at boot.
+  environment: "production"
+  service:
+    type: ClusterIP
+    port: 8090
+    targetPort: 8090
+  # Gateway exposure: /api/mcp/order-sourcing -> Service :8090, prefix
+  # rewritten to /mcp. Needs the Gateway parentRef from the infra chart.
+  route:
+    enabled: false
+    path: "/api/mcp/order-sourcing"
+    parentRefs:
+      - name: ""
+        namespace: ""
+        sectionName: "http"
+  extraEnv: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# The web console remote (docs/adr/0007-console-remote.md): an nginx pod
+# serving the order_sourcing_mfe Module Federation build. Static bytes only --
+# no database, no Kafka, never routed by the Gateway API route (the Nginx web
+# gateway serves it under /mfes/order-sourcing/).
+frontend:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: warehouse/order-sourcing-frontend
+    pullPolicy: IfNotPresent
+    tag: ""
+  service:
+    port: 80
+    targetPort: 8080
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    fsGroup: 101
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
 
 # Extra env vars appended to the api container as a raw list. The chart refuses
 # EVENT_PUBLISHER other than "kafka", any *_MODE variable and any
