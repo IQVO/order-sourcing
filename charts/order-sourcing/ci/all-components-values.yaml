@@ -1,0 +1,27 @@
+# Used by `helm lint` / `ct lint`: every optional component switched on at
+# once (api + mcp + the web remote). The api's mandatory values (database,
+# Kafka, the nine consumer groups) are the same as ci/default-values.yaml.
+database:
+  url: "postgres://u@example.invalid:5432/db"
+kafka:
+  brokers: "kafka.example.invalid:9092"
+config:
+  customerOrderingConsumerGroup: "order-sourcing-customer-ordering"
+  deliveryPromiseConsumerGroup: "order-sourcing-delivery-promise"
+  lastMileDeliveryConsumerGroup: "order-sourcing-last-mile-delivery"
+  linehaulTransportationConsumerGroup: "order-sourcing-linehaul-transportation"
+  nodePerformanceConsumerGroup: "order-sourcing-node-performance"
+  nodeTopologyConsumerGroup: "order-sourcing-node-topology"
+  offerAvailabilityConsumerGroup: "order-sourcing-offer-availability"
+  shippingAndTrackingConsumerGroup: "order-sourcing-shipping-and-tracking"
+  vendorConnectivityConsumerGroup: "order-sourcing-vendor-connectivity"
+mcp:
+  enabled: true
+  route:
+    enabled: true
+    parentRefs:
+      - name: warehouse-gateway
+        namespace: kong
+        sectionName: http
+frontend:
+  enabled: true

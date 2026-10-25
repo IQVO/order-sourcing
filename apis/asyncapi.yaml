@@ -682,6 +682,7 @@ components:
             groupNo: 1
             reason: CANCEL_AFTER_LOCK
     FulfillmentConstraintRevised:
+      x-no-consumer-reason: "pending: contracts-delta E12 / gap G13; no consumer declared in any retail spec yet"
       name: FulfillmentConstraintRevised
       title: A revised promise was applied to the group
       summary: A revised promise was applied to the group.
