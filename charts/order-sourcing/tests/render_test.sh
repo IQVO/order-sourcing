@@ -49,7 +49,9 @@ grep -A3 'envFrom:' <<<"$api_deployment" | grep -q "name: $configmap_name" || fa
 # when every optional value is set. Names come from the binary's own
 # Getenv/getenv/env literals plus the GroupEnv column of the consumer table.
 env_vars() {
-  { grep -ohE '(Getenv|getenv|env)\("[A-Z][A-Z0-9_]*"' "$repo_dir/cmd/api/main.go" | sed -E 's/.*\("//; s/"$//'
+  { grep -ohE '(Getenv|getenv|env)\("[A-Z][A-Z0-9_]*"' "$repo_dir/cmd/api/main.go" "$repo_dir/cmd/api/telemetry.go" | sed -E 's/.*\("//; s/"$//'
+    # ENVIRONMENT is read inside telemetry.Setup (documented in cmd/api/telemetry.go), not by a literal in cmd/api.
+    echo ENVIRONMENT
     grep -ohE '"[A-Z][A-Z0-9_]*_CONSUMER_GROUP"' "$repo_dir/internal/adapters/inbound/kafka/handlers.go" | tr -d '"'
   } | sort -u
 }
@@ -101,6 +103,33 @@ done
 [[ "$(env_value "$api_deployment" OUTBOX_MAX_ATTEMPTS)" == "20" ]] || fail "OUTBOX_MAX_ATTEMPTS must default to 20"
 zero="$(helm template "$release" "$chart_dir" "${base[@]}" --set config.outboxMaxAttempts=0 --show-only templates/configmap.yaml)"
 grep -q 'OUTBOX_MAX_ATTEMPTS: "0"' <<<"$zero" || fail "config.outboxMaxAttempts=0 (unlimited) is not rendered"
+
+# --- observability (fleet standard item 7, ADR 0008) ------------------------------------
+# The api renders the fleet pipeline's env: the Collector endpoint, the service
+# name, the version (image tag, appVersion when empty) and the environment.
+otel_endpoint="otel-collector.observability.svc.cluster.local:4317"
+[[ "$(env_value "$api_deployment" OTEL_EXPORTER_OTLP_ENDPOINT)" == "$otel_endpoint" ]] \
+  || fail "the api Deployment does not render OTEL_EXPORTER_OTLP_ENDPOINT from otel.endpoint"
+[[ "$(env_value "$api_deployment" OTEL_SERVICE_NAME)" == "order-sourcing" ]] \
+  || fail "the api Deployment does not render OTEL_SERVICE_NAME=order-sourcing from otel.serviceName"
+[[ "$(env_value "$api_deployment" SERVICE_VERSION)" == "0.1.0" ]] || fail "SERVICE_VERSION must default to the chart appVersion"
+[[ "$(env_value "$api_deployment" ENVIRONMENT)" == "production" ]] || fail "ENVIRONMENT must come from environment"
+tagged="$(helm template "$release" "$chart_dir" "${base[@]}" --set image.tag=v9.9.9 --set otel.serviceName=sourcing --set otel.endpoint=http://collector:4317 \
+  --set environment=staging --show-only templates/deployment.yaml)"
+[[ "$(env_value "$tagged" SERVICE_VERSION)" == "v9.9.9" ]] || fail "SERVICE_VERSION must follow image.tag"
+[[ "$(env_value "$tagged" OTEL_SERVICE_NAME)" == "sourcing" ]] || fail "OTEL_SERVICE_NAME must follow otel.serviceName"
+[[ "$(env_value "$tagged" OTEL_EXPORTER_OTLP_ENDPOINT)" == "http://collector:4317" ]] || fail "OTEL_EXPORTER_OTLP_ENDPOINT must follow otel.endpoint"
+[[ "$(env_value "$tagged" ENVIRONMENT)" == "staging" ]] || fail "ENVIRONMENT must follow environment"
+# otel.enabled=false renders no OTEL_* env (SERVICE_VERSION stays: it also labels the logs' build).
+otel_off="$(helm template "$release" "$chart_dir" "${base[@]}" --set otel.enabled=false --set mcp.enabled=true)"
+if grep -q 'name: OTEL_' <<<"$otel_off"; then fail "otel.enabled=false must render no OTEL_* env in any component"; fi
+grep -q 'name: SERVICE_VERSION$' <<<"$otel_off" || fail "SERVICE_VERSION must still render with otel.enabled=false"
+# The values are chart-owned: extraEnv may not set them a second time.
+for owned in OTEL_SERVICE_NAME OTEL_EXPORTER_OTLP_ENDPOINT SERVICE_VERSION ENVIRONMENT; do
+  err="$(helm template "$release" "$chart_dir" "${base[@]}" --set "extraEnv[0].name=$owned" --set 'extraEnv[0].value=x' 2>&1)" \
+    && fail "extraEnv must not be able to set $owned"
+  grep -qF "extraEnv sets $owned" <<<"$err" || fail "the refusal for extraEnv $owned does not name it: $err"
+done
 
 # DATABASE_URL: Secret only; the migrations DSN is optional and falls back.
 grep -A4 'name: DATABASE_URL$' <<<"$api_deployment" | grep -q 'secretKeyRef:' || fail "DATABASE_URL must come from a Secret (secretKeyRef)"
@@ -210,9 +239,17 @@ if grep -Eq 'name: (KAFKA_BROKERS|EVENT_PUBLISHER|OUTBOX_[A-Z_]+|SWEEP_[A-Z_]+|[
 fi
 if grep -qE 'name: [A-Z_]*_MODE$' <<<"$mcp_dep"; then fail "no *_MODE variable may be rendered on the mcp Deployment"; fi
 # shellcheck disable=SC2207
-mcp_vars=($(binary_env_of "$repo_dir/cmd/mcp/main.go"))
+mcp_vars=($(binary_env_of "$repo_dir/cmd/mcp/main.go" "$repo_dir/cmd/mcp/telemetry.go"))
 (( ${#mcp_vars[@]} >= 5 )) || fail "found only ${#mcp_vars[@]} env literals in cmd/mcp/main.go; the scan is looking in the wrong place"
 assert_env "$mcp_dep" "the mcp Deployment" "${mcp_vars[@]}"
+assert_env "$mcp_dep" "the mcp Deployment" OTEL_SERVICE_NAME OTEL_EXPORTER_OTLP_ENDPOINT SERVICE_VERSION ENVIRONMENT
+[[ "$(env_value "$mcp_dep" SERVICE_VERSION)" == "0.1.0" ]] || fail "the mcp SERVICE_VERSION must default to the image tag / appVersion, like the api"
+mcp_versioned="$(render_one mcp-deployment.yaml "${base[@]}" --set mcp.enabled=true --set mcp.serviceVersion=dev)"
+[[ "$(env_value "$mcp_versioned" SERVICE_VERSION)" == "dev" ]] || fail "SERVICE_VERSION must come from mcp.serviceVersion"
+[[ "$(env_value "$mcp_dep" OTEL_SERVICE_NAME)" == "order-sourcing-mcp" ]] || fail "the mcp component must export as <otel.serviceName>-mcp"
+[[ "$(env_value "$mcp_dep" OTEL_EXPORTER_OTLP_ENDPOINT)" == "$otel_endpoint" ]] || fail "the mcp component must export to otel.endpoint"
+mcp_named="$(render_one mcp-deployment.yaml "${base[@]}" --set mcp.enabled=true --set otel.serviceName=sourcing)"
+[[ "$(env_value "$mcp_named" OTEL_SERVICE_NAME)" == "sourcing-mcp" ]] || fail "the mcp service name must follow otel.serviceName"
 grep -A4 'name: DATABASE_URL$' <<<"$mcp_dep" | grep -q 'secretKeyRef:' || fail "the mcp Deployment's DATABASE_URL must come from a Secret"
 grep -A6 'name: MIGRATIONS_DATABASE_URL$' <<<"$mcp_dep" | grep -q 'optional: true' || fail "the mcp Deployment's MIGRATIONS_DATABASE_URL must be an optional secretKeyRef"
 dups="$(grep -E '^ {12}- name: ' <<<"$mcp_dep" | sort | uniq -d)"

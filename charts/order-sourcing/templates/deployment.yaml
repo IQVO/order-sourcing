@@ -110,6 +110,18 @@ spec:
             {{- end }}
             - name: KAFKA_BROKERS
               value: {{ .Values.kafka.brokers | quote }}
+            # Observability env (fleet standard): the same three for every
+            # component, plus ENVIRONMENT for deployment.environment.name.
+            - name: ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+            - name: SERVICE_VERSION
+              value: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+            {{- if .Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otel.serviceName | quote }}
+            {{- end }}
             {{- range .Values.extraEnv }}
             - {{ toYaml . | nindent 14 | trim }}
             {{- end }}

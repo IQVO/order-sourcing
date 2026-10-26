@@ -176,7 +176,8 @@ mcp:
   enabled: false
   replicaCount: 1
   httpAddr: ":8090"                  # MCP_ADDR; its port must equal mcp.service.targetPort
-  # SERVICE_VERSION reported at boot; empty = the chart's appVersion.
+  # SERVICE_VERSION reported at boot; empty = the image tag (appVersion when
+  # empty), like the api.
   serviceVersion: ""
   # ENVIRONMENT name reported at boot.
   environment: "production"
@@ -233,9 +234,27 @@ frontend:
       cpu: 50m
       memory: 64Mi
 
+# Observability (fleet standard, ADR 0008): pods export OTLP/gRPC to the
+# Collector, which feeds Jaeger (traces) and Prometheus (metrics); logs are
+# stdout JSON for Alloy and Loki. Export never blocks, so a Collector that is
+# down costs telemetry and nothing else, but otel.enabled=false renders no OTEL_*
+# env at all (the binaries then fall back to localhost:4317). serviceName is
+# OTEL_SERVICE_NAME of the api; the mcp component gets "<serviceName>-mcp".
+# SERVICE_VERSION is the image tag (appVersion when empty), ENVIRONMENT is
+# `environment`.
+otel:
+  enabled: true
+  endpoint: "otel-collector.observability.svc.cluster.local:4317"
+  serviceName: "order-sourcing"
+
+# ENVIRONMENT of the api: deployment.environment.name on every span, metric and
+# log of the api. (mcp.environment sets the same for the mcp component.)
+environment: "production"
+
 # Extra env vars appended to the api container as a raw list. The chart refuses
-# EVENT_PUBLISHER other than "kafka", any *_MODE variable and any
-# *_CONSUMER_GROUP (use config.*ConsumerGroup).
+# EVENT_PUBLISHER other than "kafka", any *_MODE variable, any
+# *_CONSUMER_GROUP (use config.*ConsumerGroup) and any variable the chart
+# renders itself (ENVIRONMENT, SERVICE_VERSION, OTEL_*).
 extraEnv: []
 
 # The Postgres dial at boot is bounded (internal/bootretry: 5 attempts, 15 s of
