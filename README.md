@@ -81,6 +81,14 @@ nginx-unprivileged pod behind `frontend.enabled` (off by default) at
 `/mfes/order-sourcing/`. `@warehouse/ui-kit` is a sibling checkout, so run
 npm commands from `web/` with `warehouse-ui-kit` next to this repository.
 
+## Observability
+
+Logs, metrics and traces follow the fleet standard ([ADR 0008](docs/adr/0008-fleet-observability-standard.md)): JSON logs on stdout carry `trace_id`/`span_id`
+and a `request_id`; `cmd/api` and `cmd/mcp` export OTLP/gRPC to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `SERVICE_VERSION`, `ENVIRONMENT`;
+export never blocks, so no Collector costs telemetry, nothing else) with HTTP request duration, Go runtime metrics and the business counter
+`sourcing.groups.sourced` (`outcome`, `reason`); the trace continues across Kafka in the `traceparent` header of each published event and is picked up by the
+consumers. The chart's `otel.*` values render the env.
+
 ## Run it
 
 Real PostgreSQL and Kafka only. `DATABASE_URL`, `KAFKA_BROKERS` and the nine `*_CONSUMER_GROUP` variables are mandatory (a boot error names the
