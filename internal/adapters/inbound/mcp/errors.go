@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -41,11 +42,12 @@ func toolError(slug, detail string) error {
 // mapError turns a use-case/repository error into the tool error the model
 // sees. Typed errors are prefixed with their REST slug and keep their
 // message; anything else is logged and reported generically so
-// infrastructure details (DSNs, SQL) never reach the model.
-func mapError(err error) error {
+// infrastructure details (DSNs, SQL) never reach the model. The log uses the
+// request context so the record carries the trace_id of the tool call.
+func mapError(ctx context.Context, err error) error {
 	if slug, ok := slugFor(err); ok {
 		return toolError(slug, err.Error())
 	}
-	slog.Error("mcp tool failed with an unexpected error", "error", err)
+	slog.ErrorContext(ctx, "mcp tool failed with an unexpected error", "error", err)
 	return toolError("internal-error", "an unexpected internal error occurred")
 }

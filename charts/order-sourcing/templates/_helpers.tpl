@@ -121,8 +121,8 @@ built from the pod name would restart every consumer from scratch.
 
 {{/*
 extraEnv may not bring back a non-kafka publisher, a *_MODE variable (the
-binary has no modes) or a *_CONSUMER_GROUP (those are config.*ConsumerGroup,
-validated above).
+binary has no modes), a *_CONSUMER_GROUP (those are config.*ConsumerGroup,
+validated above) or an observability variable the chart renders itself.
 */}}
 {{- define "order-sourcing.requireNoInMemoryEnv" -}}
 {{- range .Values.extraEnv -}}
@@ -136,6 +136,9 @@ validated above).
 {{- end -}}
 {{- if hasSuffix "_CONSUMER_GROUP" $name -}}
 {{- fail (printf "extraEnv sets %s — set the consumer group through config.*ConsumerGroup (stable, never the pod name)." $name) -}}
+{{- end -}}
+{{- if has $name (list "ENVIRONMENT" "SERVICE_VERSION" "OTEL_SERVICE_NAME" "OTEL_EXPORTER_OTLP_ENDPOINT") -}}
+{{- fail (printf "extraEnv sets %s, which the chart renders from its own values (environment, image.tag, otel.*): use those instead." $name) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

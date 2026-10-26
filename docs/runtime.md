@@ -17,6 +17,9 @@ log sink. One process serves the REST API, runs the nine Kafka consumers, the vi
 | `OUTBOX_MAX_ATTEMPTS` | `20` | Failures before the relay excludes a row; `0` = unlimited (ADR 0005). |
 | `SHUTDOWN_DRAIN_DELAY` | `5s` | Wait between flipping `/readyz` to 503 and closing the listener; `0` disables. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
+| `OTEL_SERVICE_NAME` | `order-sourcing` | `service.name` of spans and metrics (ADR 0008). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | Collector OTLP/gRPC, `host:port` or URL; export never blocks. |
+| `SERVICE_VERSION` / `ENVIRONMENT` | `dev` / `local` | `service.version` / `deployment.environment.name`. |
 | `EVENT_PUBLISHER` | `kafka` | Only `kafka` (or unset) is accepted; any other value is a boot error. |
 
 Configuration errors are raised before anything is opened or bound.

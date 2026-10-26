@@ -174,7 +174,7 @@ func (d Deps) listAssignments(ctx context.Context, in listAssignmentsInput) (ass
 		State: assignment.State(in.State), NodeID: in.NodeID, OrderID: in.OrderID, Limit: in.Limit,
 	})
 	if err != nil {
-		return assignmentListView{}, mapError(err)
+		return assignmentListView{}, mapError(ctx, err)
 	}
 	out := make([]assignmentView, 0, len(list))
 	for _, a := range list {
@@ -186,7 +186,7 @@ func (d Deps) listAssignments(ctx context.Context, in listAssignmentsInput) (ass
 func (d Deps) getAssignment(ctx context.Context, in assignmentIDInput) (assignmentView, error) {
 	v, err := d.Queries.GetAssignment(ctx, assignment.ID(in.AssignmentID))
 	if err != nil {
-		return assignmentView{}, mapError(err)
+		return assignmentView{}, mapError(ctx, err)
 	}
 	return toAssignment(v), nil
 }
