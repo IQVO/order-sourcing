@@ -39,3 +39,5 @@ Aggregates, invariants and assumptions A1-A23 are in docs/adr/0002; consumed con
 ## Workflow
 GitFlow: feature/* -> PR into develop, CI green before merge, never push develop or main. lefthook: pre-commit fmt/vet/lint, pre-push `make check`. Commit and push after each step.
 Deployment: charts/order-sourcing (api only, nine `config.*ConsumerGroup` values, grace period above the shutdown bounds), tested by charts/order-sourcing/tests; registry secrets (row 11) are a repo-admin task.
+
+A2A: `cmd/a2a` (port 8093) is this context's read-only Agent2Agent agent, skills `find_assignments` (read), `assignment_detail` (read), decided in `docs/adr/0009-a2a-inbound-adapter.md`; delegation only (facts stay CloudEvents on Kafka), unauthenticated like REST and MCP; rules in `.claude/rules/fleet/a2a.md`.
