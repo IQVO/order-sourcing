@@ -1,5 +1,7 @@
 # Order Sourcing
 
+[![CI](https://github.com/IQVO/order-sourcing/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/IQVO/order-sourcing/actions/workflows/ci.yml?query=branch%3Adevelop) [![coverage gate](https://img.shields.io/badge/coverage%20gate-90%25-brightgreen)](https://github.com/IQVO/order-sourcing/blob/develop/Makefile) [![Go](https://img.shields.io/badge/go-1.27.3-00ADD8?logo=go&logoColor=white)](https://github.com/IQVO/order-sourcing/blob/develop/go.mod) [![release](https://img.shields.io/github/v/release/IQVO/order-sourcing?sort=semver)](https://github.com/IQVO/order-sourcing/releases) [![docs](https://img.shields.io/badge/docs-iqvo.github.io-blue)](https://iqvo.github.io/order-sourcing/) [![license](https://img.shields.io/badge/license-MIT-blue)](https://github.com/IQVO/order-sourcing/blob/develop/LICENSE)
+
 Retail network, bounded context **Order Sourcing** (Core Subdomain, commerce
 tier): decides, as late as the promise allows, which node and path will
 fulfil each shipment group. It owns the `FulfillmentAssignment` aggregate and
