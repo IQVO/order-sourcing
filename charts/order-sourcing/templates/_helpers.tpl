@@ -180,3 +180,10 @@ Fully qualified name of the MCP server Deployment/Service (cmd/mcp, ADR 0006).
 {{- define "order-sourcing.mcpFullname" -}}
 {{- include "order-sourcing.fullname" . }}-mcp
 {{- end }}
+
+{{/*
+Fully qualified name of the A2A agent Deployment/Service (<release>-a2a, cmd/a2a, ADR 0009).
+*/}}
+{{- define "order-sourcing.a2aFullname" -}}
+{{- include "order-sourcing.fullname" . }}-a2a
+{{- end }}
