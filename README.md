@@ -68,6 +68,18 @@ REST-only. In the chart it is behind `mcp.enabled` (off by default), with its
 own ClusterIP Service and an optional Gateway API route
 (`/api/mcp/order-sourcing` rewritten to `/mcp`).
 
+## A2A agent (read-only)
+
+`cmd/a2a` is a third, independent deployable (ADR 0009): the same two read use cases offered to other agents as an Agent2Agent (A2A) agent over
+the official A2A Go SDK (`a2aproject/a2a-go/v2`), JSON-RPC on `:8093` at `/` and `/a2a`, the Agent Card at `/.well-known/agent-card.json`, an
+open `/healthz` and no auth (fleet decision). A2A carries **delegation** of a goal, never data sync: facts still leave only as CloudEvents.
+The MCP charter is read-only, so the agent is too (the write gate): two goal-shaped skills, `find_assignments` (`state?`, `orderId?`, `nodeId?`,
+`limit?`) and `assignment_detail` (`assignmentId`), sent as `{"skill":"<id>","arguments":{...}}` in a data part. Unknown arguments are
+rejected; rejections are answered in-band as RFC 7807-shaped problems with the REST statuses (`404`, `422`, `400`, `500`), never as JSON-RPC
+errors. It needs `DATABASE_URL` and `A2A_AGENT_URL` (the absolute URL the card advertises; a boot error names a missing one) and nothing else:
+no Kafka, no consumers, no sweep, no outbox. In the chart it is behind `a2a.enabled` (off by default), with its own ClusterIP Service and an
+optional Gateway API route (`/api/a2a/order-sourcing` rewritten to `/`).
+
 ## Web console remote
 
 `web/` is the `order_sourcing_mfe` Module Federation remote (ADR 0007): a
@@ -84,7 +96,7 @@ npm commands from `web/` with `warehouse-ui-kit` next to this repository.
 ## Observability
 
 Logs, metrics and traces follow the fleet standard ([ADR 0008](docs/adr/0008-fleet-observability-standard.md)): JSON logs on stdout carry `trace_id`/`span_id`
-and a `request_id`; `cmd/api` and `cmd/mcp` export OTLP/gRPC to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `SERVICE_VERSION`, `ENVIRONMENT`;
+and a `request_id`; `cmd/api`, `cmd/mcp` and `cmd/a2a` export OTLP/gRPC to the Collector (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `SERVICE_VERSION`, `ENVIRONMENT`;
 export never blocks, so no Collector costs telemetry, nothing else) with HTTP request duration, Go runtime metrics and the business counter
 `sourcing.groups.sourced` (`outcome`, `reason`); the trace continues across Kafka in the `traceparent` header of each published event and is picked up by the
 consumers. The chart's `otel.*` values render the env.
