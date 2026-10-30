@@ -22,6 +22,7 @@ from pathlib import Path
 
 CHART_DIR = Path(__file__).resolve().parents[1]
 RELEASE = "order-sourcing"
+DEFAULT_NAMESPACE = "default"  # `helm template` renders into `default` without --namespace
 
 # Dummy values, no password: nothing here is ever dialled.
 GROUPS = {
@@ -68,10 +69,16 @@ def runtime(skip: str | None = None) -> list[str]:
 # Every env var cmd/mcp reads (cmd/mcp/main.go).
 MCP_ENV = ("MCP_ADDR", "LOG_LEVEL", "SERVICE_VERSION", "ENVIRONMENT", "DATABASE_URL", "MIGRATIONS_DATABASE_URL")
 
+# Every env var cmd/a2a reads (cmd/a2a/main.go); A2A_AGENT_URL is mandatory.
+A2A_ENV = (
+    "A2A_ADDR", "A2A_AGENT_URL", "LOG_LEVEL", "SERVICE_VERSION", "ENVIRONMENT", "DATABASE_URL", "MIGRATIONS_DATABASE_URL",
+)
+
 BASE = runtime()
 ENABLE_EVERYTHING = BASE + [
     "--set", "autoscaling.api.enabled=true",
     "--set", "mcp.enabled=true",
+    "--set", "a2a.enabled=true",
     "--set", "frontend.enabled=true",
     "--set", "gatewayApi.enabled=true",
     "--set", "ingress.enabled=true",
@@ -224,6 +231,29 @@ def check_mcp(deployments: dict, services: dict, failures: list[str]) -> None:
             failures.append(f"the MCP Deployment must not render {banned} (read-only, never dials Kafka)")
 
 
+def check_a2a(deployments: dict, services: dict, failures: list[str]) -> None:
+    name = f"{RELEASE}-a2a"
+    if not pins(services.get(name), "a2a"):
+        failures.append("the A2A Service must exist and pin component=a2a")
+    if name not in deployments:
+        failures.append("the A2A Deployment was not rendered with a2a.enabled=true")
+        return
+    if command_of(deployments[name]) != ["/app/a2a"]:
+        failures.append("the A2A Deployment must run /app/a2a")
+    env = env_names(deployments[name])
+    for want in A2A_ENV:
+        if want not in env:
+            failures.append(f"the A2A Deployment does not render {want}")
+    for banned in ("KAFKA_BROKERS", "EVENT_PUBLISHER", "OUTBOX_RELAY_INTERVAL", "SWEEP_INTERVAL"):
+        if banned in env:
+            failures.append(f"the A2A Deployment must not render {banned} (read-only, never dials Kafka)")
+    url = env_value(deployments[name], "A2A_AGENT_URL") or ""
+    if not url.startswith("http://") or not url.endswith(f"{name}.{DEFAULT_NAMESPACE}.svc.cluster.local:8093/"):
+        failures.append(f"A2A_AGENT_URL must default to the in-cluster Service DNS, got {url!r}")
+    if env_value(deployments[name], "A2A_ADDR") != ":8093":
+        failures.append("the A2A agent must listen on :8093")
+
+
 def check_frontend(docs: list[dict], deployments: dict, services: dict, failures: list[str]) -> None:
     name = f"{RELEASE}-frontend"
     if not pins(services.get(name), "frontend"):
@@ -269,11 +299,12 @@ def main() -> int:
     failures: list[str] = []
 
     everything = render(ENABLE_EVERYTHING)
-    expected = [RELEASE, f"{RELEASE}-mcp", f"{RELEASE}-frontend"]
+    expected = [RELEASE, f"{RELEASE}-mcp", f"{RELEASE}-a2a", f"{RELEASE}-frontend"]
     check_components(everything, failures, expected)
     deployments = {d["metadata"]["name"]: d for d in everything if d.get("kind") == "Deployment"}
     services = {d["metadata"]["name"]: d for d in everything if d.get("kind") == "Service"}
     check_mcp(deployments, services, failures)
+    check_a2a(deployments, services, failures)
     check_frontend(everything, deployments, services, failures)
 
     # Default values must not deploy an HPA or a route, and must not render the
@@ -282,9 +313,9 @@ def main() -> int:
     stray = [d["kind"] for d in defaults if d.get("kind") in {"HorizontalPodAutoscaler", "Ingress", "HTTPRoute"}]
     if stray:
         failures.append(f"optional objects rendered with default values: {stray}")
-    optional = [n for n in (d["metadata"]["name"] for d in defaults) if n.endswith(("-mcp", "-frontend"))]
+    optional = [n for n in (d["metadata"]["name"] for d in defaults) if n.endswith(("-mcp", "-a2a", "-frontend"))]
     if optional:
-        failures.append(f"mcp/frontend rendered with default values: {optional}")
+        failures.append(f"mcp/a2a/frontend rendered with default values: {optional}")
     dep = next(d for d in defaults if d.get("kind") == "Deployment")
     names = env_names(dep)
     off = {"OUTBOX_RELAY_INTERVAL", "SWEEP_INTERVAL"}
@@ -301,9 +332,9 @@ def main() -> int:
             print(f"FAIL: {f}")
         return 1
 
-    print("PASS: every Service selects exactly one Deployment (api, mcp, frontend); mcp and frontend are off by "
-          "default and render when enabled; every env var cmd/api and cmd/mcp read is rendered, the mcp Deployment "
-          "gets no Kafka env and the frontend none at all; the chart refuses to render without a database source, "
+    print("PASS: every Service selects exactly one Deployment (api, mcp, a2a, frontend); mcp, a2a and frontend are off "
+          "by default and render when enabled; every env var cmd/api, cmd/mcp and cmd/a2a read is rendered, the mcp "
+          "and a2a Deployments get no Kafka env and the frontend none at all; the chart refuses to render without a database source, "
           "brokers or any of the nine consumer groups, with a non-kafka publisher (also through extraEnv), with a "
           "*_MODE, or with a grace period that does not exceed the shutdown sum")
     return 0

@@ -37,6 +37,12 @@ func NewQueueAssignment(d Deps) *QueueAssignment { return &QueueAssignment{write
 // 0002 A1). A SAME_DAY group is released at once; a group with no candidate is
 // UNSOURCEABLE at once (A4). All groups commit in one transaction.
 func (uc *QueueAssignment) Execute(ctx context.Context, cmd QueueAssignmentCommand) ([]views.Assignment, error) {
+	out, err := uc.execute(ctx, cmd)
+	uc.recordOutcome(ctx, out, err)
+	return out, err
+}
+
+func (uc *QueueAssignment) execute(ctx context.Context, cmd QueueAssignmentCommand) ([]views.Assignment, error) {
 	return transact(ctx, uc.UoW, func(ctx context.Context) ([]views.Assignment, error) {
 		if done, err := uc.claim(ctx, cmd.Meta); err != nil || done {
 			return nil, err

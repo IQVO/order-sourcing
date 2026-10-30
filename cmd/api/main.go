@@ -1,6 +1,14 @@
 // Command api is the order-sourcing service: the REST API, the nine Kafka
 // consumers, the virtual-queue sweep and the transactional-outbox relay in one
 // process, on real Postgres and real Kafka (there is no in-memory mode).
+//
+// Environment (the observability part; the runtime settings are in docs/runtime.md):
+//
+//	LOG_LEVEL                        debug | info | warn | error (default info)
+//	OTEL_SERVICE_NAME                service.name of spans and metrics (default order-sourcing)
+//	OTEL_EXPORTER_OTLP_ENDPOINT      Collector OTLP/gRPC endpoint (default telemetry.DefaultEndpoint); export never blocks
+//	SERVICE_VERSION                  service.version (default dev)
+//	ENVIRONMENT                      deployment.environment.name (default local)
 package main
 
 import (
@@ -25,6 +33,8 @@ import (
 	outboundkafka "github.com/claudioed/order-sourcing/internal/adapters/outbound/kafka"
 	outboxrelay "github.com/claudioed/order-sourcing/internal/adapters/outbound/outbox"
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/postgres"
+	"github.com/claudioed/order-sourcing/internal/adapters/outbound/telemetry"
+	"github.com/claudioed/order-sourcing/internal/application/ports"
 	"github.com/claudioed/order-sourcing/internal/application/usecases"
 	"github.com/claudioed/order-sourcing/internal/bootretry"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
@@ -110,12 +120,15 @@ type services struct {
 	sweep    *usecases.SweepQueue
 }
 
-func buildServices(pool *pgxpool.Pool, readiness *inboundhttp.Readiness) services {
+// buildServices wires the adapters and use cases; metrics (nil = none) is the
+// business-counter port the queueing use case reports to.
+func buildServices(pool *pgxpool.Pool, readiness *inboundhttp.Readiness, metrics ports.SourcingMetrics) services {
 	outbox := postgres.NewOutbox(pool, outboundkafka.Encoder{})
 	assignments := postgres.NewAssignmentRepository(pool)
 	deps := usecases.Deps{
 		Assignments: assignments, ReadModels: postgres.NewReadModels(pool), World: postgres.NewWorldReader(pool), Outbox: outbox,
 		Inbox: postgres.NewInbox(pool), UoW: postgres.NewUnitOfWork(pool), Clock: clock.System{}, IDs: ids.UUID{},
+		Metrics: metrics,
 	}
 	reoptimise := usecases.NewReoptimiseAssignment(deps)
 	queries := usecases.NewQueries(assignments)
@@ -144,6 +157,17 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Telemetry comes up before the router is built (otelchimetric binds the
+	// global MeterProvider at construction) and is flushed LAST: deferred before
+	// everything below, so the final spans of the drain still leave the process.
+	tel := loadTelemetryEnv(os.Getenv)
+	flushTelemetry, err := startTelemetry(logger, tel)
+	if err != nil {
+		return err
+	}
+	defer flushTelemetry()
+
 	databaseURL := os.Getenv("DATABASE_URL")
 	if err := bootretry.Retry(ctx, logger, "run migrations", func() error {
 		return postgres.RunMigrations(getenv("MIGRATIONS_DATABASE_URL", databaseURL))
@@ -163,7 +187,13 @@ func run(ctx context.Context) error {
 		inboundhttp.Dependency{Name: "postgres", Check: pool.Ping},
 		inboundhttp.Dependency{Name: "kafka", Check: outboundkafka.NewBrokerCheck(rt.brokers).Check},
 	)
-	svc := buildServices(pool, readiness)
+	// The business counter binds to the MeterProvider telemetry.Setup installed.
+	sourcingMetrics, err := telemetry.NewSourcingMetrics()
+	if err != nil {
+		return err
+	}
+	svc := buildServices(pool, readiness, sourcingMetrics)
+	svc.server.Logger, svc.server.ServiceName = logger, tel.serviceName
 	httpServer := &http.Server{
 		Addr: getenv("HTTP_ADDR", ":8080"), Handler: svc.server.Handler(), ReadHeaderTimeout: serviceReadHeaderTimeout,
 	}
@@ -317,10 +347,10 @@ func sweepOnce(ctx context.Context, sweep *usecases.SweepQueue, logger *slog.Log
 	for ctx.Err() == nil {
 		res, err := sweep.Execute(ctx, after, defaultSweepPageSize)
 		if err != nil && ctx.Err() == nil {
-			logger.Error("queue sweep pass failed", "error", err)
+			logger.ErrorContext(ctx, "queue sweep pass failed", "error", err)
 		}
 		if res.Released+res.Reoptimised > 0 {
-			logger.Info("queue sweep", "released", res.Released, "reoptimised", res.Reoptimised, "skipped", res.Skipped)
+			logger.InfoContext(ctx, "queue sweep", "released", res.Released, "reoptimised", res.Reoptimised, "skipped", res.Skipped)
 		}
 		if res.Next == "" {
 			return
@@ -425,7 +455,9 @@ func newLogger(level string) *slog.Logger {
 	default:
 		lvl = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+	// Wrapped so a record written with a span-carrying context (the *Context
+	// slog variants) also carries trace_id and span_id.
+	return slog.New(telemetry.WithTraceContext(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 }
 
 func getenv(key, fallback string) string {

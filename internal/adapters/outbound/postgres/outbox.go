@@ -72,6 +72,9 @@ func (o *Outbox) Append(ctx context.Context, events ...shared.Event) error {
 		}
 		msgs = append(msgs, m)
 	}
+	// Stamp the active span's traceparent/tracestate at write time, inside the
+	// request or consumer span that raised the events (the encoder has no ctx).
+	msgs = withTraceHeaders(ctx, msgs)
 	return inTx(ctx, o.pool, func(q querier) error {
 		for _, m := range msgs {
 			headers, err := marshalHeaders(m.Headers)
