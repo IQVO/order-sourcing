@@ -5,11 +5,16 @@ package http
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/riandyrn/otelchi"
+	otelchimetric "github.com/riandyrn/otelchi/metric"
 
+	"github.com/claudioed/order-sourcing/internal/adapters/inbound/requestlog"
 	"github.com/claudioed/order-sourcing/internal/application/repository"
 	"github.com/claudioed/order-sourcing/internal/application/views"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
@@ -39,11 +44,36 @@ type Server struct {
 	Reoptimise  Reoptimiser
 	Readiness   *Readiness
 	Idempotency func(http.Handler) http.Handler // nil = no key required (unit tests only)
+
+	// Logger receives the access log (nil = slog.Default()); ServiceName names
+	// the server spans and the HTTP metrics (empty = DefaultServiceName).
+	Logger      *slog.Logger
+	ServiceName string
 }
 
+// DefaultServiceName names the server spans and the HTTP metrics when the
+// composition root sets no Server.ServiceName.
+const DefaultServiceName = "order-sourcing"
+
 // Handler builds the router.
+//
+// Middleware order is the fleet observability standard: RequestID, then otelchi
+// (the server span, named after the chi route pattern, so one span name per
+// route and not per assignment id), then the request-duration histogram, then
+// RequestLogger (it runs inside the span, so its record carries trace_id and
+// span_id), then Recoverer. telemetry.Setup must have run before this call:
+// otelchimetric binds the global MeterProvider when it is constructed.
 func (s *Server) Handler() http.Handler {
+	serviceName := s.ServiceName
+	if serviceName == "" {
+		serviceName = DefaultServiceName
+	}
 	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(otelchi.Middleware(serviceName, otelchi.WithChiRoutes(r)))
+	r.Use(otelchimetric.NewServerRequestDuration(otelchimetric.NewBaseConfig(serviceName)))
+	r.Use(requestlog.RequestLogger(s.Logger))
+	r.Use(middleware.Recoverer)
 	r.Use(rejectNUL)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, statusBody{Status: "ok"}) })
 	r.Get("/readyz", s.handleReadyz)

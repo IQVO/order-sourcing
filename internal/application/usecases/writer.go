@@ -28,6 +28,9 @@ type Deps struct {
 	UoW         ports.UnitOfWork
 	Clock       ports.Clock
 	IDs         ports.IDGenerator
+	// Metrics records the business outcome of each queued shipment group; nil
+	// records nothing, so unit tests need no wiring.
+	Metrics ports.SourcingMetrics
 }
 
 // Meta identifies the Kafka message that triggered a command. A zero Meta (a
@@ -36,6 +39,20 @@ type Meta struct {
 	EventID   string
 	EventType string
 }
+
+// metrics returns the configured SourcingMetrics or a no-op.
+func (d Deps) metrics() ports.SourcingMetrics {
+	if d.Metrics != nil {
+		return d.Metrics
+	}
+	return noMetrics{}
+}
+
+// noMetrics is the SourcingMetrics of a Deps without one.
+type noMetrics struct{}
+
+func (noMetrics) GroupSourced(context.Context, string)   {}
+func (noMetrics) SourcingFailed(context.Context, string) {}
 
 // writer is what every command embeds.
 type writer struct{ Deps }

@@ -20,7 +20,7 @@ func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard
 // the zero Queries is enough for the transport tests) behind the real router.
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(newRouter(inboundmcp.Handler(inboundmcp.NewServer(inboundmcp.Deps{}))))
+	srv := httptest.NewServer(newRouter(inboundmcp.Handler(inboundmcp.NewServer(inboundmcp.Deps{})), quietLogger(), "order-sourcing-mcp"))
 	t.Cleanup(srv.Close)
 	return srv
 }

@@ -115,3 +115,20 @@ type IdempotencyStore interface {
 	// Store keeps the response of the first call.
 	Store(ctx context.Context, route, key string, status int, body []byte) error
 }
+
+// SourcingMetrics records the business outcome of the context's primary
+// command (Tier 2 of the fleet metrics convention): the sourcing decision taken
+// for each shipment group of a placed order. QueueAssignment calls it once per
+// outcome: GroupSourced per group it created, SourcingFailed once for a command
+// that stored nothing. A replayed order event or an already-queued group is not
+// an outcome. The implementation lives in internal/adapters/outbound/telemetry;
+// a nil Deps.Metrics records nothing.
+type SourcingMetrics interface {
+	// GroupSourced counts one shipment group that now has an assignment; state
+	// is the aggregate's state after the decision (QUEUED, RELEASED or
+	// UNSOURCEABLE).
+	GroupSourced(ctx context.Context, state string)
+	// SourcingFailed counts a QueueAssignment that stored nothing; reason is a
+	// stable, low-cardinality slug.
+	SourcingFailed(ctx context.Context, reason string)
+}
