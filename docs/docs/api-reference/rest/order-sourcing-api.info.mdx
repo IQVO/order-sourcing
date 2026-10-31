@@ -1,0 +1,47 @@
+---
+id: order-sourcing-api
+title: "Order Sourcing API"
+description: "REST contract of the order-sourcing bounded context of the retail network, derived from retail-network-docs model/model.yaml (contexts[order-sourcing].rest) and adjusted by the cross-context decisions G5, G10, G12, G13, G14, G20 and G26. Order Sourcing decides which vendor node and path fulfil each shipment group: it keeps a FulfillmentAssignment per group in a virtual queue, re-optimises it until its release point, releases it to one node (a purchase order through vendor-connectivity), reassigns on rejection or expiry, and locks it when the node accepts. This surface is the network-ops planner's: list and inspect assignments, and ask for an immediate re-optimisation of a QUEUED one. Every other change arrives as a Kafka event (see apis/asyncapi.yaml). No PII is held or returned by this context. No authentication, consistent with the rest of the network. Errors are RFC 9457 problem details. The shared problem types are not-found (404), illegal-transition (409), concurrent-update (409) and validation-failed (422); the model's Err names add assignment-locked, release-in-flight, node-excluded, stale-assignment-version (409) and candidate-breaks-promise (422)."
+sidebar_label: Introduction
+sidebar_position: 0
+hide_title: true
+custom_edit_url: null
+---
+
+import ApiLogo from "@theme/ApiLogo";
+import Heading from "@theme/Heading";
+import SchemaTabs from "@theme/SchemaTabs";
+import TabItem from "@theme/TabItem";
+import Export from "@theme/ApiExplorer/Export";
+
+<span
+  className={"theme-doc-version-badge badge badge--secondary"}
+  children={"Version: 0.1.0"}
+>
+</span>
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Order Sourcing API"}
+>
+</Heading>
+
+
+
+REST contract of the order-sourcing bounded context of the retail network, derived from retail-network-docs model/model.yaml (contexts[order-sourcing].rest) and adjusted by the cross-context decisions G5, G10, G12, G13, G14, G20 and G26. Order Sourcing decides which vendor node and path fulfil each shipment group: it keeps a FulfillmentAssignment per group in a virtual queue, re-optimises it until its release point, releases it to one node (a purchase order through vendor-connectivity), reassigns on rejection or expiry, and locks it when the node accepts. This surface is the network-ops planner's: list and inspect assignments, and ask for an immediate re-optimisation of a QUEUED one. Every other change arrives as a Kafka event (see apis/asyncapi.yaml). No PII is held or returned by this context. No authentication, consistent with the rest of the network. Errors are RFC 9457 problem details. The shared problem types are not-found (404), illegal-transition (409), concurrent-update (409) and validation-failed (422); the model's Err names add assignment-locked, release-in-flight, node-excluded, stale-assignment-version (409) and candidate-breaks-promise (422).
+
+<div
+  style={{"display":"flex","flexDirection":"column","marginBottom":"var(--ifm-paragraph-margin-bottom)"}}
+>
+  <h3
+    style={{"marginBottom":"0.25rem"}}
+  >
+    Contact
+  </h3><span>
+    order-sourcing maintainers: 
+  </span><span>
+    URL: [https://github.com/IQVO/order-sourcing](https://github.com/IQVO/order-sourcing)
+  </span>
+</div>
+      
