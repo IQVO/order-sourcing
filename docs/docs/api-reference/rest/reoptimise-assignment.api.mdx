@@ -1,0 +1,70 @@
+---
+id: reoptimise-assignment
+title: "Re-optimise a queued assignment now (ReoptimiseAssignment)"
+description: "Re-runs the candidate search (AssignmentCost = legs + crossRegionPenalty + scorecardPenalty + bookPressurePenalty, ties to the witness node) over the current read models, skipping excluded nodes and any candidate whose eta is after deliverByLatest. Allowed only while QUEUED. If the best node changes the assignment moves (FulfillmentReassigned is published) and releaseAt follows the new candidate (VirtualQueue); if no candidate is left the assignment becomes UNSOURCEABLE at once (FulfillmentUnsourceable, gap G26). A repeat on unchanged read models changes nothing. The Idempotency-Key replays the first response for 24 hours."
+sidebar_label: "Re-optimise a queued assignment now (ReoptimiseAssignment)"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "post api-method"
+info_path: docs/api-reference/rest/order-sourcing-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Re-optimise a queued assignment now (ReoptimiseAssignment)"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"post"}
+  path={"/assignments/{assignmentId}:reoptimise"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Re-runs the candidate search (AssignmentCost = legs + crossRegionPenalty + scorecardPenalty + bookPressurePenalty, ties to the witness node) over the current read models, skipping excluded nodes and any candidate whose eta is after deliverByLatest. Allowed only while QUEUED. If the best node changes the assignment moves (FulfillmentReassigned is published) and releaseAt follows the new candidate (VirtualQueue); if no candidate is left the assignment becomes UNSOURCEABLE at once (FulfillmentUnsourceable, gap G26). A repeat on unchanged read models changes nothing. The Idempotency-Key replays the first response for 24 hours.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./reoptimise-assignment.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./reoptimise-assignment.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./reoptimise-assignment.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

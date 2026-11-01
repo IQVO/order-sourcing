@@ -22,25 +22,30 @@ This project is a domain-driven design study. It is not associated with, endorse
 
 ## Documentation
 
-The context is documented on the fleet-wide warehouse-docs site, in the
-retail-network section: **<https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing>**
-(the model under `network/model/model.yaml` in IQVO/warehouse-docs is the
-single source of truth). Fleet-wide network pages:
-[strategic design](https://iqvo.github.io/warehouse-docs/network/strategic-design/subdomain-classification),
-[the CloudEvents event standard](https://iqvo.github.io/warehouse-docs/network/strategic-design/event-standard-cloudevents),
-the [order-assignment model](https://iqvo.github.io/warehouse-docs/network/network-model/order-assignment-model),
-and the [WMS/WES integration seam](https://iqvo.github.io/warehouse-docs/network/integration/wms-wes-integration).
-This repository's own references: [`docs/runtime.md`](docs/runtime.md) (all
-settings, the probes, the shutdown order and the outbox runbook) and the
-packaging checklist [`docs/before-first-release.md`](docs/before-first-release.md).
+This service has its own documentation site: **<https://iqvo.github.io/order-sourcing/>** (Docusaurus, sources in
+[`docs/`](docs/), built and deployed by `.github/workflows/docs.yml`). Every identifier, route, variable and event type on it is
+taken from this repository's code. The model it implements is also held in the fleet-wide warehouse-docs site, in the
+retail-network section: [order-sourcing](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing), with the
+[strategic design](https://iqvo.github.io/warehouse-docs/network/strategic-design/subdomain-classification), the
+[CloudEvents event standard](https://iqvo.github.io/warehouse-docs/network/strategic-design/event-standard-cloudevents) and the
+[order-assignment model](https://iqvo.github.io/warehouse-docs/network/network-model/order-assignment-model).
 
-Page map (on the warehouse-docs site, under `network/contexts/order-sourcing/`):
+Page map (`docs/docs/`, published under <https://iqvo.github.io/order-sourcing/docs/>):
 
 | Area | Pages |
-|---|---|
-| Business context | [Business context](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/business-context), [Use cases](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/use-cases) |
-| Language & model | [Ubiquitous language](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/ubiquitous-language), [Domain events](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/domain-events), [Domain message flow](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/domain-message-flow), [Class diagram](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/class-diagram), [Sequence diagrams](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/sequence-diagrams), [Entity-relationship](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/entity-relationship) |
-| DDD canvases | [Core domain chart](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/core-domain-chart), [Bounded context canvas](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/bounded-context-canvas), [Aggregate design canvas](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/aggregate-design-canvas), [EventStorming](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/eventstorming), [Context map](https://iqvo.github.io/warehouse-docs/network/contexts/order-sourcing/context-map) |
+| --- | --- |
+| Overview | [Introduction](https://iqvo.github.io/order-sourcing/docs/overview/introduction), [Architecture](https://iqvo.github.io/order-sourcing/docs/overview/architecture), [Runtime](https://iqvo.github.io/order-sourcing/docs/overview/runtime), [Quickstart](https://iqvo.github.io/order-sourcing/docs/overview/quickstart) |
+| Operations | [Configuration](https://iqvo.github.io/order-sourcing/docs/operations/configuration), [Runbook](https://iqvo.github.io/order-sourcing/docs/operations/runbook), [Observability](https://iqvo.github.io/order-sourcing/docs/operations/observability), [Troubleshooting](https://iqvo.github.io/order-sourcing/docs/operations/troubleshooting), [Before the first release](https://iqvo.github.io/order-sourcing/docs/operations/before-first-release) |
+| Development | [Testing](https://iqvo.github.io/order-sourcing/docs/development/testing) |
+| Domain | [Ubiquitous language](https://iqvo.github.io/order-sourcing/docs/ddd/ubiquitous-language), [Use cases](https://iqvo.github.io/order-sourcing/docs/ddd/use-cases), [Subdomain classification](https://iqvo.github.io/order-sourcing/docs/ddd/subdomain-classification) |
+| DDD artifacts | [Index](https://iqvo.github.io/order-sourcing/docs/ddd/ddd-artifacts), [Core domain chart](https://iqvo.github.io/order-sourcing/docs/ddd/core-domain-chart), [Bounded context canvas](https://iqvo.github.io/order-sourcing/docs/ddd/bounded-context-canvas), [Context map](https://iqvo.github.io/order-sourcing/docs/ddd/context-map), [Aggregate design canvas](https://iqvo.github.io/order-sourcing/docs/ddd/aggregate-design-canvas), [Domain message flow](https://iqvo.github.io/order-sourcing/docs/ddd/domain-message-flow), [EventStorming](https://iqvo.github.io/order-sourcing/docs/ddd/eventstorming), [Class diagram](https://iqvo.github.io/order-sourcing/docs/ddd/class-diagram), [Entity relationship](https://iqvo.github.io/order-sourcing/docs/ddd/entity-relationship), [Sequence diagrams](https://iqvo.github.io/order-sourcing/docs/ddd/sequence-diagrams), [Domain events](https://iqvo.github.io/order-sourcing/docs/ddd/domain-events) |
+| API reference | [API overview](https://iqvo.github.io/order-sourcing/docs/api-reference), [Event catalogue](https://iqvo.github.io/order-sourcing/docs/api-reference/events), generated REST reference |
+| Ecosystem | [Integration](https://iqvo.github.io/order-sourcing/docs/ecosystem/integration), [MCP tools](https://iqvo.github.io/order-sourcing/docs/mcp/tools) |
+| Decisions | [ADR index](https://iqvo.github.io/order-sourcing/docs/adr) (9 ADRs) |
+
+The repository-local pages are in [`docs/docs/`](docs/docs/): [`runtime.md`](docs/docs/overview/runtime.md) (all settings, the
+probes, the shutdown order and the outbox) and the packaging checklist
+[`before-first-release.md`](docs/docs/operations/before-first-release.md).
 
 ## What it does
 
@@ -121,7 +126,7 @@ missing one); the embedded migrations run at boot, the outbox relay and the queu
 ```sh
 export DATABASE_URL=postgres://user:***@localhost:5432/order_sourcing?sslmode=disable
 export KAFKA_BROKERS=localhost:29092   # whatever your broker advertises
-# plus one <PRODUCER>_CONSUMER_GROUP per consumed topic, see docs/runtime.md
+# plus one <PRODUCER>_CONSUMER_GROUP per consumed topic, see docs/docs/overview/runtime.md
 go run ./cmd/api                       # listens on :8080 (HTTP_ADDR)
 ```
 
@@ -198,7 +203,7 @@ errors. It needs `DATABASE_URL` and `A2A_AGENT_URL` (the absolute URL the card a
 `charts/order-sourcing/` is a Helm chart with one component, the `api` Deployment (REST API, nine consumers, queue sweep and outbox relay in one process), a Service,
 a ConfigMap mounted with `envFrom`, a Secret (or `database.existingSecret`) for `DATABASE_URL`, a ServiceAccount, and an HPA, Ingress or Gateway API HTTPRoute that are off by default.
 It refuses to render without `database.url`/`database.existingSecret`, `kafka.brokers` and all nine `config.*ConsumerGroup` values, and it keeps `terminationGracePeriodSeconds`
-above the binary's shutdown bounds. See [docs/runtime.md](docs/runtime.md#deployment-helm-chart).
+above the binary's shutdown bounds. See [the runbook](docs/docs/operations/runbook.md#deployment-helm-chart).
 
 ```sh
 helm template order-sourcing charts/order-sourcing -f charts/order-sourcing/ci/default-values.yaml   # dummy values, nothing is dialled
