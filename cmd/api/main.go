@@ -2,7 +2,7 @@
 // consumers, the virtual-queue sweep and the transactional-outbox relay in one
 // process, on real Postgres and real Kafka (there is no in-memory mode).
 //
-// Environment (the observability part; the runtime settings are in docs/runtime.md):
+// Environment (the observability part; the runtime settings are in docs/docs/overview/runtime.md):
 //
 //	LOG_LEVEL                        debug | info | warn | error (default info)
 //	OTEL_SERVICE_NAME                service.name of spans and metrics (default order-sourcing)
