@@ -1,91 +1,120 @@
-# Runtime: configuration, probes, shutdown and the outbox
+---
+id: runtime
+title: Runtime
+sidebar_label: Runtime
+description: "How the three binaries boot, serve, drain and shut down: probes, consumers and the inbox, the outbox relay and the queue sweep."
+---
 
-`cmd/api` is the only binary. It runs on real PostgreSQL and real Kafka; there is no alternative runtime and no
-log sink. One process serves the REST API, runs the nine Kafka consumers, the virtual-queue sweep and the outbox relay.
+# Runtime: boot, probes, shutdown and the outbox
 
-## Environment
+Order Sourcing ships three binaries from one image. All three run on real PostgreSQL; only `cmd/api` also needs Kafka.
+There is no in-memory mode and no log sink for events. Variable names, defaults and the Helm values that set them are in
+[Configuration](/docs/operations/configuration); deployment is in the [Runbook](/docs/operations/runbook).
 
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `DATABASE_URL` | required | Postgres DSN of the service's pool. A boot error names it when unset. |
-| `MIGRATIONS_DATABASE_URL` | `DATABASE_URL` | Direct DSN for the boot migrations (golang-migrate holds a session advisory lock, which breaks behind a transaction-pooling proxy). |
-| `KAFKA_BROKERS` | required | Comma-separated `host:port` list (relay, consumers and `/readyz`). A boot error names it when unset or blank. |
-| `CUSTOMER_ORDERING_CONSUMER_GROUP`, `DELIVERY_PROMISE_CONSUMER_GROUP`, `LAST_MILE_DELIVERY_CONSUMER_GROUP`, `LINEHAUL_TRANSPORTATION_CONSUMER_GROUP`, `NODE_PERFORMANCE_CONSUMER_GROUP`, `NODE_TOPOLOGY_CONSUMER_GROUP`, `OFFER_AVAILABILITY_CONSUMER_GROUP`, `SHIPPING_AND_TRACKING_CONSUMER_GROUP`, `VENDOR_CONNECTIVITY_CONSUMER_GROUP` | required | One stable, service-prefixed consumer group id per consumed topic. A boot error names the missing one. |
-| `HTTP_ADDR` | `:8080` | Listen address. |
-| `SWEEP_INTERVAL` | `15s` | Period of the virtual-queue sweep: it releases every assignment whose `releaseAt` has passed and re-optimises the other queued ones (ADR 0002 A18). |
-| `OUTBOX_RELAY_INTERVAL` | `1s` | Poll interval of the relay (Go duration or seconds). |
-| `OUTBOX_MAX_ATTEMPTS` | `20` | Failures before the relay excludes a row; `0` = unlimited (ADR 0005). |
-| `SHUTDOWN_DRAIN_DELAY` | `5s` | Wait between flipping `/readyz` to 503 and closing the listener; `0` disables. |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
-| `OTEL_SERVICE_NAME` | `order-sourcing` | `service.name` of spans and metrics (ADR 0008). |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | Collector OTLP/gRPC, `host:port` or URL; export never blocks. |
-| `SERVICE_VERSION` / `ENVIRONMENT` | `dev` / `local` | `service.version` / `deployment.environment.name`. |
-| `EVENT_PUBLISHER` | `kafka` | Only `kafka` (or unset) is accepted; any other value is a boot error. |
+| Binary | Role | Default listener | Dials |
+| --- | --- | --- | --- |
+| `cmd/api` | REST API, nine Kafka consumers, virtual-queue sweep and outbox relay in one process | `:8080` (`HTTP_ADDR`) | Postgres, Kafka |
+| `cmd/mcp` | Read-only MCP server, Streamable HTTP | `:8090` (`MCP_ADDR`) at `/mcp` and `/` | Postgres |
+| `cmd/a2a` | Read-only Agent2Agent agent, JSON-RPC 2.0 | `:8093` (`A2A_ADDR`) at `/` and `/a2a` | Postgres |
 
-Configuration errors are raised before anything is opened or bound.
+Source: `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/a2a/main.go`.
 
-## Boot and shutdown
+## Boot sequence
 
-1. Validate the environment. 2. Run the embedded migrations and ping Postgres, both with exponential backoff.
-3. Start the consumers, the queue sweep and the outbox relay (none dials at construction; a broker that is down only
-makes passes fail until it is back). 4. Serve.
+`cmd/api`:
 
-On SIGINT/SIGTERM: `/readyz` flips to 503 `not_ready`, wait `SHUTDOWN_DRAIN_DELAY`, drain HTTP (10 s), stop the
-consumers and the sweep and await them (10 s each), stop and await the relay (10 s), close the pool. If a worker
-returns on its own the process exits non-zero so the orchestrator restarts it.
+1. Read `LOG_LEVEL` and validate the mandatory environment (`DATABASE_URL`, `KAFKA_BROKERS`, the nine consumer groups,
+   `EVENT_PUBLISHER`) before anything is opened or bound. A bad value is a boot error that names the variable.
+2. Bring OpenTelemetry up (before the router is built, because the request-duration histogram binds the global
+   `MeterProvider` at construction). Export never blocks.
+3. Run the embedded golang-migrate migrations on `MIGRATIONS_DATABASE_URL` (default `DATABASE_URL`), then open the pool and
+   ping Postgres. Both steps go through `internal/bootretry`: 5 attempts, 1 s base delay doubling between attempts (1+2+4+8 = 15 s),
+   which absorbs the ~10 s reset of the first outbound dial of a pod behind a native Istio sidecar. After the fifth failure the
+   process exits with `run migrations (after 5 attempts): ...` or `ping postgres (after 5 attempts): ...`.
+4. Build the `/readyz` gate (Postgres ping and a Kafka broker metadata request), register the business counter, wire the
+   use cases.
+5. Start the nine consumers, the outbox relay and the queue sweep (none dials at construction; a broker that is down only
+   makes passes fail until it is back), then serve HTTP.
+
+`cmd/mcp` and `cmd/a2a` do the same for Postgres only (telemetry, migrations with retry, pool, ping) and then serve. They run the
+idempotent migrations too, so either can boot against an empty database before `cmd/api` has; the golang-migrate advisory lock
+makes concurrent starts safe. `cmd/a2a` validates `A2A_AGENT_URL` and `DATABASE_URL` together, before telemetry.
+
+## Shutdown
+
+`cmd/api`, on SIGINT or SIGTERM: `/readyz` flips to 503 `{"status":"not_ready"}`, wait `SHUTDOWN_DRAIN_DELAY` (default 5 s;
+`0` skips), close the HTTP listener and drain in-flight requests (10 s bound), stop the consumers and the sweep and await each
+(10 s bound), stop the relay and await it (10 s bound), close the pool, flush telemetry (5 s bound). The sum with the default
+delay is 35 s, which is why the chart refuses a `terminationGracePeriodSeconds` that does not exceed `shutdownDrainDelay` + 30 s.
+
+If any background worker (a consumer, the sweep or the relay) returns on its own, or the listener fails, the process stops
+the rest and exits non-zero (`<worker> stopped unexpectedly: exiting so the orchestrator restarts the service`).
+
+`cmd/mcp` and `cmd/a2a` have no readiness gate and no drain delay: on SIGINT or SIGTERM they close the listener with a 10 s
+bound and flush telemetry.
 
 ## Probes
 
-- `GET /healthz` is liveness: 200 `{"status":"ok"}` while the process serves, even while draining or while a
-  dependency is down.
-- `GET /readyz` is 200 `{"status":"ready"}` only if the drain gate is open, Postgres answers a ping and a Kafka broker
-  answers a metadata request. The request names no topics (an empty, non-nil list), so it never creates a topic and does
-  not need the output topic to exist; a fresh connection is dialled on every check. While draining it answers 503
-  `{"status":"not_ready"}`; while a dependency is down, 503 `application/problem+json` of type
-  `dependency-unavailable` naming it. Verdicts are cached 3 s.
+| Binary | Liveness | Readiness |
+| --- | --- | --- |
+| `cmd/api` | `GET /healthz`, always 200 `{"status":"ok"}`, even while draining or while a dependency is down | `GET /readyz` |
+| `cmd/mcp`, `cmd/a2a` | `GET /healthz`, always 200 `{"status":"ok"}`, no dependency check | none (the chart uses `/healthz` for both) |
+
+`GET /readyz` on `cmd/api` is 200 `{"status":"ready"}` only if the drain gate is open, Postgres answers a pool ping and a Kafka
+broker answers a metadata request. The request names no topics (an empty, non-nil list), so it never creates a topic and does not
+need an output topic to exist; a fresh connection is dialled on every check. While draining it answers 503
+`{"status":"not_ready"}`; while a dependency is down, 503 `application/problem+json` with type slug `dependency-unavailable` and
+detail `not ready: postgres`, `not ready: kafka` or both. Verdicts are cached for 3 s and one round of checks is bounded at 2 s
+on a context detached from the caller, and each failing round logs a WARN `readiness: dependency is not ready`.
+Source: `internal/adapters/inbound/http/readiness.go`, `internal/adapters/outbound/kafka/health.go`.
 
 ## Consumers and the inbox
 
-Each consumed topic has its own consumer group and a retry loop with capped exponential backoff (200 ms to 5 s). A
-message that keeps failing is written to `<topic>.dlq` with `x-dlq-*` headers after a bounded number of attempts, so
-one poison message never blocks a partition. Every use case claims the CloudEvents `id` in `processed_events` inside
-its own transaction, so a redelivered event changes nothing. Unknown types and unknown fields are ignored.
+Each consumed topic has its own reader, its own stable consumer group and its own retry loop
+(`internal/adapters/inbound/kafka`). The loop fetches one message, handles it inside one unit of work and commits the offset only
+after the handler returned (there is no auto-commit), so delivery is at-least-once with an atomic effect.
+
+- Every use case claims the CloudEvents `id` in `processed_events` inside its own transaction, so a redelivered event changes
+  nothing.
+- A message that is not a valid CloudEvents 1.0 event, or whose `type` has no handler on that topic, is skipped (WARN for the
+  former, silent for the latter): unknown types and unknown fields are ignored.
+- A payload that can never be applied (undecodable `data`, a validation error) is dead-lettered at once when a DLQ writer is set
+  (it always is in `cmd/api`).
+- An event the aggregate can no longer take (not found, illegal transition, locked, release not pending, stale revision, stale
+  assignment version) is logged at WARN and acknowledged.
+- Any other error is transient: the same message is retried with capped exponential backoff (200 ms doubling to 5 s) up to
+  5 attempts, then published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset`,
+  `x-dlq-error` and `x-dlq-failed-at` headers. The DLQ publish itself is retried until it succeeds.
+- A stalled or reset broker connection on fetch is retried with the same backoff up to 10 consecutive failures; after that the
+  consumer fails and the process exits for a restart.
 
 ## The outbox in operation
 
-- Events are written in the same transaction as the aggregate and published later, so a write is accepted while Kafka
-  is down; `outbox_events.published_at IS NULL` rows wait and are published, in id order, when the broker is back.
-- Delivery is at-least-once with a stable CloudEvents `id`; consumers deduplicate.
-- A row that failed `OUTBOX_MAX_ATTEMPTS` times is skipped (logged once at ERROR with id, topic, type and key) and
-  stays in the table with `attempts` and `last_error`. Fix the cause, then re-arm it:
-  `UPDATE outbox_events SET attempts = 0 WHERE id = <id>;`. While a row is skipped, later events of the same assignment
-  can overtake it.
-- Idempotency keys older than 24 h are purged on the next keyed write.
+- Events are written in the same transaction as the aggregate and published later by the relay, so a write is accepted while
+  Kafka is down; rows with `outbox_events.published_at IS NULL` wait and are published, in id order, when the broker is back.
+- The relay polls every `OUTBOX_RELAY_INTERVAL` (default 1 s), claims up to 100 rows per pass, and runs another pass at once
+  after a full batch. Claims use `FOR UPDATE SKIP LOCKED`, so more than one replica is safe.
+- Delivery is at-least-once with a stable CloudEvents `id` (minted at encode time and stored with the row); consumers deduplicate.
+- Writes use RequireAll acks, the hash balancer on the key (the assignment id, so one assignment's events stay ordered) and
+  allow topic auto-creation.
+- A row that failed `OUTBOX_MAX_ATTEMPTS` times is skipped (logged once at ERROR with id, topic, type and key) and stays in the
+  table with `attempts` and `last_error`. Fix the cause, then re-arm it:
+  `UPDATE outbox_events SET attempts = 0 WHERE id = <id>;`. While a row is skipped, later events of the same assignment can
+  overtake it.
+- Idempotency keys older than 24 h are ignored on lookup (the row is overwritten on the next use of the same key). Nothing in
+  the code deletes rows from `idempotency_keys`, `processed_events` or published `outbox_events`; they grow until an operator
+  prunes them.
+- Every Postgres connection has `statement_timeout = 5s` and the pool holds at most 10 connections per process
+  (`internal/adapters/outbound/postgres/pool.go`).
 
-## Deployment (Helm chart)
+Source: `internal/adapters/outbound/outbox/relay.go`, `internal/adapters/outbound/kafka/relay_sink.go`,
+`internal/adapters/outbound/postgres/outbox.go`.
 
-`charts/order-sourcing/` renders the `api` component only. Every key under `config.*` maps 1:1 to one variable above.
+## The queue sweep
 
-| Value | Variable | Rule |
-| --- | --- | --- |
-| `database.url` or `database.existingSecret` (+ `existingSecretKey`) | `DATABASE_URL` | Mandatory. Always a `secretKeyRef`; the chart Secret is created only from `database.url`; the DSN never lands in the ConfigMap. |
-| `database.migrationsExistingSecretKey` | `MIGRATIONS_DATABASE_URL` | `secretKeyRef` with `optional: true` (the binary falls back to `DATABASE_URL`); empty drops the variable. |
-| `kafka.brokers` | `KAFKA_BROKERS` | Mandatory. |
-| `config.<producer>ConsumerGroup` (nine) | `<PRODUCER>_CONSUMER_GROUP` | Mandatory, stable, service-prefixed (`order-sourcing-<producer>` in `ci/default-values.yaml`); a value containing `$(` (pod-name derived) is refused. |
-| `config.eventPublisher` | `EVENT_PUBLISHER` | Only `kafka`. |
-| `config.outboxRelayInterval`, `outboxMaxAttempts`, `sweepInterval`, `httpAddr`, `logLevel` | `OUTBOX_RELAY_INTERVAL`, `OUTBOX_MAX_ATTEMPTS`, `SWEEP_INTERVAL`, `HTTP_ADDR`, `LOG_LEVEL` | Optional ones are not rendered while empty, so the binary default applies. |
-| `config.shutdownDrainDelay` | `SHUTDOWN_DRAIN_DELAY` | Whole seconds (`5s`), always rendered. |
-| `terminationGracePeriodSeconds` | n/a | Default 60. The chart refuses a value that does not exceed `shutdownDrainDelay` + 30 s (HTTP 10 s + consumers and sweep 10 s + relay 10 s, see Boot and shutdown). |
-| `extraEnv` | n/a | Refuses `EVENT_PUBLISHER` other than `kafka`, any `*_MODE` and any `*_CONSUMER_GROUP`. |
-
-The pod runs as uid 1000 with a read-only root filesystem, `allowPrivilegeEscalation: false`, all capabilities dropped and the `RuntimeDefault` seccomp profile; liveness
-is `/healthz`, readiness `/readyz`, with a startup probe on `/healthz`. The chart tests are `charts/order-sourcing/tests/render_test.sh` (needs helm) and
-`test_service_selectors.py` (helm and PyYAML); the `chart-tests` CI job runs both on every push and the `helm-lint` job runs `ct lint` on pull requests.
-The image is `ghcr.io/iqvo/order-sourcing`; an empty `image.tag` resolves to the chart `appVersion`, which the `release` job sets to the release version.
-
-## Tests
-
-`make check` (format, vet, build, lint, unit + handler + BDD tests), `make coverage` (90% over `internal/domain` and
-`internal/application`), `make mutation` (gremlins per domain package), `make arch-test` (fitness), `make integration`
-(testcontainers Postgres + Kafka: repositories, the outbox drain, the middleware and the real-wiring test
-`cmd/api/e2e_integration_test.go`; needs Docker).
+Every `SWEEP_INTERVAL` (default 15 s, also once at start) `cmd/api` runs `SweepQueue` in pages of 100: it releases every `QUEUED`
+assignment whose `releaseAt` has passed (`ReleaseToNode`), then walks every page of the other queued assignments and
+re-optimises each (`ReoptimiseAssignment`). A row another writer changed meanwhile, that no longer exists, that is already locked or
+that has a release in flight is counted as skipped, not as an error. A pass logs `queue sweep` with `released`, `reoptimised` and
+`skipped` only when it did something. Source: `cmd/api/main.go` (`startSweep`, `sweepOnce`),
+`internal/application/usecases/sweep.go`.
