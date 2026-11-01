@@ -49,7 +49,7 @@ grep -A3 'envFrom:' <<<"$api_deployment" | grep -q "name: $configmap_name" || fa
 # when every optional value is set. Names come from the binary's own
 # Getenv/getenv/env literals plus the GroupEnv column of the consumer table.
 env_vars() {
-  { grep -ohE '(Getenv|getenv|env)\("[A-Z][A-Z0-9_]*"' "$repo_dir/cmd/api/main.go" "$repo_dir/cmd/api/telemetry.go" | sed -E 's/.*\("//; s/"$//'
+  { grep -ohE '(Getenv|getenv|env)\("[A-Z][A-Z0-9_]*"' $(ls "$repo_dir"/cmd/api/*.go | grep -v '_test\.go$') | sed -E 's/.*\("//; s/"$//'
     # ENVIRONMENT is read inside telemetry.Setup (documented in cmd/api/telemetry.go), not by a literal in cmd/api.
     echo ENVIRONMENT
     grep -ohE '"[A-Z][A-Z0-9_]*_CONSUMER_GROUP"' "$repo_dir/internal/adapters/inbound/kafka/handlers.go" | tr -d '"'
