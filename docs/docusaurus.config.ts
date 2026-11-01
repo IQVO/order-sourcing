@@ -6,7 +6,7 @@ import type * as OpenApiPlugin from 'docusaurus-plugin-openapi-docs';
 const config: Config = {
   title: 'Order Sourcing',
   tagline:
-    'Order Sourcing: a Core bounded context of the retail-network domain (warehouse-systems).',
+    'Late, re-optimised choice of the vendor node and path for each shipment group of a retail-network order.',
   favicon: 'img/favicon.svg',
 
   future: {

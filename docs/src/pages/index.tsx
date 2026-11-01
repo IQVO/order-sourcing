@@ -35,7 +35,14 @@ function HomepageHeader() {
           {siteConfig.title}
         </Heading>
         <p className={styles.heroSubtitle}>{siteConfig.tagline}</p>
-        <p className={styles.heroLead}>TODO-LEAD</p>
+        <p className={styles.heroLead}>
+          Decides, as late as the promise allows, which vendor node and path will fulfil each shipment
+          group. Assignments wait in a virtual queue and are re-optimised against current capacity
+          until their release point; the group is then sent to exactly one node, moved to another if
+          the node rejects or lets the purchase order expire, and locked for good when the node
+          accepts. When no node can still meet the promise, the group goes back to delivery-promise
+          instead of breaking it silently.
+        </p>
         <div className={styles.buttons}>
           <Link className="button button--primary button--lg" to="/docs/overview/introduction">
             Read the docs
