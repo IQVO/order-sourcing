@@ -147,3 +147,7 @@ differs in these places, and the code is the reference:
 - `MarkDelivered` is per tracking number; the group delivers when the last package does.
 - `BookingMoved` and `BookingFailed` are consumed (use cases 8 and 11).
 - Reoptimisation of a non-`QUEUED` assignment reports the state's own error (409), not a single "not queued" error.
+- `ADR 0002` A18 says the sweep interval defaults to 30 s; the code default is 15 s (`defaultSweepInterval` in `cmd/api/main.go`).
+- `NodeOperationalProfileDeclared` is projected with a sort dwell of 0 minutes: the handler passes a literal 0
+  (`internal/adapters/inbound/kafka/handlers.go`, `NodeTopology`), so `rm_nodes.sort_dwell_minutes` stays 0 and onward legs wait
+  for no dwell.
