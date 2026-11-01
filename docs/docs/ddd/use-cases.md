@@ -85,8 +85,7 @@ Nine consumed topics carry 32 handled event types: 10 reach a command use case (
 
 `internal/domain/sourcing.Search` is a pure function of the `World` snapshot and the request:
 
-- A node qualifies when it is eligible (active), not excluded, ships every line in full (listing not suppressed, item not
-  discontinued, quantity available) and, for the `SAME_DAY` tier, is a `SUB_SAME_DAY` or `MICRO` node.
+- A node qualifies when it is eligible (an `ACTIVE` vendor-operated fulfilment centre with a declared profile), not excluded, ships every line in full (listing present and not suppressed, item not discontinued, quantity available) and, for the `SAME_DAY` tier, is a `SUB_SAME_DAY` or `MICRO` node.
 - A path starts at a usable departure of the node whose pickup cutoff is not before `now + handlingMinutes`, follows at most
   five departures (none for `SAME_DAY`), respects the sort dwell at intermediate nodes, and ends at a delivery wave of the
   destination's service-area station whose induct cutoff is not before the last arrival and whose window ends no later than
