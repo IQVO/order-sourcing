@@ -47,7 +47,7 @@ first. The worked publishing example is `FulfillmentCancelRefused`; the consumin
    return the error for a transient failure. The use case claims the event id in `processed_events` (the inbox) inside
    its own transaction (`writer.claim`), so a redelivery changes nothing.
 4. A new topic also needs its `<PRODUCER>_CONSUMER_GROUP` variable in `Handlers.Topics`, `cmd/api/main.go`,
-   `docs/runtime.md` and the e2e environment; a missing group is a boot error naming it.
+   `docs/docs/overview/runtime.md` and the e2e environment; a missing group is a boot error naming it.
 
 ## Verify before opening the PR
 
