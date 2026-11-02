@@ -102,6 +102,19 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 		}
 		return
 	}
+	// The handler runs behind a SAVEPOINT. A mapped domain conflict -- a
+	// statement failing on the server and translated by the repository to a
+	// typed error -- leaves the transaction ABORTED even though the handler
+	// answers a truthful 4xx. Releasing the savepoint exposes that: the
+	// release fails, ROLLBACK TO SAVEPOINT discards the half-done work and
+	// heals the transaction, and the 4xx outcome is stored and committed like
+	// any other. A 2xx answer behind a failed release is a lie (its writes
+	// are gone), so it rolls everything back and fails the request instead.
+	if _, err := tx.Exec(ctx, "SAVEPOINT handler_run"); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		writeError(w, r, err)
+		return
+	}
 	rec := &capture{header: http.Header{}}
 	next.ServeHTTP(rec, r.WithContext(bind(ctx, tx)))
 	if rec.code == 0 {
@@ -111,6 +124,24 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 		flush(w, rec)
 		return
+	}
+	if _, err := tx.Exec(ctx, "RELEASE SAVEPOINT handler_run"); err != nil {
+		// A statement inside the handler failed on the server: the
+		// transaction is aborted. Rolling back to the savepoint discards the
+		// handler's partial writes -- the correct all-or-nothing semantics
+		// for an error answer -- and returns the transaction to health.
+		if _, rerr := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT handler_run"); rerr != nil {
+			_ = tx.Rollback(context.WithoutCancel(ctx))
+			writeError(w, r, err)
+			return
+		}
+		if rec.code < http.StatusBadRequest {
+			// A success answer whose writes cannot be committed must neither
+			// be returned nor stored: fail the request so the key retries.
+			_ = tx.Rollback(context.WithoutCancel(ctx))
+			writeError(w, r, err)
+			return
+		}
 	}
 	if err := store(ctx, tx, key, fingerprint, rec); err != nil {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
