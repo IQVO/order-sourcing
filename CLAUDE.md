@@ -20,7 +20,7 @@ Guides: `python3 scripts/harness/repo_lint.py`, `python3 scripts/harness/guide_l
 Real PostgreSQL and Kafka only. `DATABASE_URL`, `KAFKA_BROKERS` and the nine `<PRODUCER>_CONSUMER_GROUP` variables are mandatory (boot error naming the variable, raised before the listener binds; `MIGRATIONS_DATABASE_URL` is an optional direct DSN).
 The outbox relay (`OUTBOX_MAX_ATTEMPTS` 20, `OUTBOX_RELAY_INTERVAL` 1s), the queue sweep (`SWEEP_INTERVAL` 15s) and the consumers are always on; the process exits non-zero when a worker ends on its own.
 `/healthz` = liveness; `/readyz` = drain gate + Postgres ping + Kafka metadata request with an EMPTY non-nil topic list (fresh connection per check).
-Shutdown: /readyz 503, `SHUTDOWN_DRAIN_DELAY` (5s), drain HTTP, stop consumers and sweep, stop relay, close pool. cmd/** never imports internal/adapters/outbound/memory or repocontract. No authentication on REST. See docs/runtime.md.
+Shutdown: /readyz 503, `SHUTDOWN_DRAIN_DELAY` (5s), drain HTTP, stop consumers and sweep, stop relay, close pool. cmd/** never imports internal/adapters/outbound/memory or repocontract. No authentication on REST. See docs/docs/overview/runtime.md.
 
 ## REST
 chi router: `GET /assignments`, `GET /assignments/{assignmentId}`, `POST /assignments/{assignmentId}:reoptimise` plus /healthz, /readyz. Every other transition is event-driven. The state-changing route takes `Idempotency-Key` (table `idempotency_keys`, key = (route, key), 24h, replays the first response, same key + other request = 422 `idempotency-key-reused`).

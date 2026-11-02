@@ -2,7 +2,7 @@
 // consumers, the virtual-queue sweep and the transactional-outbox relay in one
 // process, on real Postgres and real Kafka (there is no in-memory mode).
 //
-// Environment (the observability part; the runtime settings are in docs/runtime.md):
+// Environment (the observability part; the runtime settings are in docs/docs/overview/runtime.md):
 //
 //	LOG_LEVEL                        debug | info | warn | error (default info)
 //	OTEL_SERVICE_NAME                service.name of spans and metrics (default order-sourcing)
@@ -18,10 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/signal"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,13 +28,11 @@ import (
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/clock"
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/ids"
 	outboundkafka "github.com/claudioed/order-sourcing/internal/adapters/outbound/kafka"
-	outboxrelay "github.com/claudioed/order-sourcing/internal/adapters/outbound/outbox"
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/postgres"
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/telemetry"
 	"github.com/claudioed/order-sourcing/internal/application/ports"
 	"github.com/claudioed/order-sourcing/internal/application/usecases"
 	"github.com/claudioed/order-sourcing/internal/bootretry"
-	"github.com/claudioed/order-sourcing/internal/domain/assignment"
 )
 
 const (
@@ -206,241 +201,6 @@ func run(ctx context.Context) error {
 	}
 	sweep, closeSweep := startSweep(svc.sweep, logger)
 	return serveUntilSignal(ctx, logger, httpServer, readiness, append(consumers, sweep), closeConsumers, closeSweep, relay, closeRelay)
-}
-
-// consumerGroupEnvs lists the mandatory consumer-group variables, one per consumed topic.
-func consumerGroupEnvs(h inboundkafka.Handlers) []string {
-	var out []string
-	for _, t := range h.Topics() {
-		out = append(out, t.GroupEnv)
-	}
-	return out
-}
-
-// worker is one background goroutine the process supervises.
-type worker struct {
-	name string
-	done chan struct{}
-}
-
-func startConsumers(svc services, rt runtimeEnv, logger *slog.Logger) ([]*worker, func()) {
-	ctx, stop := context.WithCancel(context.Background())
-	var (
-		workers []*worker
-		closers []func() error
-	)
-	for _, th := range svc.handlers.Topics() {
-		group := rt.groups[th.GroupEnv]
-		c := inboundkafka.NewConsumer(th.Name, rt.brokers, th.Topic, group, th.Handlers, logger)
-		w := &worker{name: th.Name + " consumer", done: make(chan struct{})}
-		workers = append(workers, w)
-		closers = append(closers, c.Close)
-		go func() {
-			defer close(w.done)
-			logger.Info("consumer running", "consumer", c.Name, "topic", c.Topic, "group_id", group, "brokers", rt.brokers)
-			if err := c.Run(ctx); !errors.Is(err, context.Canceled) {
-				logger.Error("consumer stopped", "consumer", c.Name, "error", err)
-			}
-		}()
-	}
-	return workers, func() {
-		stop()
-		for _, closeFn := range closers {
-			_ = closeFn()
-		}
-	}
-}
-
-func parseRelayInterval(raw string, logger *slog.Logger) time.Duration {
-	if raw == "" {
-		return outboxrelay.DefaultInterval
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil {
-		if secs, serr := strconv.ParseFloat(raw, 64); serr == nil {
-			d, err = time.Duration(secs*float64(time.Second)), nil
-		}
-	}
-	if err != nil || d <= 0 {
-		logger.Warn("invalid OUTBOX_RELAY_INTERVAL; using the default", "value", raw, "default", outboxrelay.DefaultInterval)
-		return outboxrelay.DefaultInterval
-	}
-	return d
-}
-
-func outboxMaxAttempts(raw string, logger *slog.Logger) int {
-	if raw == "" {
-		return outboxrelay.DefaultMaxAttempts
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || n < 0 {
-		logger.Warn("invalid OUTBOX_MAX_ATTEMPTS; using the default", "value", raw, "default", outboxrelay.DefaultMaxAttempts)
-		return outboxrelay.DefaultMaxAttempts
-	}
-	return n
-}
-
-func startOutboxRelay(store outboxrelay.Store, brokers []string, logger *slog.Logger) (*worker, func(), error) {
-	if len(brokers) == 0 {
-		return nil, nil, errMissingBrokers
-	}
-	sink := outboundkafka.NewRelaySink(brokers)
-	interval := parseRelayInterval(os.Getenv("OUTBOX_RELAY_INTERVAL"), logger)
-	maxAttempts := outboxMaxAttempts(os.Getenv("OUTBOX_MAX_ATTEMPTS"), logger)
-	relay := outboxrelay.NewOutboxRelay(store, sink, logger, outboxrelay.WithInterval(interval), outboxrelay.WithMaxAttempts(maxAttempts))
-
-	ctx, stop := context.WithCancel(context.Background())
-	w := &worker{name: "outbox-relay", done: make(chan struct{})}
-	go func() {
-		defer close(w.done)
-		defer func() {
-			if err := sink.Close(); err != nil {
-				logger.Error("kafka relay sink close failed", "error", err)
-			}
-		}()
-		logger.Info("outbox relay running", "publisher", "kafka", "interval", interval, "max_attempts", maxAttempts,
-			"topics", []string{outboundkafka.TopicEvents, outboundkafka.TopicAnalytics})
-		if err := relay.Run(ctx); !errors.Is(err, context.Canceled) {
-			logger.Error("outbox relay stopped", "error", err)
-		}
-	}()
-	return w, stop, nil
-}
-
-func parseSweepInterval(raw string, logger *slog.Logger) time.Duration {
-	if raw == "" {
-		return defaultSweepInterval
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil || d <= 0 {
-		logger.Warn("invalid SWEEP_INTERVAL; using the default", "value", raw, "default", defaultSweepInterval)
-		return defaultSweepInterval
-	}
-	return d
-}
-
-// startSweep runs the virtual-queue timer: each tick releases the due assignments and walks
-// every page of queued ones to re-optimise them.
-func startSweep(sweep *usecases.SweepQueue, logger *slog.Logger) (*worker, func()) {
-	interval := parseSweepInterval(os.Getenv("SWEEP_INTERVAL"), logger)
-	ctx, stop := context.WithCancel(context.Background())
-	w := &worker{name: "queue-sweep", done: make(chan struct{})}
-	go func() {
-		defer close(w.done)
-		logger.Info("queue sweep running", "interval", interval)
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			sweepOnce(ctx, sweep, logger)
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
-	return w, stop
-}
-
-func sweepOnce(ctx context.Context, sweep *usecases.SweepQueue, logger *slog.Logger) {
-	var after assignment.ID
-	for ctx.Err() == nil {
-		res, err := sweep.Execute(ctx, after, defaultSweepPageSize)
-		if err != nil && ctx.Err() == nil {
-			logger.ErrorContext(ctx, "queue sweep pass failed", "error", err)
-		}
-		if res.Released+res.Reoptimised > 0 {
-			logger.InfoContext(ctx, "queue sweep", "released", res.Released, "reoptimised", res.Reoptimised, "skipped", res.Skipped)
-		}
-		if res.Next == "" {
-			return
-		}
-		after = res.Next
-	}
-}
-
-func serveUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *http.Server, readiness *inboundhttp.Readiness,
-	background []*worker, closeConsumers, closeSweep func(), relay *worker, closeRelay func(),
-) error {
-	errCh := make(chan error, 1)
-	go func() {
-		logger.Info("http server listening", "addr", httpServer.Addr)
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-	stopAll := func() { closeConsumers(); closeSweep(); closeRelay() }
-
-	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	died := watchWorkers(append([]*worker{relay}, background...)...)
-	select {
-	case err := <-errCh:
-		stopAll()
-		return err
-	case name := <-died:
-		stopAll()
-		return fmt.Errorf("%s stopped unexpectedly: exiting so the orchestrator restarts the service", name)
-	case <-sigCtx.Done():
-	}
-
-	// Drain: not-ready first so the load balancer stops routing, then close the listener,
-	// then stop the workers and wait for them.
-	readiness.SetNotReady()
-	if delay := shutdownDrainDelay(logger); delay > 0 {
-		logger.Info("shutdown: readiness flipped to not-ready; waiting for traffic to drain", "drain_delay", delay.String())
-		time.Sleep(delay)
-	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	err := httpServer.Shutdown(shutdownCtx)
-
-	closeConsumers()
-	closeSweep()
-	for _, w := range background {
-		await(logger, w)
-	}
-	closeRelay()
-	await(logger, relay)
-	return err
-}
-
-func watchWorkers(workers ...*worker) <-chan string {
-	died := make(chan string, len(workers))
-	for _, w := range workers {
-		if w == nil {
-			continue
-		}
-		go func() {
-			<-w.done
-			died <- w.name
-		}()
-	}
-	return died
-}
-
-func await(logger *slog.Logger, w *worker) {
-	if w == nil {
-		return
-	}
-	select {
-	case <-w.done:
-	case <-time.After(workerDrainTimeout):
-		logger.Warn("worker did not stop before the shutdown drain deadline", "worker", w.name)
-	}
-}
-
-func shutdownDrainDelay(logger *slog.Logger) time.Duration {
-	raw := os.Getenv("SHUTDOWN_DRAIN_DELAY")
-	if raw == "" {
-		return defaultShutdownDrain
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil || d < 0 {
-		logger.Warn("ignoring invalid SHUTDOWN_DRAIN_DELAY", "value", raw, "default", defaultShutdownDrain.String())
-		return defaultShutdownDrain
-	}
-	return d
 }
 
 func newLogger(level string) *slog.Logger {

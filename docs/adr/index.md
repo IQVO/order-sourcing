@@ -1,3 +1,11 @@
+---
+id: index
+title: Architecture decision records
+sidebar_label: ADR index
+slug: /
+sidebar_position: 0
+---
+
 # Architecture decision records
 
 The decisions of `order-sourcing`, in the order they were taken. The ADR bodies
