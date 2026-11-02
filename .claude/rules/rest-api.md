@@ -10,7 +10,7 @@ paths:
 Route -> use case, kept in sync with `apis/openapi.yaml`. Routes are registered in
 `internal/adapters/inbound/http/server.go` (`Server.Handler`) and wired in `cmd/api/main.go` `buildServices`:
 
-- `GET /assignments?state=&nodeId=&orderId=&limit=` -> `ListAssignments`
+- `GET /assignments?state=&nodeId=&orderId=&limit=&cursor=` -> `ListAssignments` (paged, body `{items,nextCursor}`)
 - `GET /assignments/{assignmentId}` -> `GetAssignment`
 - `POST /assignments/{assignmentId}/reoptimisations` -> `ReoptimiseAssignment` (optional body `{"assignmentVersion"}`)
 - `GET /healthz` (liveness), `GET /readyz` (readiness): not business operations.
@@ -26,9 +26,11 @@ not by REST (ADR 0002).
   `release-in-flight`, `stale-assignment-version`, `candidate-breaks-promise`, `node-excluded`). An unmapped error
   is an opaque 500 `internal-error`. A new `Err` needs a catalogue row and a row in
   `TestEveryTypedErrorHasItsProblem` (`handlers_test.go`).
-- **Idempotency-Key** is required on the state-changing route (`idempotency.go`): same key + same request replays
-  the first response (`Idempotency-Replayed: true`), same key + other request is 409 `idempotency-key-reused`,
-  missing key 400 `idempotency-key-required`, keys live 24 h in `idempotency_keys`. A new state-changing route
+- **Idempotency-Key** is required on every POST/PATCH (`idempotency.go`): the key is GLOBAL (looked up alone,
+  fingerprint = method + path + body hash); same key + same request replays the stored answer
+  (`Idempotency-Replayed: true`), same key + other request is 409 `idempotency-key-reused`,
+  missing key 400 `idempotency-key-required`, a key outside 1-128 printable ASCII 400
+  `idempotency-key-invalid`; keys live 24 h in `idempotency_keys`. A new keyed route
   goes inside the `r.Group` that `Server.Handler` wraps with `s.Idempotency`.
 - **NUL** (U+0000) is rejected before anything else (`nul.go`).
 - **Handlers hold no business logic**: decode, call a use case, encode the view.
