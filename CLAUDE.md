@@ -23,7 +23,7 @@ The outbox relay (`OUTBOX_MAX_ATTEMPTS` 20, `OUTBOX_RELAY_INTERVAL` 1s), the que
 Shutdown: /readyz 503, `SHUTDOWN_DRAIN_DELAY` (5s), drain HTTP, stop consumers and sweep, stop relay, close pool. cmd/** never imports internal/adapters/outbound/memory or repocontract. No authentication on REST. See docs/docs/overview/runtime.md.
 
 ## REST
-chi router: `GET /assignments`, `GET /assignments/{assignmentId}`, `POST /assignments/{assignmentId}:reoptimise` plus /healthz, /readyz. Every other transition is event-driven. The state-changing route takes `Idempotency-Key` (table `idempotency_keys`, key = (route, key), 24h, replays the first response, same key + other request = 422 `idempotency-key-reused`).
+chi router: `GET /assignments`, `GET /assignments/{assignmentId}`, `POST /assignments/{assignmentId}/reoptimisations` plus /healthz, /readyz. Every other transition is event-driven. The state-changing route takes `Idempotency-Key` (table `idempotency_keys`, key is global (looked up by key alone), 24h, replays the first response, same key + other request = 409 `idempotency-key-reused`).
 NUL: 404 in the path, 400 elsewhere. Errors are RFC 9457 problem+json, `type` = slug: not-found, illegal-transition, concurrent-update, validation-failed + one kebab-case slug per model Err (assignment-locked, release-in-flight, stale-assignment-version, ...).
 
 ## Events: CloudEvents 1.0 is MANDATORY

@@ -12,7 +12,7 @@ Route -> use case, kept in sync with `apis/openapi.yaml`. Routes are registered 
 
 - `GET /assignments?state=&nodeId=&orderId=&limit=` -> `ListAssignments`
 - `GET /assignments/{assignmentId}` -> `GetAssignment`
-- `POST /assignments/{assignmentId}:reoptimise` -> `ReoptimiseAssignment` (optional body `{"assignmentVersion"}`)
+- `POST /assignments/{assignmentId}/reoptimisations` -> `ReoptimiseAssignment` (optional body `{"assignmentVersion"}`)
 - `GET /healthz` (liveness), `GET /readyz` (readiness): not business operations.
 
 Every other transition (queue, release, refusal, lock, ship, deliver, cancel, revise) is driven by Kafka events,
@@ -27,7 +27,7 @@ not by REST (ADR 0002).
   is an opaque 500 `internal-error`. A new `Err` needs a catalogue row and a row in
   `TestEveryTypedErrorHasItsProblem` (`handlers_test.go`).
 - **Idempotency-Key** is required on the state-changing route (`idempotency.go`): same key + same request replays
-  the first response (`Idempotent-Replayed: true`), same key + other request is 422 `idempotency-key-reused`,
+  the first response (`Idempotency-Replayed: true`), same key + other request is 409 `idempotency-key-reused`,
   missing key 400 `idempotency-key-required`, keys live 24 h in `idempotency_keys`. A new state-changing route
   goes inside the `r.Group` that `Server.Handler` wraps with `s.Idempotency`.
 - **NUL** (U+0000) is rejected before anything else (`nul.go`).
