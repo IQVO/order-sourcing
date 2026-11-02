@@ -27,7 +27,7 @@ func putGet(t *testing.T, fx Fixture) {
 	wave := network.Wave{ID: "w1", StationID: "s1", InductCutoffAt: hours(10), WindowStart: hours(12), WindowEnd: hours(18), Capacity: 90,
 		Remaining: 3, RemainingKnown: true, Scheduled: true, Cancelled: true}
 	area := network.ServiceArea{PostalPrefix: "30301", StationID: "s1", RegionID: "r1", Version: 3}
-	listing := network.Listing{ID: "lst1", CatalogItemID: "cat-1", NodeID: "n1", AvailableQty: 8, AsOf: hours(2), Suppressed: true}
+	listing := network.Listing{ID: "lst1", CatalogItemID: fixtureCatItem, NodeID: "n1", AvailableQty: 8, AsOf: hours(2), Suppressed: true}
 	card := network.Scorecard{NodeID: "n1", Window: "30d", Grade: "B", ComputedAt: hours(3)}
 
 	if _, err := rm.GetNode(ctx(), "n1"); !errors.Is(err, ports.ErrNotFound) {
@@ -119,7 +119,7 @@ func runWorld(t *testing.T, f Factory) {
 	fx := f(t)
 	now := hours(1)
 	seedWorld(t, fx.ReadModels)
-	w, err := fx.World.Load(ctx(), repository.WorldQuery{DestinationPostalPrefix: "30301", CatalogItemIDs: []string{"cat-1", "cat-2"}, Now: now})
+	w, err := fx.World.Load(ctx(), repository.WorldQuery{DestinationPostalPrefix: "30301", CatalogItemIDs: []string{fixtureCatItem, "cat-2"}, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,9 +160,9 @@ func seedWorld(t *testing.T, rm ports.ReadModels) {
 	must(rm.PutWave(ctx(), wv("w-edge", "s1", now)))
 	must(rm.PutWave(ctx(), wv("w-past", "s1", hours(0))))
 	must(rm.PutWave(ctx(), wv("w-other", "s9", hours(5))))
-	must(rm.PutListing(ctx(), network.Listing{ID: "lst-1", CatalogItemID: "cat-1", NodeID: "n1", AvailableQty: 5, AsOf: hours(0)}))
+	must(rm.PutListing(ctx(), network.Listing{ID: fixtureListing, CatalogItemID: fixtureCatItem, NodeID: "n1", AvailableQty: 5, AsOf: hours(0)}))
 	must(rm.PutListing(ctx(), network.Listing{ID: "lst-2", CatalogItemID: "cat-2", NodeID: "n1", AvailableQty: 5, AsOf: hours(0)}))
-	must(rm.PutDiscontinued(ctx(), "cat-1"))
+	must(rm.PutDiscontinued(ctx(), fixtureCatItem))
 	must(rm.PutDiscontinued(ctx(), "cat-3"))
 	must(rm.PutScorecard(ctx(), network.Scorecard{NodeID: "n1", Window: "30d", Grade: "C", ComputedAt: hours(0)}))
 	must(rm.PutScorecard(ctx(), network.Scorecard{NodeID: "n1", Window: "7d", Grade: "A", ComputedAt: hours(0)}))
@@ -186,10 +186,10 @@ func wantWorld(t *testing.T, w sourcing.World) {
 
 func wantWorldRest(t *testing.T, w sourcing.World) {
 	t.Helper()
-	if len(w.Listings) != 2 || w.Listings[0].ID != "lst-1" || w.Listings[1].ID != "lst-2" {
+	if len(w.Listings) != 2 || w.Listings[0].ID != fixtureListing || w.Listings[1].ID != "lst-2" {
 		t.Fatalf("listings = %+v: only the asked items, by id", w.Listings)
 	}
-	if !w.Discontinued["cat-1"] || w.Discontinued["cat-3"] || w.Discontinued["cat-2"] {
+	if !w.Discontinued[fixtureCatItem] || w.Discontinued["cat-3"] || w.Discontinued["cat-2"] {
 		t.Fatalf("discontinued = %v: only asked items", w.Discontinued)
 	}
 	if sc := w.Scorecards["n1"]; sc.Grade != "C" || len(w.Scorecards) != 1 {

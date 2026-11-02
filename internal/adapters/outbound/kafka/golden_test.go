@@ -25,7 +25,7 @@ func TestGoldenCloudEvents(t *testing.T) {
 			if *update {
 				writeGolden(t, path, got)
 			}
-			want, err := os.ReadFile(path) //nolint:gosec // fixed testdata path
+			want, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
 			}
