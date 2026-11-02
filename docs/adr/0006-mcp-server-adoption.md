@@ -27,7 +27,7 @@ another driving adapter over them, not new domain.
   the SAME `usecases.Queries` the REST adapter calls. Arguments and results
   are lowerCamelCase like the REST contract; typed errors carry the REST
   problem slug (`not-found`, `validation-failed`) as the prefix of the tool
-  error. `POST /assignments/{id}:reoptimise` stays REST-only: asking for an
+  error. `POST /assignments/{id}/reoptimisations` stays REST-only: asking for an
   immediate re-optimisation is a planner's deliberate act, not an agent's
   read, and every other lifecycle change arrives as a consumed Kafka event
   handled by `cmd/api`.

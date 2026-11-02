@@ -131,7 +131,7 @@ unsourceable. It holds no PII and calls no other context synchronously.
 | `last-mile-delivery` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled` | Event | Kafka `retailnetwork.last-mile-delivery.events` | Conformist |
 | `node-performance` | `NodeScorecardUpdated` | Event | Kafka `retailnetwork.node-performance.events` | Conformist |
 | Network-ops planner, agents | `ListAssignments`, `GetAssignment` | Query | REST `GET /assignments`, `GET /assignments/{id}`; MCP `list_assignments`, `get_assignment`; A2A `find_assignments`, `assignment_detail` | Open Host (UI) |
-| Network-ops planner | `ReoptimiseAssignment` | Command | REST `POST /assignments/{id}:reoptimise` | Open Host (UI) |
+| Network-ops planner | `ReoptimiseAssignment` | Command | REST `POST /assignments/{id}/reoptimisations` | Open Host (UI) |
 | Own sweep | `ReleaseToNode`, `ReoptimiseAssignment` | Command | in-process timer, `SWEEP_INTERVAL` | Internal |
 
 ## Outbound communication

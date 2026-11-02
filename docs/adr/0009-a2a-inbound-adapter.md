@@ -37,7 +37,7 @@ things and must not overlap:
   if the context's MCP surface already offers that write. The MCP charter of
   ADR 0006 is read-only (no write tool, `TestToolSurface` fails the build on a
   write verb), so this agent offers no write either: delegation must never
-  widen what the context exposes. `POST /assignments/{id}:reoptimise` stays
+  widen what the context exposes. `POST /assignments/{id}/reoptimisations` stays
   REST-only and every other lifecycle change arrives as a consumed Kafka event
   handled by `cmd/api`.
 - **Two curated, goal-shaped skills, derived from the two MCP tools** (not one

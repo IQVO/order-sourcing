@@ -46,7 +46,7 @@ describe("AssignmentListScreen", () => {
   });
 
   it("renders the empty state of a page with no match", async () => {
-    mockApi({ "GET /assignments": json({ assignments: [] }) });
+    mockApi({ "GET /assignments": json({ items: [] }) });
     renderScreen();
     expect(await screen.findByText("No assignment matches these filters.")).toBeInTheDocument();
   });

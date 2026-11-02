@@ -221,11 +221,11 @@ func (a api) assignments(query string) []map[string]any {
 	if code != 200 {
 		return nil
 	}
-	var out struct{ Assignments []map[string]any }
+	var out struct{ Items []map[string]any }
 	if err := json.Unmarshal(body, &out); err != nil {
 		a.t.Fatalf("list body: %v", err)
 	}
-	return out.Assignments
+	return out.Items
 }
 
 func (a api) stateOf(order string) string {
@@ -369,22 +369,25 @@ func TestRealWiringEndToEnd(t *testing.T) {
 	}
 
 	// --- REST: reoptimise (idempotent), refusals, problem details ---
-	code, _, body := a.do("POST", "/assignments/"+id1+":reoptimise", "", `{}`)
+	code, _, body := a.do("POST", "/assignments/"+id1+"/reoptimisations", "", `{}`)
 	if code != 400 || !strings.Contains(string(body), "idempotency-key-required") {
 		t.Fatalf("no key = %d %s", code, body)
 	}
-	code, _, first := a.do("POST", "/assignments/"+id1+":reoptimise", "re-1", `{}`)
-	code2, hdr, again := a.do("POST", "/assignments/"+id1+":reoptimise", "re-1", `{}`)
-	if code != 200 || code2 != 200 || string(first) != string(again) || hdr.Get("Idempotent-Replayed") != "true" {
-		t.Fatalf("reoptimise: %d %d replayed=%q\n%s\n%s", code, code2, hdr.Get("Idempotent-Replayed"), first, again)
+	code, _, first := a.do("POST", "/assignments/"+id1+"/reoptimisations", "re-1", `{}`)
+	code2, hdr, again := a.do("POST", "/assignments/"+id1+"/reoptimisations", "re-1", `{}`)
+	if code != 200 || code2 != 200 || string(first) != string(again) || hdr.Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("reoptimise: %d %d replayed=%q\n%s\n%s", code, code2, hdr.Get("Idempotency-Replayed"), first, again)
 	}
-	if code, hdr, body := a.do("POST", "/assignments/"+id2+":reoptimise", "re-2", `{}`); code != 409 || !strings.HasPrefix(hdr.Get("Content-Type"), "application/problem+json") {
+	if code, _, body := a.do("POST", "/assignments/"+id2+"/reoptimisations", "re-1", `{}`); code != 409 || !strings.Contains(string(body), "idempotency-key-reused") {
+		t.Fatalf("a key reused on another request is 409 idempotency-key-reused: %d %s", code, body)
+	}
+	if code, hdr, body := a.do("POST", "/assignments/"+id2+"/reoptimisations", "re-2", `{}`); code != 409 || !strings.HasPrefix(hdr.Get("Content-Type"), "application/problem+json") {
 		t.Fatalf("a released assignment cannot be re-optimised: %d %s", code, body)
 	}
 	if code, _, body := a.do("GET", "/assignments/asg-nope", "", ""); code != 404 || !strings.Contains(string(body), "not-found") {
 		t.Fatalf("unknown id = %d %s", code, body)
 	}
-	if code, _, _ := a.do("GET", "/assignments?limit=0", "", ""); code != 422 {
+	if code, _, _ := a.do("GET", "/assignments?limit=0", "", ""); code != 400 {
 		t.Fatalf("limit=0 = %d", code)
 	}
 	if code, _, _ := a.do("GET", "/assignments?state=BOGUS", "", ""); code != 422 {

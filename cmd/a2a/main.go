@@ -12,7 +12,7 @@
 // runs the virtual-queue sweep, never runs the nine Kafka consumers and never
 // dials Kafka (no KAFKA_BROKERS, no consumer groups): those run in cmd/api
 // only. It makes no REST, MCP or A2A call to any sibling context.
-// POST /assignments/{id}:reoptimise stays a REST operation.
+// POST /assignments/{id}/reoptimisations stays a REST operation.
 //
 // Like cmd/api it runs on real Postgres only: there is no in-memory mode. A
 // missing mandatory variable is a boot error naming it, raised before

@@ -10,7 +10,7 @@
 // never runs the virtual-queue sweep, never runs the nine Kafka consumers and
 // never dials Kafka (no KAFKA_BROKERS, no consumer groups): those run in
 // cmd/api only. It makes no REST or MCP call to any sibling context.
-// POST /assignments/{id}:reoptimise stays a REST operation.
+// POST /assignments/{id}/reoptimisations stays a REST operation.
 //
 // There is NO auth of any kind (fleet-wide revert 2026-09-11): no keys, no
 // bearer checks. Access control is the in-cluster ClusterIP boundary.

@@ -26,32 +26,34 @@ The binaries and their ports are on [Architecture](/docs/overview/architecture);
 
 | Tag | Endpoint | Operation id | Success | Errors |
 | --- | --- | --- | --- | --- |
-| Assignments | `GET /assignments` | `listAssignments` | `200 {assignments: [...]}`, ordered by `assignmentId` ascending; filters `state`, `nodeId`, `orderId`, `limit` (1 to 500, default 100) combine with AND; an empty match is `200` with an empty array | `422 validation-failed` for an unknown `state`, or a `limit` that is not an integer or outside 1 to 500 |
+| Assignments | `GET /assignments` | `listAssignments` | `200 {items: [...], nextCursor}`, ordered by `assignmentId` ascending; filters `state`, `nodeId`, `orderId` combine with AND; `limit` (1 to 500, default 100) and `cursor` page it; an empty match is `200` with an empty `items` array | `400 invalid-limit`, `400 invalid-cursor`, `400 unknown-query-parameter`; `422 validation-failed` for an unknown `state` |
 | Assignments | `GET /assignments/{assignmentId}` | `getAssignment` | `200`, the assignment with its release history, excluded nodes and current candidate | `404 not-found` |
-| Assignments | `POST /assignments/{assignmentId}:reoptimise` | `reoptimiseAssignment` | `200`, the assignment after re-optimisation (unchanged when the best candidate is the current one); optional body `{"assignmentVersion": n}`; header `Idempotency-Key` required | `400 idempotency-key-required`, `404 not-found`, `409` (`assignment-locked`, `release-in-flight`, `node-excluded`, `stale-assignment-version`, `illegal-transition`, `concurrent-update`), `422` (`candidate-breaks-promise`, `validation-failed`) |
+| Assignments | `POST /assignments/{assignmentId}/reoptimisations` | `reoptimiseAssignment` | `200`, the assignment after re-optimisation (unchanged when the best candidate is the current one); optional body `{"assignmentVersion": n}`; header `Idempotency-Key` required | `400 idempotency-key-required` / `idempotency-key-invalid`, `404 not-found`, `409` (`idempotency-key-reused`, `assignment-locked`, `release-in-flight`, `node-excluded`, `stale-assignment-version`, `illegal-transition`, `concurrent-update`), `422` (`candidate-breaks-promise`, `validation-failed`) |
 | Health | `GET /healthz`, `GET /readyz` | none in the spec | `200 {"status":"ok"}` / `200 {"status":"ready"}`; `/readyz` is `503` while draining or when Postgres or the Kafka broker is unreachable | see [Troubleshooting](/docs/operations/troubleshooting) |
 
 Source: `internal/adapters/inbound/http/server.go` registers exactly these routes: `/healthz`, `/readyz`, `GET /assignments`,
-`GET /assignments/{id}` and `POST /assignments/{id}:reoptimise`. `/healthz` and `/readyz` are not in `apis/openapi.yaml`.
+`GET /assignments/{id}` and `POST /assignments/{id}/reoptimisations`. `/healthz` and `/readyz` are not in `apis/openapi.yaml`.
 Assignments are never created through REST: a `CustomerOrderPlaced` event creates them.
 
 ## Conventions in the contract
 
 - **Errors** are RFC 9457 `application/problem+json`. The `type` is
   `https://errors.order-sourcing.retail-network.example/<slug>` (the spec examples show the bare slug). The slugs the code
-  produces: `malformed-request`, `idempotency-key-required`, `validation-failed`, `not-found`, `assignment-locked`,
+  produces: `malformed-request`, `idempotency-key-required`, `idempotency-key-invalid`, `idempotency-key-reused`, `invalid-limit`, `invalid-cursor`, `unknown-query-parameter`, `validation-failed`, `not-found`, `assignment-locked`,
   `release-in-flight`, `node-excluded`, `stale-assignment-version`, `candidate-breaks-promise`, `illegal-transition`,
   `concurrent-update`, `method-not-allowed`, `resource-not-found` (an unknown path) and `internal-error`. The mapping from domain errors is on
   [Use cases](/docs/ddd/use-cases#errors-and-the-problem-types-they-become) and, with remedies, on
   [Troubleshooting](/docs/operations/troubleshooting#rest-problem-types).
-- **`Idempotency-Key`** is mandatory on the reoptimise route (1 to 128 characters; a longer key is `422 validation-failed`). It
-  is implemented in `internal/adapters/inbound/http/idempotency.go` against the `idempotency_keys` table in the request's own
-  transaction: the first answer is stored and replayed for 24 hours. See
+- **`Idempotency-Key`** is mandatory on the reoptimise route (1 to 128 printable ASCII characters; anything else is `400 idempotency-key-invalid`). The key is global:
+  it is looked up by key alone and compared by fingerprint (method + path + SHA-256 of the body). The same request replays the first
+  answer with `Idempotency-Replayed: true`; the same key with another request is `409 idempotency-key-reused`. It is implemented in
+  `internal/adapters/inbound/http/idempotency.go` against the `idempotency_keys` table in the request's own transaction: the first
+  answer is stored and replayed for 24 hours. See
   [Troubleshooting](/docs/operations/troubleshooting#idempotency-in-practice).
 - **Optimistic concurrency.** An assignment carries `assignmentVersion`, which strictly increases. The optional
   `assignmentVersion` in the reoptimise body is checked against the current one (`409 stale-assignment-version`); 0 or absent
   skips the check.
-- **Paging.** `GET /assignments` has a `limit` and no cursor; ordering is by `assignmentId`.
+- **Paging.** `GET /assignments` is keyset-paged by `assignmentId` with `limit` and an opaque `cursor`; the body is `{items, nextCursor}` and `nextCursor` is absent on the last page. Any other query parameter (`after`, `offset`, `nextToken`) is `400 unknown-query-parameter`.
 - **No PII.** The context holds the destination postal prefix only, never an address or a person.
 - **Auth: none.** Anyone who can reach a port can call it; network policy and the Kong route are the only boundary.
 
@@ -84,9 +86,6 @@ Kafka.
 
 ## Where code and spec differ
 
-- `apis/openapi.yaml` does not list the `400 idempotency-key-required` answer of the reoptimise route; the router returns it
-  (`internal/adapters/inbound/http/errors.go`, `idempotency.go`). It lists only `422` for an invalid `limit`, which is what the
-  code returns.
 - The spec describes `/healthz` and `/readyz` nowhere; the router serves them (see
   [Runbook](/docs/operations/runbook#health)).
 - The spec lists only `http://localhost:8080` as a server; the cluster route through Kong is `/api/order-sourcing`.
