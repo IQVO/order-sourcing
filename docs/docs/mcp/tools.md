@@ -14,7 +14,7 @@ It needs only `DATABASE_URL`: no Kafka, no relay, no consumer. There is **no aut
 that writes: `TestToolSurface` pins the exact set and fails the build on a write-verb name. The adapter's `Deps` carries
 `usecases.Queries` only, and `TestMCPAdapterDependencyRule` keeps it off every outbound adapter. Re-optimising an assignment
 stays a REST operation
-(`POST /assignments/{id}:reoptimise`); every other lifecycle change arrives as a Kafka event.
+(`POST /assignments/{id}/reoptimisations`); every other lifecycle change arrives as a Kafka event.
 
 Source: `internal/adapters/inbound/mcp/server.go`, `tools.go`, `errors.go`, `cmd/mcp/router.go`, and the registry pinned in
 `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json` (names, descriptions, annotations, input and output
@@ -43,8 +43,8 @@ this tool, pinned by `TestOptionalInputsAreNotRequired`).
 | `orderId` | string | no | Keep assignments of this order |
 | `limit` | integer | no | Page size 1 to 500; omitted or 0 means 100 |
 
-Output: `{"assignments": [ ... ]}`, each item an assignment (shape below). An empty match is an empty array. An unknown `state`
-or a `limit` outside 1 to 500 fails with `validation-failed`. There is no cursor: the list is capped by `limit`.
+Output: `{"assignments": [ ... ]}` (the tool keeps its own schema), each item an assignment (shape below). An empty match is an empty array. An unknown `state`
+or a `limit` outside 1 to 500 fails with `validation-failed`. There is no cursor: the tool returns the first `limit` assignments by id (REST pages the same read with `limit` and `cursor`).
 
 ## `get_assignment`
 

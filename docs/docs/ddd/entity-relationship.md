@@ -201,8 +201,8 @@ erDiagram
         timestamptz processed_at
     }
     idempotency_keys {
-        text route PK
         text key PK
+        text fingerprint
         integer status
         bytea body
         jsonb headers
@@ -216,7 +216,7 @@ Source: the same migration. All three are infrastructure, not domain tables:
   CloudEvents message, `event_id` its stable CloudEvents `id`; a partial index serves the unpublished rows by `id`. `attempts` and
   `last_error` support the attempt cap ([Runbook](/docs/operations/runbook#outbox-relay)).
 - `processed_events` is the inbox: one row per consumed CloudEvents `id`, written in the same transaction as its effect.
-- `idempotency_keys` stores the first answer of `POST /assignments/{id}:reoptimise` per `(route, key)`, ignored after 24 hours.
+- `idempotency_keys` stores the first answer of `POST /assignments/{id}/reoptimisations` per `key` (global), with the request fingerprint (method + path + SHA-256 of the body), ignored after 24 hours. Migration `0002` moved the key from `(route, key)` to `key` alone.
 
 golang-migrate also keeps its own bookkeeping table (`schema_migrations`), created by the tool and not by this migration.
 

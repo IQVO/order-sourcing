@@ -329,7 +329,7 @@ and `LockAssignment`.
 ```mermaid
 flowchart TB
     subgraph IN["internal/adapters/inbound"]
-        HTTP["http<br/>GET /assignments<br/>GET /assignments/id<br/>POST /assignments/id:reoptimise"]
+        HTTP["http<br/>GET /assignments<br/>GET /assignments/id<br/>POST /assignments/id/reoptimisations"]
         KC["kafka<br/>one consumer per topic,<br/>dispatch on full type"]
         MCP["mcp<br/>list_assignments, get_assignment"]
         A2A["a2a<br/>find_assignments, assignment_detail"]

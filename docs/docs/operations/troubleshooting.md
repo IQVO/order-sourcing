@@ -61,7 +61,10 @@ Every error is `application/problem+json` with `type = https://errors.order-sour
 | Status | Slug | When | What to do |
 | --- | --- | --- | --- |
 | 400 | `malformed-request` | Body is not valid JSON for the operation (unknown field, wrong type, trailing data, body over 64 KiB) or the request carries a NUL character in the query string or body | Fix the body against `apis/openapi.yaml` |
-| 400 | `idempotency-key-required` | `POST /assignments/{id}:reoptimise` without an `Idempotency-Key` header | Send a unique key per logical request |
+| 400 | `idempotency-key-required` | `POST /assignments/{id}/reoptimisations` without an `Idempotency-Key` header | Send a unique key per logical request |
+| 400 | `idempotency-key-invalid` | The `Idempotency-Key` is not 1 to 128 printable ASCII characters | Send a UUID |
+| 400 | `invalid-limit` / `invalid-cursor` / `unknown-query-parameter` | `GET /assignments` with a bad `limit`, an undecodable `cursor`, or a parameter it does not declare (`after`, `offset`, `nextToken`) | Use `limit` and the `nextCursor` of the previous page |
+| 409 | `idempotency-key-reused` | The `Idempotency-Key` was already used with a different method, path or body | A new logical request needs a new key; do not retry blindly |
 | 404 | `not-found` | Unknown assignment id | Normal for a wrong id |
 | 404 | `resource-not-found` | A path that names no resource, or a NUL in the path | Fix the path |
 | 405 | `method-not-allowed` | Method not allowed on the path | Use the documented method |
@@ -78,9 +81,9 @@ Every error is `application/problem+json` with `type = https://errors.order-sour
 
 ### Idempotency in practice
 
-- Only `POST /assignments/{id}:reoptimise` is wrapped; `GET` never needs a key.
+- Only `POST /assignments/{id}/reoptimisations` is wrapped; `GET` never needs a key.
 - The key is scoped to the method and path. A key with a stored answer replays that answer byte for byte, whatever its status (2xx
-  and 4xx are stored), with the header `Idempotent-Replayed: true`. The request body is not compared, so reusing a key with a
+  and 4xx are stored), with the header `Idempotency-Replayed: true`. The request body is not compared, so reusing a key with a
   different `assignmentVersion` returns the first answer.
 - A 5xx or a panic rolls everything back and is never stored, so the same key can retry real work.
 - Two concurrent requests with one new key are serialised by a transaction-scoped advisory lock; the second replays the first.

@@ -115,7 +115,7 @@ func TestRouterRequestLogShape(t *testing.T) {
 func TestRouterRequestLogLevelFollowsTheStatus(t *testing.T) {
 	var buf bytes.Buffer
 	serveLogged(&fakeUC{}, &buf, http.MethodGet, "/assignments/asg-1")                   // 200 -> INFO
-	serveLogged(&fakeUC{}, &buf, http.MethodGet, "/assignments?limit=nope")              // 422 -> WARN
+	serveLogged(&fakeUC{}, &buf, http.MethodGet, "/assignments?limit=nope")              // 400 -> WARN
 	serveLogged(&fakeUC{err: errBoomForLog}, &buf, http.MethodGet, "/assignments/asg-1") // 500 -> ERROR
 
 	levels := map[float64]bool{}
@@ -123,11 +123,11 @@ func TestRouterRequestLogLevelFollowsTheStatus(t *testing.T) {
 		if l["msg"] != "http request" {
 			continue
 		}
-		want := map[float64]string{200: "INFO", 422: "WARN", 500: "ERROR"}[l["status"].(float64)]
+		want := map[float64]string{200: "INFO", 400: "WARN", 500: "ERROR"}[l["status"].(float64)]
 		levels[l["status"].(float64)] = l["level"] == want
 	}
-	if !levels[200] || !levels[422] || !levels[500] || len(levels) != 3 {
-		t.Errorf("levels by status = %v, want 200 INFO, 422 WARN and 500 ERROR", levels)
+	if !levels[200] || !levels[400] || !levels[500] || len(levels) != 3 {
+		t.Errorf("levels by status = %v, want 200 INFO, 400 WARN and 500 ERROR", levels)
 	}
 }
 

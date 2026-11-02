@@ -277,12 +277,13 @@ func (r *AssignmentRepository) FindByPromise(ctx context.Context, promiseID stri
 // List implements ports.AssignmentRepository.
 func (r *AssignmentRepository) List(ctx context.Context, f repository.AssignmentFilter) ([]*assignment.Assignment, error) {
 	limit := f.Limit
-	if limit <= 0 || limit > repository.MaxLimit {
-		limit = repository.MaxLimit
+	if limit <= 0 || limit > repository.FetchLimit {
+		limit = repository.FetchLimit
 	}
 	rows, err := queryFor(ctx, r.pool).Query(ctx, `SELECT `+assignmentColumns+` FROM assignments
 		WHERE ($1 = '' OR state = $1) AND ($2 = '' OR node_id = $2) AND ($3 = '' OR order_id = $3)
-		ORDER BY assignment_id LIMIT $4`, string(f.State), f.NodeID, f.OrderID, limit)
+		AND assignment_id > $4
+		ORDER BY assignment_id LIMIT $5`, string(f.State), f.NodeID, f.OrderID, f.After, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list assignments: %w", err)
 	}

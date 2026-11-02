@@ -217,6 +217,10 @@ func listFilters(t *testing.T, fx Fixture) {
 	wantIDs(t, list(repository.AssignmentFilter{NodeID: "node-a"}), "asg-a", "asg-b", "asg-c", "asg-d")
 	wantIDs(t, list(repository.AssignmentFilter{NodeID: "node-zzz"}))
 	wantIDs(t, list(repository.AssignmentFilter{Limit: 2}), "asg-a", "asg-b")
+	// keyset: strictly after the position, still ordered by id, filters combine.
+	wantIDs(t, list(repository.AssignmentFilter{After: "asg-b", Limit: 2}), "asg-c", "asg-d")
+	wantIDs(t, list(repository.AssignmentFilter{After: "asg-a", State: assignment.StateQueued}), "asg-b")
+	wantIDs(t, list(repository.AssignmentFilter{After: "asg-d"}))
 }
 
 func dueAndQueued(t *testing.T, fx Fixture) {

@@ -64,14 +64,14 @@ func call(f *fakeUC, method, target, body string) *httptest.ResponseRecorder {
 func TestListMapsFiltersAndShape(t *testing.T) {
 	f := &fakeUC{list: []views.Assignment{sample()}}
 	rec := call(f, http.MethodGet, "/assignments?state=QUEUED&nodeId=n1&orderId=ord-1&limit=7", "")
-	if rec.Code != 200 || f.filter.State != "QUEUED" || f.filter.NodeID != "n1" || f.filter.OrderID != "ord-1" || f.filter.Limit != 7 {
+	if rec.Code != 200 || f.filter.State != "QUEUED" || f.filter.NodeID != "n1" || f.filter.OrderID != "ord-1" || f.filter.Limit != 8 {
 		t.Fatalf("code=%d filter=%+v", rec.Code, f.filter)
 	}
 	var out map[string][]map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	a := out["assignments"][0]
+	a := out["items"][0]
 	for _, k := range []string{"assignmentId", "promise", "lines", "candidate", "releaseAt", "releases", "excludedNodes", "trackingNumbers"} {
 		if _, ok := a[k]; !ok {
 			t.Errorf("missing %s in %v", k, a)
@@ -86,17 +86,47 @@ func TestListMapsFiltersAndShape(t *testing.T) {
 		t.Fatal("content type")
 	}
 	empty := call(&fakeUC{}, http.MethodGet, "/assignments", "")
-	if empty.Code != 200 || strings.TrimSpace(empty.Body.String()) != `{"assignments":[]}` {
+	if empty.Code != 200 || strings.TrimSpace(empty.Body.String()) != `{"items":[]}` {
 		t.Fatalf("empty list = %d %s", empty.Code, empty.Body)
 	}
 }
 
-func TestListRejectsBadLimits(t *testing.T) {
-	for _, q := range []string{"limit=abc", "limit=0", "limit=-3"} {
+func TestListRejectsBadPagingAndRetiredParameters(t *testing.T) {
+	cases := map[string]string{
+		"limit=abc": "invalid-limit", "limit=0": "invalid-limit", "limit=-3": "invalid-limit", "limit=501": "invalid-limit",
+		"limit=": "invalid-limit", "limit=1&limit=2": "invalid-limit",
+		"cursor=!!": "invalid-cursor", "cursor=a&cursor=b": "invalid-cursor",
+		"after=asg-1": "unknown-query-parameter", "offset=5": "unknown-query-parameter", "nextToken=x": "unknown-query-parameter",
+		"from=x": "unknown-query-parameter",
+	}
+	for q, slug := range cases {
 		rec := call(&fakeUC{}, http.MethodGet, "/assignments?"+q, "")
-		if rec.Code != 422 || !strings.Contains(rec.Body.String(), "validation-failed") {
+		if rec.Code != 400 || !strings.Contains(rec.Body.String(), slug) {
 			t.Errorf("%s -> %d %s", q, rec.Code, rec.Body)
 		}
+	}
+}
+
+func TestListPagesWithNextCursor(t *testing.T) {
+	a, b, c := sample(), sample(), sample()
+	a.AssignmentID, b.AssignmentID, c.AssignmentID = "asg-1", "asg-2", "asg-3"
+	f := &fakeUC{list: []views.Assignment{a, b, c}} // limit+1 rows came back
+	rec := call(f, http.MethodGet, "/assignments?limit=2", "")
+	var out struct {
+		Items      []map[string]any `json:"items"`
+		NextCursor string           `json:"nextCursor"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out.Items) != 2 || out.NextCursor == "" {
+		t.Fatalf("page = %d %s", rec.Code, rec.Body)
+	}
+	call(f, http.MethodGet, "/assignments?limit=2&cursor="+out.NextCursor, "")
+	if f.filter.After != "asg-2" || f.filter.Limit != 3 {
+		t.Fatalf("filter = %+v, want After=asg-2 Limit=3", f.filter)
+	}
+	f.list = f.list[:2]
+	rec = call(f, http.MethodGet, "/assignments?limit=2", "")
+	if strings.Contains(rec.Body.String(), "nextCursor") {
+		t.Fatalf("the last page carries no nextCursor: %s", rec.Body)
 	}
 }
 
@@ -105,11 +135,11 @@ func TestGetAndReoptimiseSuccess(t *testing.T) {
 	if rec := call(f, http.MethodGet, "/assignments/asg-1", ""); rec.Code != 200 || f.gotID != "asg-1" {
 		t.Fatalf("get = %d", rec.Code)
 	}
-	rec := call(f, http.MethodPost, "/assignments/asg-1:reoptimise", `{"assignmentVersion":5}`)
+	rec := call(f, http.MethodPost, "/assignments/asg-1/reoptimisations", `{"assignmentVersion":5}`)
 	if rec.Code != 200 || f.gotID != "asg-1" || f.gotVer != 5 {
 		t.Fatalf("reoptimise = %d id=%s ver=%d", rec.Code, f.gotID, f.gotVer)
 	}
-	if rec := call(f, http.MethodPost, "/assignments/asg-2:reoptimise", ""); rec.Code != 200 || f.gotVer != 0 {
+	if rec := call(f, http.MethodPost, "/assignments/asg-2/reoptimisations", ""); rec.Code != 200 || f.gotVer != 0 {
 		t.Fatalf("an empty body is allowed: %d", rec.Code)
 	}
 }
@@ -124,11 +154,11 @@ func TestReoptimiseRejectsWhatIsNotTheAction(t *testing.T) {
 		"no action suffix": {"/assignments/asg-1", `{}`, 405, "method-not-allowed"},
 		"other action":     {"/assignments/asg-1:cancel", `{}`, 405, "method-not-allowed"},
 		"unknown path":     {"/nowhere", `{}`, 404, "resource-not-found"},
-		"unknown field":    {"/assignments/asg-1:reoptimise", `{"nope":1}`, 400, "malformed-request"},
-		"trailing data":    {"/assignments/asg-1:reoptimise", `{} {}`, 400, "malformed-request"},
-		"bad json":         {"/assignments/asg-1:reoptimise", `{`, 400, "malformed-request"},
-		"negative version": {"/assignments/asg-1:reoptimise", `{"assignmentVersion":-1}`, 422, "validation-failed"},
-		"wrong type":       {"/assignments/asg-1:reoptimise", `{"assignmentVersion":"x"}`, 400, "malformed-request"},
+		"unknown field":    {"/assignments/asg-1/reoptimisations", `{"nope":1}`, 400, "malformed-request"},
+		"trailing data":    {"/assignments/asg-1/reoptimisations", `{} {}`, 400, "malformed-request"},
+		"bad json":         {"/assignments/asg-1/reoptimisations", `{`, 400, "malformed-request"},
+		"negative version": {"/assignments/asg-1/reoptimisations", `{"assignmentVersion":-1}`, 422, "validation-failed"},
+		"wrong type":       {"/assignments/asg-1/reoptimisations", `{"assignmentVersion":"x"}`, 400, "malformed-request"},
 	}
 	for name, c := range cases {
 		rec := call(f, http.MethodPost, c.target, c.body)
@@ -184,7 +214,7 @@ func TestIdempotencyMiddlewareIsAppliedWhenConfigured(t *testing.T) {
 	h := (&Server{Reoptimise: &fakeUC{}, Idempotency: func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true; next.ServeHTTP(w, r) })
 	}}).Handler()
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/assignments/asg-1:reoptimise", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/assignments/asg-1/reoptimisations", nil))
 	if !called {
 		t.Fatal("middleware not applied to the POST route")
 	}
@@ -193,15 +223,90 @@ func TestIdempotencyMiddlewareIsAppliedWhenConfigured(t *testing.T) {
 func TestIdempotencyHeaderValidation(t *testing.T) {
 	mw := RequireIdempotencyKey(nil, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("handler must not run") }))
 	rec := httptest.NewRecorder()
-	mw.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/assignments/a:reoptimise", nil))
+	mw.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/assignments/a/reoptimisations", nil))
 	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "idempotency-key-required") {
 		t.Fatalf("missing key = %d %s", rec.Code, rec.Body)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/assignments/a:reoptimise", nil)
+	req := httptest.NewRequest(http.MethodPost, "/assignments/a/reoptimisations", nil)
 	req.Header.Set(IdempotencyKeyHeader, strings.Repeat("k", 129))
 	rec = httptest.NewRecorder()
 	mw.ServeHTTP(rec, req)
-	if rec.Code != 422 || !strings.Contains(rec.Body.String(), "validation-failed") {
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "idempotency-key-invalid") {
 		t.Fatalf("long key = %d %s", rec.Code, rec.Body)
+	}
+	for _, bad := range []string{"has\ttab", "caf\u00e9", "del\x7f"} {
+		req = httptest.NewRequest(http.MethodPost, "/assignments/a/reoptimisations", nil)
+		req.Header[IdempotencyKeyHeader] = []string{bad}
+		rec = httptest.NewRecorder()
+		mw.ServeHTTP(rec, req)
+		if rec.Code != 400 || !strings.Contains(rec.Body.String(), "idempotency-key-invalid") {
+			t.Fatalf("key %q = %d %s", bad, rec.Code, rec.Body)
+		}
+	}
+}
+
+func TestRetiredRoutesAreGone(t *testing.T) {
+	h := (&Server{Reoptimise: &fakeUC{}}).Handler()
+	for _, path := range []string{"/assignments/asg-1:reoptimise", "/assignments/asg-1/reoptimise"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+		if rec.Code != 404 && rec.Code != 405 {
+			t.Errorf("POST %s = %d, want 404 or 405", path, rec.Code)
+		}
+	}
+}
+
+// keysetLister is a Lister over a fixed, id-ordered slice that honours After and Limit like a repository.
+type keysetLister struct{ rows []views.Assignment }
+
+func (k keysetLister) ListAssignments(_ context.Context, f repository.AssignmentFilter) ([]views.Assignment, error) {
+	var out []views.Assignment
+	for _, v := range k.rows {
+		if v.AssignmentID > f.After && len(out) < f.Limit {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+// TestListWalksEveryPageOnce walks 7 rows with limit=3 and asserts no duplicate and no skipped row.
+func TestListWalksEveryPageOnce(t *testing.T) {
+	var rows []views.Assignment
+	for i := 1; i <= 7; i++ {
+		v := sample()
+		v.AssignmentID = fmt.Sprintf("asg-%02d", i)
+		rows = append(rows, v)
+	}
+	h := (&Server{List: keysetLister{rows}, Get: &fakeUC{}, Reoptimise: &fakeUC{}}).Handler()
+	seen, cursor, pages := map[string]int{}, "", 0
+	for {
+		target := "/assignments?limit=3"
+		if cursor != "" {
+			target += "&cursor=" + cursor
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		var out struct {
+			Items      []struct{ AssignmentID string } `json:"items"`
+			NextCursor string                          `json:"nextCursor"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 {
+			t.Fatalf("page %d = %d %s", pages, rec.Code, rec.Body)
+		}
+		for _, it := range out.Items {
+			seen[it.AssignmentID]++
+		}
+		pages++
+		if cursor = out.NextCursor; cursor == "" {
+			break
+		}
+	}
+	if pages != 3 || len(seen) != 7 {
+		t.Fatalf("pages=%d distinct=%d, want 3 pages and 7 rows", pages, len(seen))
+	}
+	for id, n := range seen {
+		if n != 1 {
+			t.Errorf("%s returned %d times", id, n)
+		}
 	}
 }

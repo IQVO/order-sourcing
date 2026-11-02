@@ -29,7 +29,15 @@ var internalProblem = problem{http.StatusInternalServerError, "internal-error", 
 // Problems the middleware writes itself, before any use case runs.
 var (
 	idempotencyKeyRequired = problem{http.StatusBadRequest, "idempotency-key-required", "Idempotency-Key header is required"}
-	idempotencyKeyTooLong  = problem{http.StatusUnprocessableEntity, "validation-failed", "Validation failed"}
+	idempotencyKeyInvalid  = problem{http.StatusBadRequest, "idempotency-key-invalid", "Idempotency-Key header is invalid"}
+	idempotencyKeyReused   = problem{http.StatusConflict, "idempotency-key-reused", "Idempotency-Key was already used with a different request"}
+)
+
+// Problems of a paged collection GET.
+var (
+	invalidLimit          = problem{http.StatusBadRequest, "invalid-limit", "Invalid limit"}
+	invalidCursor         = problem{http.StatusBadRequest, "invalid-cursor", "Invalid cursor"}
+	unknownQueryParameter = problem{http.StatusBadRequest, "unknown-query-parameter", "Unknown query parameter"}
 )
 
 // problemCatalogue maps every typed error to its problem, in match order. The

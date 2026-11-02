@@ -95,7 +95,7 @@ Ten events through the transactional outbox, at least once, key = `assignmentId`
 | customer-ordering | same | `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused` | **Built + verified.** `internal/adapters/inbound/kafka/handlers.go` handles these five. |
 | any consumer | same | `FulfillmentConstraintRevised` | **Published, no consumer found** in the four clones above. |
 | analytics read side | Kafka, `retailnetwork.order-sourcing.analytics` | `FulfillmentQueued`, `FulfillmentDelivered` | **Published, no consumer in this repository**; no domain consumer is known. |
-| network-ops planner, console, agents | REST `GET /assignments`, `GET /assignments/{id}`, `POST /assignments/{id}:reoptimise`; MCP; A2A | `apis/openapi.yaml`, [MCP tools](/docs/mcp/tools), [API overview](/docs/api-reference#a2a) | **Built.** The web remote `order_sourcing_mfe` (`web/`, [ADR 0007](/docs/adr/0007-console-remote)) calls only this context's own `/api/order-sourcing`. |
+| network-ops planner, console, agents | REST `GET /assignments`, `GET /assignments/{id}`, `POST /assignments/{id}/reoptimisations`; MCP; A2A | `apis/openapi.yaml`, [MCP tools](/docs/mcp/tools), [API overview](/docs/api-reference#a2a) | **Built.** The web remote `order_sourcing_mfe` (`web/`, [ADR 0007](/docs/adr/0007-console-remote)) calls only this context's own `/api/order-sourcing`. |
 
 Compared with the design pack in `warehouse-docs` (`domain-events`), the downstream handlers on `origin/develop` read more than the
 pack lists: `delivery-promise` also reads `FulfillmentShipped`, and `customer-ordering` also reads `FulfillmentCancelled` and
