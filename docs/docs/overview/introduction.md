@@ -85,3 +85,7 @@ client to any sibling over REST, MCP or A2A.
 | Learn the domain | [Ubiquitous language](/docs/ddd/ubiquitous-language), [Use cases](/docs/ddd/use-cases), [Subdomain classification](/docs/ddd/subdomain-classification), [DDD artifacts](/docs/ddd/ddd-artifacts) |
 | Integrate with it | [API overview](/docs/api-reference), [Events](/docs/api-reference/events), [Integration](/docs/ecosystem/integration), [MCP tools](/docs/mcp/tools) |
 | Know why it is built this way | [ADR index](/docs/adr) |
+
+:::note[Disclaimer]
+This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.
+:::
