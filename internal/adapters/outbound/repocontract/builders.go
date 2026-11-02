@@ -7,6 +7,13 @@ import (
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
 )
 
+// Shared fixture identifiers reused across the contract suites (goconst).
+const (
+	fixtureCatItem = "cat-1"
+	fixtureListing = "lst-1"
+	fixtureAsgTwo  = "asg-2"
+)
+
 func hours(n int) time.Time { return T0.Add(time.Duration(n) * time.Hour) }
 
 func candidate(node string) *assignment.Candidate {
@@ -20,7 +27,7 @@ func input(id, order string, group int) assignment.New {
 	return assignment.New{
 		ID: assignment.ID(id), OrderID: order, GroupNo: group, DestinationPostalPrefix: "30301",
 		Promise: assignment.PromiseConstraint{PromiseID: "prm-" + id, Tier: assignment.TierTwoDay, DeliverByLatest: hours(60), WitnessNodeID: "node-a"},
-		Lines:   []assignment.Line{{LineNo: 1, CatalogItemID: "cat-1", Quantity: 2}},
+		Lines:   []assignment.Line{{LineNo: 1, CatalogItemID: fixtureCatItem, Quantity: 2}},
 	}
 }
 
@@ -35,13 +42,13 @@ func queued(t *testing.T, id, order string, group int, releaseAt time.Time) *ass
 }
 
 func releaseLines() []assignment.Line {
-	return []assignment.Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2}}
+	return []assignment.Line{{LineNo: 1, CatalogItemID: fixtureCatItem, ListingID: fixtureListing, Quantity: 2}}
 }
 
-// released builds a RELEASED assignment (version 2).
-func released(t *testing.T, id, order string, group int) *assignment.Assignment {
+// released builds a RELEASED assignment of group 1 (version 2).
+func released(t *testing.T, id, order string) *assignment.Assignment {
 	t.Helper()
-	a := queued(t, id, order, group, hours(2))
+	a := queued(t, id, order, 1, hours(2))
 	if _, err := a.Release(candidate("node-a"), releaseLines(), hours(2)); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
