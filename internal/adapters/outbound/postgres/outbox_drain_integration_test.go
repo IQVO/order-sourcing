@@ -58,7 +58,7 @@ func TestOutboxDrainRecordsTheFailureAndParksAtTheCap(t *testing.T) {
 	boom := errors.New("broker down")
 	fail := func(context.Context, outbox.Message) error { return boom }
 
-	var sf *outbox.SendFailure
+	var sf *outbox.SendFailureError
 	n, err := ob.Drain(context.Background(), 10, 2, fail)
 	if n != 0 || !errors.As(err, &sf) || sf.Attempts != 1 || !errors.Is(err, boom) {
 		t.Fatalf("first failure: n=%d err=%v", n, err)

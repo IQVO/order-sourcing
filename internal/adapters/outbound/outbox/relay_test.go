@@ -47,7 +47,7 @@ func (s *store) Drain(ctx context.Context, limit, maxAttempts int, send func(con
 		}
 		r.attempts++
 		if err := send(ctx, r.msg); err != nil {
-			return n, &outbox.SendFailure{RowID: 1, Message: r.msg, Attempts: r.attempts, Err: err}
+			return n, &outbox.SendFailureError{RowID: 1, Message: r.msg, Attempts: r.attempts, Err: err}
 		}
 		r.done = true
 		n++
@@ -87,7 +87,7 @@ func TestRelayStopsAtTheFirstFailureAndKeepsOrder(t *testing.T) {
 	st.add("a", "b", "c")
 	r := relay.NewOutboxRelay(st, sk, quiet())
 	n, err := r.RelayOnce(context.Background())
-	var sf *outbox.SendFailure
+	var sf *outbox.SendFailureError
 	if n != 1 || !errors.As(err, &sf) || sf.Message.EventType != "b" {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
