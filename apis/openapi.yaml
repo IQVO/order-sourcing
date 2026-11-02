@@ -18,9 +18,13 @@ info:
     for an immediate re-optimisation of a QUEUED one. Every other change
     arrives as a Kafka event (see apis/asyncapi.yaml). No PII is held or
     returned by this context. No authentication, consistent with the rest of
-    the network. Errors are RFC 9457 problem details. The shared problem types
-    are not-found (404), illegal-transition (409), concurrent-update (409) and
-    validation-failed (422); the idempotency problems are
+    the network. Errors are RFC 9457 problem details whose type is the URI
+    https://errors.order-sourcing.retail-network.example/ followed by the slug
+    (for example .../assignment-locked); detail and instance are always set.
+    The shared problem types are not-found (404), resource-not-found (404, a
+    path that names no resource), method-not-allowed (405), malformed-request
+    (400), illegal-transition (409), concurrent-update (409), validation-failed
+    (422) and internal-error (500); the idempotency problems are
     idempotency-key-required and idempotency-key-invalid (400) and
     idempotency-key-reused (409); the model's Err names add assignment-locked,
     release-in-flight, node-excluded, stale-assignment-version (409) and
@@ -70,17 +74,22 @@ paths:
           description: >-
             invalid-limit (limit is not an integer in 1..500), invalid-cursor
             (the cursor does not decode) or unknown-query-parameter (any query
-            parameter other than state, nodeId, orderId, limit, cursor).
+            parameter other than state, nodeId, orderId, limit, cursor), or
+            malformed-request (a NUL character in the query string).
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
         '422':
-          description: validation-failed (ErrValidation), an invalid state query parameter.
+          description: validation-failed (ErrValidation), a state query parameter that is not an assignment state.
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /assignments/{assignmentId}:
     get:
       tags: [Assignments]
@@ -97,11 +106,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/Assignment'
         '404':
-          description: not-found (ErrNotFound), no assignment has that id.
+          description: >-
+            not-found (ErrNotFound), no assignment has that id; or
+            resource-not-found (the path contains a NUL character).
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /assignments/{assignmentId}/reoptimisations:
     post:
       tags: [Assignments]
@@ -129,7 +144,11 @@ paths:
               $ref: '#/components/schemas/ReoptimiseRequest'
       responses:
         '200':
-          description: The assignment after re-optimisation (unchanged if the best candidate is the current one).
+          description: >-
+            The assignment after re-optimisation (unchanged if the best
+            candidate is the current one). A replay of the first answer carries
+            Idempotency-Replayed: true (every stored 2xx and 4xx outcome is
+            replayed; a 5xx is never stored).
           headers:
             Idempotency-Replayed:
               $ref: '#/components/headers/IdempotencyReplayed'
@@ -141,17 +160,26 @@ paths:
           description: >-
             idempotency-key-required (no Idempotency-Key header) or
             idempotency-key-invalid (not 1 to 128 printable ASCII characters), or
-            malformed-request (the body is not valid JSON).
+            malformed-request (the body is not valid JSON, has a field other
+            than assignmentVersion, has trailing data after the JSON value, or
+            carries a NUL character).
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
         '404':
-          description: not-found (ErrNotFound), no assignment has that id.
+          description: >-
+            not-found (ErrNotFound), no assignment has that id; or
+            resource-not-found (the path contains a NUL character).
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
         '409':
           description: >-
             assignment-locked (ErrAssignmentLocked), release-in-flight
@@ -161,6 +189,9 @@ paths:
             UNSOURCEABLE or CANCELLED), concurrent-update (ErrConcurrentUpdate),
             or idempotency-key-reused (the Idempotency-Key was already used with
             a different request).
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/problem+json:
               schema:
@@ -168,25 +199,45 @@ paths:
               examples:
                 locked:
                   value:
-                    type: assignment-locked
+                    type: https://errors.order-sourcing.retail-network.example/assignment-locked
                     title: Assignment is locked
                     status: 409
                     detail: The node accepted the purchase order; the assignment can no longer move.
+                    instance: /assignments/asg-1/reoptimisations
                 inFlight:
                   value:
-                    type: release-in-flight
+                    type: https://errors.order-sourcing.retail-network.example/release-in-flight
                     title: A release is pending
                     status: 409
                     detail: The group is released to a node and awaits its acknowledgement.
+                    instance: /assignments/asg-1/reoptimisations
         '422':
           description: >-
             candidate-breaks-promise (ErrCandidateBreaksPromise), or
-            validation-failed (ErrValidation), an invalid request body.
+            validation-failed (ErrValidation), a negative assignmentVersion.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
+  responses:
+    MethodNotAllowed:
+      description: method-not-allowed, the method is not served on this path.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: internal-error, an unexpected failure (the detail never carries the internal message).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
   parameters:
     AssignmentId:
       name: assignmentId
@@ -234,12 +285,16 @@ components:
     Problem:
       type: object
       description: RFC 9457 problem details.
-      required: [type, title, status]
+      required: [type, title, status, detail, instance]
       properties:
         type:
           type: string
           format: uri-reference
-          description: Problem type slug, for example assignment-locked.
+          description: >-
+            Problem type URI: the base
+            https://errors.order-sourcing.retail-network.example/ followed by the
+            slug, for example
+            https://errors.order-sourcing.retail-network.example/assignment-locked.
         title:
           type: string
         status:
@@ -251,6 +306,7 @@ components:
         instance:
           type: string
           format: uri-reference
+          description: The escaped request path.
     AssignmentState:
       type: string
       enum: [QUEUED, RELEASED, LOCKED, SHIPPED, DELIVERED, UNSOURCEABLE, CANCELLED]
@@ -334,7 +390,7 @@ components:
           type: string
     Line:
       type: object
-      required: [catalogItemId, quantity]
+      required: [lineNo, catalogItemId, quantity]
       properties:
         lineNo:
           type: integer
@@ -424,5 +480,10 @@ components:
       properties:
         assignmentVersion:
           type: integer
-          minimum: 1
-          description: Optional. The version the caller last read; a mismatch is 409 stale-assignment-version.
+          format: int64
+          minimum: 0
+          description: >-
+            Optional. The version the caller last read; a mismatch is 409
+            stale-assignment-version. Absent or 0 skips the check; a negative
+            value is 422 validation-failed. Unknown fields are 400
+            malformed-request. The whole body may be omitted.

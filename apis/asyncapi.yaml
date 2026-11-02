@@ -30,7 +30,7 @@ info:
     CustomerOrderCancelled, PromiseRevised, the purchase-order outcomes, VendorShipmentConfirmed, PackageDelivered,
     BookingMoved) and the events that feed the five local read models (NodeProfileView, NetworkGraphView, AvailabilityView,
     ScorecardView, PromiseBookPressureView). Every consumer is idempotent on the CloudEvents `id` and dispatches
-    on the full `type`; unknown types and fields are ignored.
+    on the full `type`; unknown types and fields are ignored. Messages that are not CloudEvents and unrouted types are skipped; undecodable or invalid payloads and handlers that exhaust 5 attempts go to `<topic>.dlq`.
 
 
     **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka header `content-type: application/cloudevents+json;
@@ -250,7 +250,7 @@ operations:
     title: Consume customer-ordering events
     summary: Consume 2 event type(s) of customer-ordering.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `CUSTOMER_ORDERING_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `CUSTOMER_ORDERING_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
@@ -263,7 +263,7 @@ operations:
     title: Consume delivery-promise events
     summary: Consume 2 event type(s) of delivery-promise.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `DELIVERY_PROMISE_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `DELIVERY_PROMISE_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
@@ -276,7 +276,7 @@ operations:
     title: Consume last-mile-delivery events
     summary: Consume 3 event type(s) of last-mile-delivery.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `LAST_MILE_DELIVERY_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `LAST_MILE_DELIVERY_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
@@ -290,7 +290,7 @@ operations:
     title: Consume linehaul-transportation events
     summary: Consume 5 event type(s) of linehaul-transportation.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `LINEHAUL_TRANSPORTATION_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `LINEHAUL_TRANSPORTATION_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
@@ -306,7 +306,7 @@ operations:
     title: Consume node-performance events
     summary: Consume 1 event type(s) of node-performance.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `NODE_PERFORMANCE_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `NODE_PERFORMANCE_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
@@ -318,7 +318,7 @@ operations:
     title: Consume node-topology events
     summary: Consume 9 event type(s) of node-topology.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `NODE_TOPOLOGY_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `NODE_TOPOLOGY_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
@@ -338,7 +338,7 @@ operations:
     title: Consume offer-availability events
     summary: Consume 5 event type(s) of offer-availability.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `OFFER_AVAILABILITY_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `OFFER_AVAILABILITY_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
@@ -354,7 +354,7 @@ operations:
     title: Consume shipping-and-tracking events
     summary: Consume 1 event type(s) of shipping-and-tracking.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `SHIPPING_AND_TRACKING_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `SHIPPING_AND_TRACKING_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
@@ -366,7 +366,7 @@ operations:
     title: Consume vendor-connectivity events
     summary: Consume 4 event type(s) of vendor-connectivity.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
-      as the effect); dispatch on the full `type`; deterministic poison goes to the DLQ. Consumer group from `VENDOR_CONNECTIVITY_CONSUMER_GROUP`.
+      as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `VENDOR_CONNECTIVITY_CONSUMER_GROUP`.
     tags:
     - name: consumed
     channel:
