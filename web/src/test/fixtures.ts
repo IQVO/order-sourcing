@@ -1,4 +1,4 @@
-import type { Assignment, AssignmentList, Candidate, Release } from "../types";
+import type { Assignment, AssignmentPage, Candidate, Release } from "../types";
 
 /** The QUEUED fixture: the OpenAPI-style shape of a fresh assignment. */
 export function queuedAssignment(over: Partial<Assignment> = {}): Assignment {
@@ -63,9 +63,9 @@ export function releasedAssignment(over: Partial<Assignment> = {}): Assignment {
 }
 
 /** One page of two assignments, ordered by assignmentId ascending. */
-export function assignmentPage(over: Partial<AssignmentList> = {}): AssignmentList {
+export function assignmentPage(over: Partial<AssignmentPage> = {}): AssignmentPage {
   return {
-    assignments: [
+    items: [
       queuedAssignment(),
       releasedAssignment({
         assignmentId: "fa-2c5f39ab-40b2-5e4d-9a7f-1b2c3d4e5f60",

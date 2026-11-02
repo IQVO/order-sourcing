@@ -70,10 +70,6 @@ type assignmentDTO struct {
 	CancelReason            string        `json:"cancelReason,omitempty"`
 }
 
-type assignmentListDTO struct {
-	Assignments []assignmentDTO `json:"assignments"`
-}
-
 func optTime(t time.Time) *time.Time {
 	if t.IsZero() {
 		return nil

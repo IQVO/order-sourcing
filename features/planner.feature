@@ -10,34 +10,34 @@ Feature: The planner's REST surface
   Scenario: Listing shows the queued groups
     When a GET request is sent to "/assignments"
     Then the response status is 200
-    And the response list "assignments" has 1 item
-    And the response list "assignments" contains an item whose "orderId" is "ord-1"
-    And the response list "assignments" contains an item whose "state" is "QUEUED"
-    And the response list "assignments" contains an item whose "candidate.nodeId" is "fc-a"
+    And the response list "items" has 1 item
+    And the response list "items" contains an item whose "orderId" is "ord-1"
+    And the response list "items" contains an item whose "state" is "QUEUED"
+    And the response list "items" contains an item whose "candidate.nodeId" is "fc-a"
 
   Scenario: Filters combine and an empty result is still 200
     When a GET request is sent to "/assignments?state=RELEASED"
     Then the response status is 200
-    And the response list "assignments" has 0 items
-    And the response field "assignments" is "[]"
+    And the response list "items" has 0 items
+    And the response field "items" is "[]"
 
   Scenario: The nodeId filter matches the current candidate node
     When a GET request is sent to "/assignments?nodeId=fc-a"
     Then the response status is 200
-    And the response list "assignments" has 1 item
+    And the response list "items" has 1 item
     When a GET request is sent to "/assignments?nodeId=fc-z&orderId=ord-1"
     Then the response status is 200
-    And the response list "assignments" has 0 items
+    And the response list "items" has 0 items
 
   Scenario: An unknown state filter is a validation problem
     When a GET request is sent to "/assignments?state=BOGUS"
     Then the response status is 422
     And the response problem type is "validation-failed"
 
-  Scenario Outline: A limit outside 1..500 is a validation problem
+  Scenario Outline: A limit outside 1..500 is an invalid-limit problem
     When a GET request is sent to "/assignments?limit=<limit>"
-    Then the response status is 422
-    And the response problem type is "validation-failed"
+    Then the response status is 400
+    And the response problem type is "invalid-limit"
 
     Examples:
       | limit |
@@ -93,7 +93,7 @@ Feature: The planner's REST surface
     And the response problem type is "assignment-locked"
 
   Scenario: Re-optimising an unknown assignment is not found
-    When a POST request is sent to "/assignments/asg-nope:reoptimise"
+    When a POST request is sent to "/assignments/asg-nope/reoptimisations"
     Then the response status is 404
     And the response problem type is "not-found"
 
@@ -115,7 +115,12 @@ Feature: The planner's REST surface
     Then the response status is 400
     And the response problem type is "idempotency-key-required"
 
-  Scenario: An Idempotency-Key longer than 128 characters is a validation problem
+  Scenario: An Idempotency-Key longer than 128 characters is an invalid key
     When a reoptimise request for the assignment of "ord-1" group 1 is sent with a 129-character Idempotency-Key
-    Then the response status is 422
-    And the response problem type is "validation-failed"
+    Then the response status is 400
+    And the response problem type is "idempotency-key-invalid"
+
+  Scenario: A retired paging parameter is rejected loudly
+    When a GET request is sent to "/assignments?after=asg-1"
+    Then the response status is 400
+    And the response problem type is "unknown-query-parameter"

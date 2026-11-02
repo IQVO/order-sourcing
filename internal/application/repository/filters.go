@@ -9,10 +9,12 @@ import (
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
 )
 
-// DefaultLimit and MaxLimit bound ListAssignments.
+// DefaultLimit and MaxLimit bound ListAssignments. A keyset page fetches one
+// row more than the page size (FetchLimit) to learn whether a next page exists.
 const (
 	DefaultLimit = 100
 	MaxLimit     = 500
+	FetchLimit   = MaxLimit + 1
 )
 
 // AssignmentFilter is the filter of ListAssignments; filters combine with
@@ -22,7 +24,10 @@ type AssignmentFilter struct {
 	State   assignment.State
 	NodeID  string
 	OrderID string
-	Limit   int
+	// After is the keyset position: only assignments with an id greater than
+	// After are returned (empty = first page). Results are ordered by id.
+	After string
+	Limit int
 }
 
 // WorldQuery tells the read side which slice of the read models one search

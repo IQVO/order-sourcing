@@ -113,7 +113,7 @@ The neighbour policies are those named by the neighbours' own design; the handle
 | Command | Transition | Issued by |
 | --- | --- | --- |
 | `Queue` (`QueueAssignment`) | initial to `QUEUED` or `UNSOURCEABLE` | Kafka consumer of `CustomerOrderPlaced`, one per group |
-| `Reoptimise` | `QUEUED` to `QUEUED` or `UNSOURCEABLE` | sweep; planner `POST /assignments/{id}:reoptimise` |
+| `Reoptimise` | `QUEUED` to `QUEUED` or `UNSOURCEABLE` | sweep; planner `POST /assignments/{id}/reoptimisations` |
 | `Release` | `QUEUED` to `RELEASED` or `UNSOURCEABLE` | sweep at `releaseAt`; right after `Queue` for `SAME_DAY` |
 | `RefuseRelease` | `RELEASED` to `QUEUED` or `UNSOURCEABLE` | consumer of `PurchaseOrderRejected`, `PurchaseOrderExpired` |
 | `Lock` | `RELEASED` to `LOCKED` | consumer of `PurchaseOrderAccepted` |

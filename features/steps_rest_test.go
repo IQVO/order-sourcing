@@ -88,17 +88,21 @@ func registerRequestSteps(sc *godog.ScenarioContext, w *world) {
 		return w.withIDRaw(order, group, func(id, path string) error { return rest.do(rest.handler, http.MethodGet, path, "") })
 	})
 	sc.Step(`^a reoptimise request is posted for the assignment of "([^"]*)" group (\d+)$`, func(order string, group int) error {
-		return w.withIDRaw(order, group, func(id, path string) error { return rest.do(rest.handler, http.MethodPost, path+":reoptimise", "") })
+		return w.withIDRaw(order, group, func(id, path string) error {
+			return rest.do(rest.handler, http.MethodPost, path+"/reoptimisations", "")
+		})
 	})
 	sc.Step(`^a reoptimise request is posted for the assignment of "([^"]*)" group (\d+) with the JSON body (.+)$`, func(order string, group int, body string) error {
-		return w.withIDRaw(order, group, func(id, path string) error { return rest.do(rest.handler, http.MethodPost, path+":reoptimise", body) })
+		return w.withIDRaw(order, group, func(id, path string) error {
+			return rest.do(rest.handler, http.MethodPost, path+"/reoptimisations", body)
+		})
 	})
 	sc.Step(`^a reoptimise request for the assignment of "([^"]*)" group (\d+) is sent without an Idempotency-Key$`, func(order string, group int) error {
-		return w.withIDRaw(order, group, func(id, path string) error { return rest.do(rest.keyed, http.MethodPost, path+":reoptimise", "") })
+		return w.withIDRaw(order, group, func(id, path string) error { return rest.do(rest.keyed, http.MethodPost, path+"/reoptimisations", "") })
 	})
 	sc.Step(`^a reoptimise request for the assignment of "([^"]*)" group (\d+) is sent with a 129-character Idempotency-Key$`, func(order string, group int) error {
 		return w.withIDRaw(order, group, func(id, path string) error {
-			req := httptest.NewRequest(http.MethodPost, path+":reoptimise", strings.NewReader(""))
+			req := httptest.NewRequest(http.MethodPost, path+"/reoptimisations", strings.NewReader(""))
 			req.Header.Set(resthttp.IdempotencyKeyHeader, strings.Repeat("k", 129))
 			rec := httptest.NewRecorder()
 			rest.keyed.ServeHTTP(rec, req)

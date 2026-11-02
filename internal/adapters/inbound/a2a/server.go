@@ -14,7 +14,7 @@
 // (docs/adr/0006-mcp-server-adoption.md): both skills read assignment data and
 // no write use case is reachable from this package (Deps carries Queries
 // only; internal/architecture's TestA2AAgentIsReadOnly pins it).
-// POST /assignments/{id}:reoptimise stays a REST operation and every other
+// POST /assignments/{id}/reoptimisations stays a REST operation and every other
 // lifecycle change arrives as a consumed event.
 //
 // This package depends inward on the application layer and the domain only,

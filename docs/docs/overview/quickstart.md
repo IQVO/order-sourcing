@@ -165,7 +165,7 @@ Re-optimise a `QUEUED` assignment (the only write on REST). `Idempotency-Key` is
 the first answer for 24 hours:
 
 ```bash
-curl -s -X POST 'localhost:18080/assignments/fa-REPLACE-ME:reoptimise' \
+curl -s -X POST 'localhost:18080/assignments/fa-REPLACE-ME/reoptimisations' \
   -H 'Idempotency-Key: demo-key-1' -H 'Content-Type: application/json' \
   -d '{"assignmentVersion": 1}'
 ```

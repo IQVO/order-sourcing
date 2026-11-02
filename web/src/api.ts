@@ -1,5 +1,5 @@
 import { SOURCING_API_BASE } from "./config";
-import type { Assignment, AssignmentList, ListAssignmentsQuery } from "./types";
+import type { Assignment, AssignmentList, AssignmentPage, ListAssignmentsQuery } from "./types";
 
 /**
  * RFC 9457 problem+json body every error response from order-sourcing
@@ -65,7 +65,7 @@ export function withQuery(path: string, query?: Query): string {
  * (`SOURCING_API_BASE` = <apiOrigin>/api/order-sourcing): no sibling
  * context, no other service. This remote is read-only, so every request is
  * a header-less GET -- a simple CORS request. Re-optimising an assignment
- * (POST :reoptimise) stays a REST operation of the API, not of this console.
+ * (POST /reoptimisations) stays a REST operation of the API, not of this console.
  */
 async function request<T>(path: string): Promise<T> {
   let res: Response;
@@ -88,12 +88,22 @@ async function request<T>(path: string): Promise<T> {
 
 const seg = encodeURIComponent;
 
-/** GET /assignments?state=&orderId=&nodeId=&limit= -- one page, ordered by assignmentId. */
+/**
+ * GET /assignments?state=&orderId=&nodeId=&limit=&cursor= -- ordered by assignmentId.
+ * Follows nextCursor until it is absent (REST guideline 5.2: never assume one page);
+ * `limit` is the page size, not a cap on the result.
+ */
 export async function listAssignments(q: ListAssignmentsQuery = {}): Promise<AssignmentList> {
-  const res = await request<AssignmentList>(
-    withQuery("/assignments", { state: q.state, orderId: q.orderId, nodeId: q.nodeId, limit: q.limit }),
-  );
-  return { assignments: res.assignments ?? [] };
+  const assignments: Assignment[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await request<AssignmentPage>(
+      withQuery("/assignments", { state: q.state, orderId: q.orderId, nodeId: q.nodeId, limit: q.limit, cursor }),
+    );
+    assignments.push(...(page.items ?? []));
+    cursor = page.nextCursor || undefined;
+  } while (cursor);
+  return { assignments };
 }
 
 /** GET /assignments/{assignmentId} (404 not-found: no assignment has that id). */

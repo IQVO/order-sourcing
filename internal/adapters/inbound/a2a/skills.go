@@ -198,6 +198,9 @@ func (d Deps) findAssignments(ctx context.Context, rawArgs json.RawMessage) (*sk
 	); name != "" {
 		return nil, nulProblem(name)
 	}
+	if args.Limit < 0 || args.Limit > repository.MaxLimit {
+		return nil, problemFromUseCase(ctx, shared.Invalid("limit must be between 1 and %d", repository.MaxLimit))
+	}
 	list, err := d.Queries.ListAssignments(ctx, repository.AssignmentFilter{
 		State: assignment.State(args.State), NodeID: args.NodeID, OrderID: args.OrderID, Limit: args.Limit,
 	})
