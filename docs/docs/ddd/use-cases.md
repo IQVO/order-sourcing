@@ -29,7 +29,7 @@ Kafka types below are the CloudEvents `type` suffix; the full type is
 | # | Use case (file) | Trigger | Inbound adapter |
 | --- | --- | --- | --- |
 | 1 | `QueueAssignment` (`queue.go`) | `CustomerOrderPlaced` | Kafka, `retailnetwork.customer-ordering.events` |
-| 2 | `ReoptimiseAssignment` (`commands.go`) | `POST /assignments/{id}:reoptimise`; the queue sweep | REST; sweep worker in `cmd/api` |
+| 2 | `ReoptimiseAssignment` (`commands.go`) | `POST /assignments/{id}/reoptimisations`; the queue sweep | REST; sweep worker in `cmd/api` |
 | 3 | `ReleaseToNode` (`commands.go`) | `releaseAt` reached (the sweep) | sweep worker in `cmd/api` |
 | 4 | `HandleNodeRefusal` (`commands.go`) | `PurchaseOrderRejected`, `PurchaseOrderExpired` | Kafka, `retailnetwork.vendor-connectivity.events` |
 | 5 | `LockAssignment` (`commands.go`) | `PurchaseOrderAccepted` | Kafka, `retailnetwork.vendor-connectivity.events` |
@@ -61,7 +61,7 @@ Kafka types below are the CloudEvents `type` suffix; the full type is
 | 11 | CloudEvents id and type | Only claims the inbox row: `BookingFailed` needs no state change because the departure's own cancellation or capacity events drive re-optimisation. | none |
 | 12 | `after` cursor, `limit` (page of 100 in `cmd/api`) | One pass: up to `limit` due releases (`QUEUED` with `releaseAt <= now`), then up to `limit` re-optimisations after the cursor. Rows another writer changed (`ErrConcurrentUpdate`), rows gone (`ErrNotFound`), and rows that moved on (`ErrAssignmentLocked`, `ErrReleaseInFlight`) count as skipped; other errors are collected, logged and the tick continues. | those of use cases 2 and 3 |
 | 13 | one of the 22 projected event types | Each method is one unit of work: inbox claim plus one row change. Newer revision wins (`profileRevision`, `assignmentVersion`), older instants are ignored (`asOf`, `computedAt`), any arrival order converges. No domain rule beyond that, so no event is raised. | none |
-| 14 | optional `state`, `nodeId`, `orderId`, `limit` | `state` must be one of the seven states; `limit` 1 to 500 (default 100), ordered by id ascending; anything else is `shared.ErrValidation` (422 over REST). | none |
+| 14 | optional `state`, `nodeId`, `orderId`, `limit`, `after` (the REST `cursor` decodes to it) | `state` must be one of the seven states; `limit` 1 to 500 (default 100; REST fetches one extra row to learn whether a next page exists), ordered by id ascending, strictly after `after`; anything else is `shared.ErrValidation` (422 over REST; a bad `limit`, `cursor` or query parameter is answered 400 by the REST adapter before the use case runs). | none |
 | 15 | assignment id | Unknown id is `ports.ErrNotFound` (404 over REST). | none |
 
 Which events go to which topic is on [Domain events](/docs/ddd/domain-events) and the
@@ -118,6 +118,9 @@ in [Troubleshooting](/docs/operations/troubleshooting#rest-problem-types). Probl
 | `shared.ErrValidation` | 422 | `validation-failed` |
 | malformed body or query | 400 | `malformed-request` |
 | missing `Idempotency-Key` on the reoptimise route | 400 | `idempotency-key-required` |
+| `Idempotency-Key` not 1 to 128 printable ASCII characters | 400 | `idempotency-key-invalid` |
+| `Idempotency-Key` reused with another request | 409 | `idempotency-key-reused` |
+| bad `limit`, bad `cursor`, undeclared query parameter on `GET /assignments` | 400 | `invalid-limit`, `invalid-cursor`, `unknown-query-parameter` |
 | anything else | 500 | `internal-error` |
 
 `assignment.ErrCancelAfterLock`, `ErrReleaseNotPending` and `ErrStaleRevision` have no REST route that can raise them; they

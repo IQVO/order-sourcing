@@ -7,7 +7,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -83,7 +82,7 @@ func (s *Server) Handler() http.Handler {
 		if s.Idempotency != nil {
 			r.Use(s.Idempotency)
 		}
-		r.Post("/assignments/{id}:reoptimise", s.handleReoptimise)
+		r.Post("/assignments/{id}/reoptimisations", s.handleReoptimise)
 	})
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, notFoundResource, "no resource matches the requested path")
@@ -92,33 +91,6 @@ func (s *Server) Handler() http.Handler {
 		writeProblem(w, r, methodNotAllowed, "the method is not allowed on this path")
 	})
 	return r
-}
-
-func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	f := repository.AssignmentFilter{State: assignment.State(q.Get("state")), NodeID: q.Get("nodeId"), OrderID: q.Get("orderId")}
-	if raw := q.Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil {
-			writeError(w, r, shared.Invalid("limit %q is not an integer", raw))
-			return
-		}
-		if n < 1 {
-			writeError(w, r, shared.Invalid("limit must be between 1 and %d", repository.MaxLimit))
-			return
-		}
-		f.Limit = n
-	}
-	list, err := s.List.ListAssignments(r.Context(), f)
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-	out := assignmentListDTO{Assignments: make([]assignmentDTO, 0, len(list))}
-	for _, v := range list {
-		out.Assignments = append(out.Assignments, toDTO(v))
-	}
-	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {

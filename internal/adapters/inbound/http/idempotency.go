@@ -3,7 +3,11 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -11,8 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// IdempotencyKeyHeader is the request header of an idempotent route.
-const IdempotencyKeyHeader = "Idempotency-Key"
+// IdempotencyKeyHeader is the request header of an idempotent route;
+// IdempotencyReplayedHeader marks (only) a replayed answer.
+const (
+	IdempotencyKeyHeader      = "Idempotency-Key"
+	IdempotencyReplayedHeader = "Idempotency-Replayed"
+)
 
 const (
 	maxKeyLen      = 128
@@ -26,7 +34,7 @@ type TxBinder func(ctx context.Context, tx pgx.Tx) context.Context
 
 // RequireIdempotencyKey is the transactional Idempotency-Key middleware of a
 // route. A transaction-scoped advisory lock serialises two requests with the same
-// (route, key); the stored outcome (4xx included) is replayed for 24 hours; the
+// key; the stored outcome (4xx included) is replayed for 24 hours; the
 // handler's writes, the outbox rows and the stored outcome commit together. A
 // 5xx or a panic rolls everything back and is never stored, so the key can retry.
 func RequireIdempotencyKey(pool *pgxpool.Pool, bind TxBinder) func(http.Handler) http.Handler {
@@ -37,18 +45,49 @@ func RequireIdempotencyKey(pool *pgxpool.Pool, bind TxBinder) func(http.Handler)
 				writeProblem(w, r, idempotencyKeyRequired, "send an Idempotency-Key header with a unique value per logical request")
 				return
 			}
-			if len(key) > maxKeyLen {
-				writeProblem(w, r, idempotencyKeyTooLong, "the Idempotency-Key is longer than 128 characters")
+			if !validKey(key) {
+				writeProblem(w, r, idempotencyKeyInvalid, "the Idempotency-Key must be 1 to 128 printable ASCII characters")
 				return
 			}
-			serve(w, r, pool, bind, key, next)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				writeError(w, r, errMalformedRequest)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			sum := sha256.Sum256(body)
+			serve(w, r, pool, bind, key, r.Method+" "+r.URL.Path+" "+hex.EncodeToString(sum[:]), next)
 		})
 	}
 }
 
-func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBinder, key string, next http.Handler) {
+// validKey reports whether key is 1 to 128 printable ASCII characters.
+func validKey(key string) bool {
+	if len(key) == 0 || len(key) > maxKeyLen {
+		return false
+	}
+	for i := 0; i < len(key); i++ {
+		if key[i] < 0x20 || key[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+// serve runs a genuinely new key: capture the response, persist the outcome in
+// the same transaction, commit, and only then write to the real client.
+//
+// The handler runs behind a SAVEPOINT. A mapped domain conflict (a racing
+// request losing on a unique index, say) fails a statement on the server and
+// leaves the transaction ABORTED even though the handler answers a truthful
+// 4xx. Releasing the savepoint exposes that: the release fails, ROLLBACK TO
+// SAVEPOINT discards the half-done work and heals the transaction, and the 4xx
+// outcome is recorded and committed like any other (otherwise the outcome write
+// hits SQLSTATE 25P02 and the client sees a 500). A 2xx answer behind a failed
+// release is a lie (its writes are gone), so it rolls everything back and fails
+// the request instead, and the same key retries the real work.
+func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBinder, key, fingerprint string, next http.Handler) {
 	ctx := r.Context()
-	route := r.Method + " " + r.URL.Path
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		writeError(w, r, err)
@@ -60,16 +99,25 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 			panic(p)
 		}
 	}()
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, route+"\x1f"+key); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key); err != nil {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 		writeError(w, r, err)
 		return
 	}
-	if replayed, err := replay(ctx, tx, w, route, key); err != nil || replayed {
+	replayed, reused, err := replay(ctx, tx, w, key, fingerprint)
+	if err != nil || replayed || reused {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
-		if err != nil {
+		switch {
+		case err != nil:
 			writeError(w, r, err)
+		case reused:
+			writeProblem(w, r, idempotencyKeyReused, "this Idempotency-Key was already used with a different request")
 		}
+		return
+	}
+	if _, err := tx.Exec(ctx, "SAVEPOINT handler_run"); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		writeError(w, r, err)
 		return
 	}
 	rec := &capture{header: http.Header{}}
@@ -82,7 +130,12 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 		flush(w, rec)
 		return
 	}
-	if err := store(ctx, tx, route, key, rec); err != nil {
+	if err := releaseHandlerSavepoint(ctx, tx, rec); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		writeError(w, r, err)
+		return
+	}
+	if err := store(ctx, tx, key, fingerprint, rec); err != nil {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 		writeError(w, r, err)
 		return
@@ -94,42 +147,72 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 	flush(w, rec)
 }
 
-func replay(ctx context.Context, tx pgx.Tx, w http.ResponseWriter, route, key string) (bool, error) {
+// releaseHandlerSavepoint closes the handler's savepoint. When the release
+// fails the handler aborted the transaction: ROLLBACK TO SAVEPOINT discards only
+// its partial writes and heals the transaction, which is fine for a 4xx answer.
+// A success answer whose writes are gone, or a failed heal, returns the error so
+// the caller rolls back and fails the request (the key retries).
+func releaseHandlerSavepoint(ctx context.Context, tx pgx.Tx, rec *capture) error {
+	err := execOnly(ctx, tx, "RELEASE SAVEPOINT handler_run")
+	if err == nil {
+		return nil
+	}
+	if rerr := execOnly(ctx, tx, "ROLLBACK TO SAVEPOINT handler_run"); rerr != nil {
+		return err
+	}
+	if rec.code < http.StatusBadRequest {
+		return err
+	}
+	return nil
+}
+
+func execOnly(ctx context.Context, tx pgx.Tx, sql string) error {
+	_, err := tx.Exec(ctx, sql)
+	return err
+}
+
+// replay answers a stored outcome for the same key and fingerprint (replayed);
+// the same key with another fingerprint is reused (409 idempotency-key-reused).
+func replay(ctx context.Context, tx pgx.Tx, w http.ResponseWriter, key, fingerprint string) (replayed, reused bool, err error) {
 	var (
 		status int
 		body   []byte
 		raw    []byte
+		stored string
 	)
-	err := tx.QueryRow(ctx, `SELECT status, body, headers FROM idempotency_keys WHERE route = $1 AND key = $2 AND created_at > now() - $3::interval`,
-		route, key, idempotencyTTL.String()).Scan(&status, &body, &raw)
-	if err == pgx.ErrNoRows {
-		return false, nil
+	err = tx.QueryRow(ctx, `SELECT fingerprint, status, body, headers FROM idempotency_keys WHERE key = $1 AND created_at > now() - $2::interval`,
+		key, idempotencyTTL.String()).Scan(&stored, &status, &body, &raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	var stored http.Header
-	if len(raw) > 0 && json.Unmarshal(raw, &stored) == nil {
-		for k, vs := range stored {
+	if stored != fingerprint {
+		return false, true, nil
+	}
+	var hdr http.Header
+	if len(raw) > 0 && json.Unmarshal(raw, &hdr) == nil {
+		for k, vs := range hdr {
 			for _, v := range vs {
 				w.Header().Add(k, v)
 			}
 		}
 	}
-	w.Header().Set("Idempotent-Replayed", "true")
+	w.Header().Set(IdempotencyReplayedHeader, "true")
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
-	return true, nil
+	return true, false, nil
 }
 
-func store(ctx context.Context, tx pgx.Tx, route, key string, rec *capture) error {
+func store(ctx context.Context, tx pgx.Tx, key, fingerprint string, rec *capture) error {
 	headers, err := json.Marshal(rec.header)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO idempotency_keys (route, key, status, body, headers) VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (route, key) DO UPDATE SET status = $3, body = $4, headers = $5, created_at = now()`,
-		route, key, rec.code, append([]byte{}, rec.body.Bytes()...), headers)
+	_, err = tx.Exec(ctx, `INSERT INTO idempotency_keys (key, fingerprint, status, body, headers) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (key) DO UPDATE SET fingerprint = $2, status = $3, body = $4, headers = $5, created_at = now()`,
+		key, fingerprint, rec.code, append([]byte{}, rec.body.Bytes()...), headers)
 	return err
 }
 

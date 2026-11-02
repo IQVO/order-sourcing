@@ -34,10 +34,26 @@ describe("listAssignments", () => {
     expect(api.calls).toHaveLength(1);
   });
 
-  it("normalizes an absent assignments array to an empty page", async () => {
+  it("normalizes an absent items array to an empty result", async () => {
     mockApi({ "GET /assignments": json({}) });
     const page = await listAssignments({ state: "CANCELLED" });
     expect(page.assignments).toEqual([]);
+  });
+});
+
+describe("listAssignments paging", () => {
+  it("follows nextCursor until it is absent", async () => {
+    const [a, b] = assignmentPage().items;
+    const api = mockApi({
+      "GET /assignments": (req) =>
+        req.query.get("cursor") === "c2" ? json({ items: [b] }) : json({ items: [a], nextCursor: "c2" }),
+    });
+    const got = await listAssignments({ state: "QUEUED", limit: 1 });
+    expect(got.assignments.map((x) => x.assignmentId)).toEqual([a.assignmentId, b.assignmentId]);
+    const calls = api.to("GET /assignments");
+    expect(calls).toHaveLength(2);
+    expect(calls[1].query.get("state")).toBe("QUEUED");
+    expect(calls[1].query.get("cursor")).toBe("c2");
   });
 });
 

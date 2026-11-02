@@ -101,7 +101,7 @@ type pendingRow struct {
 // published as it goes. It returns how many rows were published. On the first
 // send failure it stops (a later event for the same assignment must never
 // overtake a failed earlier one that is still being retried), records the error
-// on that row, commits what was already sent and returns an *outbox.SendFailure
+// on that row, commits what was already sent and returns an *outbox.SendFailureError
 // carrying the row's new attempts.
 //
 // With maxAttempts > 0 a row whose attempts already reached the cap is not
@@ -142,7 +142,7 @@ func (o *Outbox) Drain(ctx context.Context, limit, maxAttempts int, send func(co
 // persists the rows already sent.
 func recordFailure(ctx context.Context, tx pgx.Tx, row pendingRow, sendErr error) error {
 	dctx := context.WithoutCancel(ctx)
-	failure := &outbox.SendFailure{RowID: row.id, Message: row.msg, Err: sendErr}
+	failure := &outbox.SendFailureError{RowID: row.id, Message: row.msg, Err: sendErr}
 	if uerr := tx.QueryRow(dctx, `UPDATE outbox_events SET attempts = attempts + 1, last_error = $2 WHERE id = $1 RETURNING attempts`,
 		row.id, sendErr.Error()).Scan(&failure.Attempts); uerr != nil {
 		failure.Err = errors.Join(failure.Err, fmt.Errorf("record outbox failure: %w", uerr))

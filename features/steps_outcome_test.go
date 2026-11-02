@@ -34,13 +34,13 @@ func registerOutcomeSteps(sc *godog.ScenarioContext, w *world) {
 			return fmt.Errorf("the scenario names an unknown error %q", name)
 		}
 		if !errors.Is(w.lastErr, want) {
-			return fmt.Errorf("the command returned %v, want %s", w.lastErr, name)
+			return fmt.Errorf("the command returned %w, want %s", w.lastErr, name)
 		}
 		return nil
 	})
 	sc.Step(`^the command is rejected as invalid$`, func() error {
 		if !errors.Is(w.lastErr, shared.ErrValidation) {
-			return fmt.Errorf("the command returned %v, want a validation error", w.lastErr)
+			return fmt.Errorf("the command returned %w, want a validation error", w.lastErr)
 		}
 		return nil
 	})
@@ -123,8 +123,11 @@ func registerExclusionSteps(sc *godog.ScenarioContext, w *world) {
 	})
 	sc.Step(`^there is exactly (\d+) assignment$`, func(n int) error {
 		all, err := w.store.Assignments().List(w.ctx(), repository.AssignmentFilter{})
-		if err != nil || len(all) != n {
-			return fmt.Errorf("assignments = %d (%v), want %d", len(all), err, n)
+		if err != nil {
+			return fmt.Errorf("assignments: %w", err)
+		}
+		if len(all) != n {
+			return fmt.Errorf("assignments = %d, want %d", len(all), n)
 		}
 		return nil
 	})

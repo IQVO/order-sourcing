@@ -14,7 +14,7 @@
 // (docs/adr/0006-mcp-server-adoption.md): both skills read assignment data and
 // no write use case is reachable from this package (Deps carries Queries
 // only; internal/architecture's TestA2AAgentIsReadOnly pins it).
-// POST /assignments/{id}:reoptimise stays a REST operation and every other
+// POST /assignments/{id}/reoptimisations stays a REST operation and every other
 // lifecycle change arrives as a consumed event.
 //
 // This package depends inward on the application layer and the domain only,
@@ -55,6 +55,13 @@ type Deps struct {
 	Queries *usecases.Queries
 }
 
+// agentName is the A2A agent identity shared by the card name and skill tags;
+// mediaTypeJSON is the content type every skill speaks.
+const (
+	agentName     = "order-sourcing"
+	mediaTypeJSON = "application/json"
+)
+
 // Card builds this agent's Agent Card. The surface is two curated,
 // goal-shaped READ skills (not one skill per endpoint), derived from the two
 // MCP tools: find_assignments answers "which shipment groups match", and
@@ -63,7 +70,7 @@ type Deps struct {
 // the same fleet-wide decision as REST and MCP.
 func Card(cfg Config) *a2a.AgentCard {
 	return &a2a.AgentCard{
-		Name:        "order-sourcing",
+		Name:        agentName,
 		Description: "Order Sourcing agent of the retail network (read-only): answers which vendor node and path will fulfil each shipment group of a customer order, in which state, and why (the promise it must keep, the candidate with its cost, the VirtualQueue release point, the release history, the excluded nodes and the lock and shipment facts). It never changes data: asking for an immediate re-optimisation is a REST operation of order-sourcing, and every other lifecycle change arrives as a consumed event.",
 		Version:     cfg.Version,
 		Provider: &a2a.AgentProvider{
@@ -73,16 +80,16 @@ func Card(cfg Config) *a2a.AgentCard {
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(cfg.AgentURL, a2a.TransportProtocolJSONRPC),
 		},
-		DefaultInputModes:  []string{"application/json", "text/plain"},
-		DefaultOutputModes: []string{"application/json", "text/plain"},
+		DefaultInputModes:  []string{mediaTypeJSON, "text/plain"},
+		DefaultOutputModes: []string{mediaTypeJSON, "text/plain"},
 		Capabilities:       a2a.AgentCapabilities{Streaming: false},
 		Skills: []a2a.AgentSkill{
 			{
 				ID:          skillFindAssignments,
 				Name:        "Find fulfillment assignments",
 				Description: "Lists the fulfillment assignments (one per shipment group of a customer order), ordered by assignmentId ascending, optionally narrowed by state (QUEUED, RELEASED, LOCKED, SHIPPED, DELIVERED, UNSOURCEABLE or CANCELLED), orderId and nodeId (the candidate node while QUEUED, the node of the latest release later); filters combine with AND. Each item carries the promise constraint, the lines, the current candidate with its cost and the releaseAt point. limit caps the page, 1..500 (default 100). Read-only.",
-				Tags:        []string{"order-sourcing", "assignment", "read"},
-				InputModes:  []string{"application/json"},
+				Tags:        []string{agentName, "assignment", "read"},
+				InputModes:  []string{mediaTypeJSON},
 				Examples: []string{
 					`{"skill":"find_assignments","arguments":{"orderId":"ord-1"}}`,
 					`{"skill":"find_assignments","arguments":{"state":"UNSOURCEABLE","limit":50}}`,
@@ -92,8 +99,8 @@ func Card(cfg Config) *a2a.AgentCard {
 				ID:          skillAssignmentDetail,
 				Name:        "Explain one fulfillment assignment",
 				Description: "Reads one fulfillment assignment in full by assignmentId: the promise it must keep (tier, deliverByLatest, witness node), its lines, the current candidate node and path with the cost in cost points, the VirtualQueue release point, the whole release history with each outcome (ACCEPTED, REJECTED, EXPIRED, PENDING), the nodes that were excluded and why, and the lock, shipment and delivery facts once they apply. Answered as a not-found problem for an unknown id. Read-only.",
-				Tags:        []string{"order-sourcing", "assignment", "read"},
-				InputModes:  []string{"application/json"},
+				Tags:        []string{agentName, "assignment", "read"},
+				InputModes:  []string{mediaTypeJSON},
 				Examples: []string{
 					`{"skill":"assignment_detail","arguments":{"assignmentId":"fa-1b4e28ba-2fa1-4d3c-8f6e-0a1b2c3d4e5f"}}`,
 				},

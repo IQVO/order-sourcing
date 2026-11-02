@@ -31,7 +31,7 @@ func TestQueries(t *testing.T) {
 	}
 	_, err = q.ListAssignments(context.Background(), repository.AssignmentFilter{State: "NOPE"})
 	wantErr(t, err, shared.ErrValidation)
-	_, err = q.ListAssignments(context.Background(), repository.AssignmentFilter{Limit: repository.MaxLimit + 1})
+	_, err = q.ListAssignments(context.Background(), repository.AssignmentFilter{Limit: repository.FetchLimit + 1})
 	wantErr(t, err, shared.ErrValidation)
 	_, err = q.ListAssignments(context.Background(), repository.AssignmentFilter{Limit: -1})
 	wantErr(t, err, shared.ErrValidation)

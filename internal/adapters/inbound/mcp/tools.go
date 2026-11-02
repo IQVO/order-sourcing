@@ -10,13 +10,14 @@ import (
 	"github.com/claudioed/order-sourcing/internal/application/usecases"
 	"github.com/claudioed/order-sourcing/internal/application/views"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
+	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
 // Deps is everything the MCP tools need, injected by the composition root.
 // It carries the SAME read use case the REST adapter uses (usecases.Queries:
 // GET /assignments and GET /assignments/{assignmentId}); the adapter never
 // constructs an outbound adapter itself, and it holds no write use case at
-// all (docs/adr/0006). POST /assignments/{id}:reoptimise stays REST-only.
+// all (docs/adr/0006). POST /assignments/{id}/reoptimisations stays REST-only.
 type Deps struct {
 	Queries *usecases.Queries
 }
@@ -170,6 +171,9 @@ func toAssignment(v views.Assignment) assignmentView {
 // --- handlers -----------------------------------------------------------------
 
 func (d Deps) listAssignments(ctx context.Context, in listAssignmentsInput) (assignmentListView, error) {
+	if in.Limit < 0 || in.Limit > repository.MaxLimit {
+		return assignmentListView{}, mapError(ctx, shared.Invalid("limit must be between 1 and %d", repository.MaxLimit))
+	}
 	list, err := d.Queries.ListAssignments(ctx, repository.AssignmentFilter{
 		State: assignment.State(in.State), NodeID: in.NodeID, OrderID: in.OrderID, Limit: in.Limit,
 	})

@@ -166,13 +166,13 @@ consumers. The chart's `otel.*` values render the env.
 
 Contract: [`apis/openapi.yaml`](apis/openapi.yaml). No authentication. Errors are RFC 9457 `application/problem+json` (`type` is a slug such as
 `not-found`, `illegal-transition`, `concurrent-update`, `validation-failed`, `assignment-locked`, `release-in-flight`, `stale-assignment-version`).
-Every state-changing request needs an `Idempotency-Key` header: a repeat with the same request replays the first response for 24 hours.
+Every state-changing request needs an `Idempotency-Key` header: a repeat with the same request replays the first response for 24 hours (header `Idempotency-Replayed: true`); the same key with another request is `409 idempotency-key-reused`; a missing key is `400 idempotency-key-required`, a key that is not 1 to 128 printable ASCII characters `400 idempotency-key-invalid`. `GET /assignments` answers `{items, nextCursor}` (query `limit`, `cursor` and the filters; any other parameter is `400 unknown-query-parameter`).
 
 | Method and path | Operation |
 | --- | --- |
 | `GET /assignments?state=&nodeId=&orderId=` | list assignments |
 | `GET /assignments/{assignmentId}` | read one assignment |
-| `POST /assignments/{assignmentId}:reoptimise` | re-run the candidate search of a queued assignment |
+| `POST /assignments/{assignmentId}/reoptimisations` | re-run the candidate search of a queued assignment |
 | `GET /healthz`, `GET /readyz` | liveness, readiness |
 
 ### MCP server (read-only)
@@ -185,7 +185,7 @@ tools, one per read: `list_assignments(state?, nodeId?, orderId?, limit?)` and
 (`not-found`, `validation-failed`). It reads only: no Kafka, no consumers, no
 sweep, no outbox — `DATABASE_URL` (plus the optional
 `MIGRATIONS_DATABASE_URL`) is its only dependency, and it runs the idempotent
-boot migrations like `cmd/api`. `POST /assignments/{id}:reoptimise` stays
+boot migrations like `cmd/api`. `POST /assignments/{id}/reoptimisations` stays
 REST-only.
 
 ### A2A agent (read-only)

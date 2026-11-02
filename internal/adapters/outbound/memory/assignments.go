@@ -66,11 +66,11 @@ func byID(a, b assignment.Snapshot) int { return cmp.Compare(a.ID, b.ID) }
 func (r *AssignmentRepository) List(ctx context.Context, f repository.AssignmentFilter) ([]*assignment.Assignment, error) {
 	defer r.s.enter(ctx)()
 	limit := f.Limit
-	if limit <= 0 || limit > repository.MaxLimit {
-		limit = repository.MaxLimit
+	if limit <= 0 || limit > repository.FetchLimit {
+		limit = repository.FetchLimit
 	}
 	var out []*assignment.Assignment
-	for _, snap := range r.sorted(func(s assignment.Snapshot) bool { return matches(s, f) }, byID) {
+	for _, snap := range r.sorted(func(s assignment.Snapshot) bool { return string(s.ID) > f.After && matches(s, f) }, byID) {
 		if len(out) == limit {
 			break
 		}

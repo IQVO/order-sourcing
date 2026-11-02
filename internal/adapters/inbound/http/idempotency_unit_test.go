@@ -56,6 +56,8 @@ func (r fakeRow) Scan(dest ...any) error {
 			break
 		}
 		switch p := dest[i].(type) {
+		case *string:
+			*p = r.from[i].(string)
 		case *[]byte:
 			*p = []byte(r.from[i].(string))
 		case *int:
@@ -126,7 +128,7 @@ func TestFlushCopiesHeadersStatusAndBody(t *testing.T) {
 }
 
 // TestStoreWritesUpsertWithResponse pins store's SQL contract: one
-// idempotency_keys upsert keyed by (route, key) carrying status, body and
+// idempotency_keys upsert keyed by key alone carrying status, body and
 // headers, so a retried key refreshes the same row instead of failing.
 func TestStoreWritesUpsertWithResponse(t *testing.T) {
 	tx := &fakeTx{}
@@ -135,21 +137,21 @@ func TestStoreWritesUpsertWithResponse(t *testing.T) {
 	rec.WriteHeader(200)
 	_, _ = rec.body.WriteString(`{"v":1}`)
 
-	if err := store(context.Background(), tx, "POST /assignments/a:reoptimise", "key-1", rec); err != nil {
+	if err := store(context.Background(), tx, "key-1", "POST /assignments/a/reoptimisations abc", rec); err != nil {
 		t.Fatalf("store = %v", err)
 	}
 	if len(tx.execSQL) != 1 {
 		t.Fatalf("exec calls = %d, want 1", len(tx.execSQL))
 	}
 	sql := tx.execSQL[0]
-	for _, want := range []string{"INSERT INTO idempotency_keys", "ON CONFLICT (route, key) DO UPDATE"} {
+	for _, want := range []string{"INSERT INTO idempotency_keys", "ON CONFLICT (key) DO UPDATE"} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("sql = %q, want it to contain %q", sql, want)
 		}
 	}
 	args := tx.execArgs[0]
-	if len(args) != 5 || args[0] != "POST /assignments/a:reoptimise" || args[1] != "key-1" || args[2] != 200 {
-		t.Fatalf("args = %v, want route, key, status...", args)
+	if len(args) != 5 || args[0] != "key-1" || args[1] != "POST /assignments/a/reoptimisations abc" || args[2] != 200 {
+		t.Fatalf("args = %v, want key, fingerprint, status...", args)
 	}
 	if string(args[3].([]byte)) != `{"v":1}` {
 		t.Errorf("stored body = %v", args[3])
@@ -165,7 +167,7 @@ func TestStoreWritesUpsertWithResponse(t *testing.T) {
 
 // TestReplayAnswersFromTheStoredRowAndMarksTheHeader pins replay: a miss (no
 // row yet) reports false with no error and writes nothing; a hit replays the
-// stored status, body and headers and marks Idempotent-Replayed; a storage
+// stored status, body and headers and marks Idempotency-Replayed; a storage
 // error is returned.
 func TestReplayAnswersFromTheStoredRowAndMarksTheHeader(t *testing.T) {
 	ctx := context.Background()
@@ -173,16 +175,16 @@ func TestReplayAnswersFromTheStoredRowAndMarksTheHeader(t *testing.T) {
 	// Miss: nothing stored yet.
 	tx := &fakeTx{scanErr: pgx.ErrNoRows}
 	w := httptest.NewRecorder()
-	replayed, err := replay(ctx, tx, w, "POST /x", "k")
-	if replayed || err != nil || w.Code != 200 || w.Body.Len() != 0 {
+	replayed, reused, err := replay(ctx, tx, w, "k", "fp")
+	if replayed || reused || err != nil || w.Code != 200 || w.Body.Len() != 0 {
 		t.Fatalf("miss: replayed=%v err=%v code=%d body=%q", replayed, err, w.Code, w.Body)
 	}
 
 	// Hit: the stored outcome is replayed verbatim.
-	tx = &fakeTx{scanFrom: []any{409, `{"type":"x"}`, `{"Content-Type":["application/problem+json"]}`}}
+	tx = &fakeTx{scanFrom: []any{"fp", 409, `{"type":"x"}`, `{"Content-Type":["application/problem+json"]}`}}
 	w = httptest.NewRecorder()
-	replayed, err = replay(ctx, tx, w, "POST /x", "k")
-	if !replayed || err != nil {
+	replayed, reused, err = replay(ctx, tx, w, "k", "fp")
+	if !replayed || reused || err != nil {
 		t.Fatalf("hit: replayed=%v err=%v", replayed, err)
 	}
 	if w.Code != 409 || w.Body.String() != `{"type":"x"}` {
@@ -191,29 +193,39 @@ func TestReplayAnswersFromTheStoredRowAndMarksTheHeader(t *testing.T) {
 	if w.Header().Get("Content-Type") != "application/problem+json" {
 		t.Errorf("stored headers were not restored: %v", w.Header())
 	}
-	if w.Header().Get("Idempotent-Replayed") != "true" {
-		t.Error("the replay must be marked with Idempotent-Replayed")
+	if w.Header().Get("Idempotency-Replayed") != "true" {
+		t.Error("the replay must be marked with Idempotency-Replayed")
 	}
 
 	// Storage failure.
 	tx = &fakeTx{scanErr: errors.New("connection refused")}
-	if _, err := replay(ctx, tx, httptest.NewRecorder(), "POST /x", "k"); err == nil {
+	if _, _, err := replay(ctx, tx, httptest.NewRecorder(), "k", "fp"); err == nil {
 		t.Fatal("a lookup error must surface, not count as a miss")
 	}
 }
 
-// TestReplayQueryFiltersByRouteKeyAndTTL pins the SELECT: it scopes to the
-// route+key and applies the 24h window, so an old key is a miss again.
-func TestReplayQueryFiltersByRouteKeyAndTTL(t *testing.T) {
+// TestReplayQueryFiltersByKeyAndTTL pins the SELECT: it scopes to the key
+// alone (global key) and applies the 24h window, so an old key is a miss again.
+func TestReplayQueryFiltersByKeyAndTTL(t *testing.T) {
 	tx := &fakeTx{scanErr: pgx.ErrNoRows}
-	_, _ = replay(context.Background(), tx, httptest.NewRecorder(), "POST /assignments/a:reoptimise", "k2")
-	if !strings.Contains(tx.querySQL, "FROM idempotency_keys") || !strings.Contains(tx.querySQL, "now() - $3::interval") {
+	_, _, _ = replay(context.Background(), tx, httptest.NewRecorder(), "k2", "fp")
+	if !strings.Contains(tx.querySQL, "FROM idempotency_keys") || !strings.Contains(tx.querySQL, "now() - $2::interval") {
 		t.Fatalf("sql = %q", tx.querySQL)
 	}
-	if len(tx.queryArgs) != 3 || tx.queryArgs[0] != "POST /assignments/a:reoptimise" || tx.queryArgs[1] != "k2" {
+	if len(tx.queryArgs) != 2 || tx.queryArgs[0] != "k2" {
 		t.Fatalf("args = %v", tx.queryArgs)
 	}
-	if d, ok := tx.queryArgs[2].(string); !ok || d != idempotencyTTL.String() {
-		t.Fatalf("ttl arg = %v, want the 24h idempotency window", tx.queryArgs[2])
+	if d, ok := tx.queryArgs[1].(string); !ok || d != idempotencyTTL.String() {
+		t.Fatalf("ttl arg = %v, want the 24h idempotency window", tx.queryArgs[1])
+	}
+}
+
+// TestReplayFlagsReuseOfAKeyForAnotherRequest: the same key with another fingerprint is reuse, nothing is written.
+func TestReplayFlagsReuseOfAKeyForAnotherRequest(t *testing.T) {
+	tx := &fakeTx{scanFrom: []any{"other", 200, `{}`, `{}`}}
+	w := httptest.NewRecorder()
+	replayed, reused, err := replay(context.Background(), tx, w, "k", "fp")
+	if replayed || !reused || err != nil || w.Body.Len() != 0 {
+		t.Fatalf("reuse: replayed=%v reused=%v err=%v", replayed, reused, err)
 	}
 }

@@ -122,7 +122,7 @@ One Postgres database, created by the single embedded migration
 | `rm_book_pressure` | The promise-book pressure per `book_id`, used as the 500 point cost term. |
 | `processed_events` | CloudEvents ids already applied: the inbox that makes the consumers idempotent. |
 | `outbox_events` | The transactional outbox; one row per message, with `attempts`, `last_error` and `published_at`. |
-| `idempotency_keys` | Stored answers of `POST /assignments/{assignmentId}:reoptimise`, replayed for 24 hours. |
+| `idempotency_keys` | Stored answers of `POST /assignments/{assignmentId}/reoptimisations`, replayed for 24 hours. |
 
 Postgres is the only store: `cmd/api` refuses to boot without `DATABASE_URL`, and nothing is served from process memory.
 Kafka is the platform's single broker. This service consumes nine `retailnetwork.<producer>.events` topics (see

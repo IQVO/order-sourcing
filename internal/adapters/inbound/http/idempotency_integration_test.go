@@ -44,28 +44,29 @@ func TestIdempotencyKeyOnPostgres(t *testing.T) {
 		_, _ = w.Write([]byte(`{"n":` + string(rune('0'+calls.Load())) + `}`))
 	}))
 
-	first := post(h, "/assignments/a:reoptimise", "k1")
-	again := post(h, "/assignments/a:reoptimise", "k1")
+	first := post(h, "/assignments/a/reoptimisations", "k1")
+	again := post(h, "/assignments/a/reoptimisations", "k1")
 	if first.Code != 200 || again.Code != 200 || first.Body.String() != again.Body.String() || calls.Load() != 1 {
 		t.Fatalf("a repeated key replays the first answer: %d %q / %d %q calls=%d", first.Code, first.Body, again.Code, again.Body, calls.Load())
 	}
-	if again.Header().Get("Idempotent-Replayed") != "true" || again.Header().Get("Content-Type") != "application/json" {
+	if again.Header().Get("Idempotency-Replayed") != "true" || again.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("replay headers = %v", again.Header())
 	}
-	if other := post(h, "/assignments/b:reoptimise", "k1"); calls.Load() != 2 || other.Header().Get("Idempotent-Replayed") != "" {
-		t.Fatal("the same key on another route is a different request")
+	other := post(h, "/assignments/b/reoptimisations", "k1")
+	if other.Code != 409 || !strings.Contains(other.Body.String(), "idempotency-key-reused") || calls.Load() != 1 || other.Header().Get("Idempotency-Replayed") != "" {
+		t.Fatalf("the same key on another request is 409 idempotency-key-reused: %d %s calls=%d", other.Code, other.Body, calls.Load())
 	}
 
 	status.Store(409)
-	c1, c2 := post(h, "/assignments/a:reoptimise", "k409"), post(h, "/assignments/a:reoptimise", "k409")
-	if c1.Code != 409 || c2.Code != 409 || calls.Load() != 3 {
+	c1, c2 := post(h, "/assignments/a/reoptimisations", "k409"), post(h, "/assignments/a/reoptimisations", "k409")
+	if c1.Code != 409 || c2.Code != 409 || calls.Load() != 2 || c2.Header().Get("Idempotency-Replayed") != "true" {
 		t.Fatalf("a 4xx is stored and replayed: %d %d calls=%d", c1.Code, c2.Code, calls.Load())
 	}
 
 	status.Store(500)
-	post(h, "/assignments/a:reoptimise", "k500")
+	post(h, "/assignments/a/reoptimisations", "k500")
 	status.Store(200)
-	if r := post(h, "/assignments/a:reoptimise", "k500"); r.Code != 200 || r.Header().Get("Idempotent-Replayed") != "" || calls.Load() != 5 {
+	if r := post(h, "/assignments/a/reoptimisations", "k500"); r.Code != 200 || r.Header().Get("Idempotency-Replayed") != "" || calls.Load() != 4 {
 		t.Fatalf("a 5xx is never stored, the key retries the real work: %d calls=%d", r.Code, calls.Load())
 	}
 }
@@ -80,7 +81,7 @@ func TestConcurrentSameKeyRunsTheHandlerOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Add(1)
-		go func() { defer wg.Done(); post(h, "/assignments/a:reoptimise", "race") }()
+		go func() { defer wg.Done(); post(h, "/assignments/a/reoptimisations", "race") }()
 	}
 	wg.Wait()
 	if calls.Load() != 1 {
@@ -97,7 +98,7 @@ func TestPanicRollsBackAndRepanics(t *testing.T) {
 				t.Fatal("the panic must propagate")
 			}
 		}()
-		post(h, "/assignments/a:reoptimise", "kp")
+		post(h, "/assignments/a/reoptimisations", "kp")
 	}()
 	if n := pgtest.CountRows(t, pool, "idempotency_keys"); n != 0 {
 		t.Fatalf("a panic leaves no stored key, found %d", n)

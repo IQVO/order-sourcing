@@ -88,7 +88,14 @@ export interface Assignment {
   cancelReason?: string;
 }
 
-/** The answer of GET /assignments: ordered by assignmentId ascending. */
+/** The wire answer of GET /assignments: one keyset page, ordered by assignmentId ascending. */
+export interface AssignmentPage {
+  items: Assignment[];
+  /** Opaque; absent on the last page. */
+  nextCursor?: string;
+}
+
+/** All pages of GET /assignments, followed until nextCursor is absent. */
 export interface AssignmentList {
   assignments: Assignment[];
 }

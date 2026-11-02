@@ -68,7 +68,7 @@ client to any sibling over REST, MCP or A2A.
 
 | Interface | Port | Detail |
 | --- | --- | --- |
-| REST (`cmd/api`) | 8080 | `GET /assignments`, `GET /assignments/{assignmentId}`, `POST /assignments/{assignmentId}:reoptimise`, `GET /healthz`, `GET /readyz`; no authentication; errors are RFC 9457 `application/problem+json` |
+| REST (`cmd/api`) | 8080 | `GET /assignments`, `GET /assignments/{assignmentId}`, `POST /assignments/{assignmentId}/reoptimisations`, `GET /healthz`, `GET /readyz`; no authentication; errors are RFC 9457 `application/problem+json` |
 | Kafka (`cmd/api`) | n/a | consumes 32 event types from nine topics, publishes 8 types on `retailnetwork.order-sourcing.events` and 2 on `retailnetwork.order-sourcing.analytics`, CloudEvents 1.0 |
 | MCP (`cmd/mcp`) | 8090 | Streamable HTTP, read-only, tools `list_assignments` and `get_assignment` |
 | A2A (`cmd/a2a`) | 8093 | JSON-RPC 2.0 on `/` and `/a2a`, Agent Card at `/.well-known/agent-card.json`, read-only skills `find_assignments` and `assignment_detail` |
@@ -85,3 +85,7 @@ client to any sibling over REST, MCP or A2A.
 | Learn the domain | [Ubiquitous language](/docs/ddd/ubiquitous-language), [Use cases](/docs/ddd/use-cases), [Subdomain classification](/docs/ddd/subdomain-classification), [DDD artifacts](/docs/ddd/ddd-artifacts) |
 | Integrate with it | [API overview](/docs/api-reference), [Events](/docs/api-reference/events), [Integration](/docs/ecosystem/integration), [MCP tools](/docs/mcp/tools) |
 | Know why it is built this way | [ADR index](/docs/adr) |
+
+:::note[Disclaimer]
+This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.
+:::

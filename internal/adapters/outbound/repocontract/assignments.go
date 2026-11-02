@@ -44,16 +44,16 @@ func save(t *testing.T, fx Fixture, a *assignment.Assignment) {
 
 func roundTrip(t *testing.T, fx Fixture) {
 	// Every state, built through the domain.
-	shipped := released(t, "asg-shipped", "ord-s", 1)
+	shipped := released(t, "asg-shipped", "ord-s")
 	mustDo(t, func() error { _, err := shipped.Lock(1, hours(3), hours(3)); return err })
 	mustDo(t, func() error { _, err := shipped.MarkShipped([]string{"T1", "T2"}, hours(4), hours(4)); return err })
 	mustDo(t, func() error { _, err := shipped.MarkDelivered("T1", hours(8), hours(8)); return err })
-	refused := released(t, "asg-refused", "ord-r", 1)
+	refused := released(t, "asg-refused", "ord-r")
 	mustDo(t, func() error {
 		_, err := refused.RefuseRelease(1, assignment.OutcomeRejected, "OOS", candidate("node-b"), hours(6), hours(3))
 		return err
 	})
-	unsourceable := released(t, "asg-un", "ord-u", 1)
+	unsourceable := released(t, "asg-un", "ord-u")
 	mustDo(t, func() error {
 		_, err := unsourceable.RefuseRelease(1, assignment.OutcomeExpired, "", nil, hours(0), hours(3))
 		return err
@@ -103,7 +103,7 @@ func stepSnapshot(final assignment.Snapshot, v int64) assignment.Snapshot {
 	// A QUEUED stand-in with the same identity: valid at any version.
 	s := assignment.Snapshot{
 		ID: final.ID, OrderID: final.OrderID, GroupNo: final.GroupNo, DestinationPostalPrefix: final.DestinationPostalPrefix,
-		Promise: final.Promise, Lines: []assignment.Line{{LineNo: 1, CatalogItemID: "cat-1", Quantity: 2}},
+		Promise: final.Promise, Lines: []assignment.Line{{LineNo: 1, CatalogItemID: fixtureCatItem, Quantity: 2}},
 		State: assignment.StateQueued, Candidate: candidate("node-a"), ReleaseAt: hours(2), Version: v,
 		QueuedAt: final.QueuedAt, UpdatedAt: final.UpdatedAt,
 	}
@@ -151,7 +151,7 @@ func versionRule(t *testing.T, fx Fixture) {
 
 func oneAssignmentPerGroup(t *testing.T, fx Fixture) {
 	save(t, fx, queued(t, "asg-1", "ord-1", 1, hours(2)))
-	if err := fx.Assignments.Save(ctx(), queued(t, "asg-2", "ord-1", 1, hours(2))); !errors.Is(err, ports.ErrDuplicateGroup) {
+	if err := fx.Assignments.Save(ctx(), queued(t, fixtureAsgTwo, "ord-1", 1, hours(2))); !errors.Is(err, ports.ErrDuplicateGroup) {
 		t.Fatalf("a second assignment of one group = %v, want ErrDuplicateGroup", err)
 	}
 	save(t, fx, queued(t, "asg-3", "ord-1", 2, hours(2)))
@@ -160,9 +160,9 @@ func oneAssignmentPerGroup(t *testing.T, fx Fixture) {
 
 func findBy(t *testing.T, fx Fixture) {
 	save(t, fx, queued(t, "asg-1", "ord-1", 1, hours(2)))
-	save(t, fx, queued(t, "asg-2", "ord-1", 2, hours(2)))
+	save(t, fx, queued(t, fixtureAsgTwo, "ord-1", 2, hours(2)))
 	g, err := fx.Assignments.FindByGroup(ctx(), "ord-1", 2)
-	if err != nil || g.ID() != "asg-2" {
+	if err != nil || g.ID() != fixtureAsgTwo {
 		t.Fatalf("FindByGroup = %v %v", g, err)
 	}
 	p, err := fx.Assignments.FindByPromise(ctx(), "prm-asg-1")
@@ -193,9 +193,9 @@ func wantIDs(t *testing.T, got []*assignment.Assignment, want ...string) {
 func listFilters(t *testing.T, fx Fixture) {
 	save(t, fx, queued(t, "asg-b", "ord-1", 1, hours(2)))
 	save(t, fx, queued(t, "asg-a", "ord-1", 2, hours(2)))
-	rel := released(t, "asg-c", "ord-2", 1)
+	rel := released(t, "asg-c", "ord-2")
 	saveHistory(t, fx, rel)
-	un := released(t, "asg-d", "ord-3", 1)
+	un := released(t, "asg-d", "ord-3")
 	mustDo(t, func() error {
 		_, err := un.RefuseRelease(1, assignment.OutcomeRejected, "X", nil, hours(0), hours(3))
 		return err
@@ -217,20 +217,24 @@ func listFilters(t *testing.T, fx Fixture) {
 	wantIDs(t, list(repository.AssignmentFilter{NodeID: "node-a"}), "asg-a", "asg-b", "asg-c", "asg-d")
 	wantIDs(t, list(repository.AssignmentFilter{NodeID: "node-zzz"}))
 	wantIDs(t, list(repository.AssignmentFilter{Limit: 2}), "asg-a", "asg-b")
+	// keyset: strictly after the position, still ordered by id, filters combine.
+	wantIDs(t, list(repository.AssignmentFilter{After: "asg-b", Limit: 2}), "asg-c", "asg-d")
+	wantIDs(t, list(repository.AssignmentFilter{After: "asg-a", State: assignment.StateQueued}), "asg-b")
+	wantIDs(t, list(repository.AssignmentFilter{After: "asg-d"}))
 }
 
 func dueAndQueued(t *testing.T, fx Fixture) {
 	save(t, fx, queued(t, "asg-1", "ord-1", 1, hours(5)))
-	save(t, fx, queued(t, "asg-2", "ord-2", 1, hours(1)))
+	save(t, fx, queued(t, fixtureAsgTwo, "ord-2", 1, hours(1)))
 	save(t, fx, queued(t, "asg-3", "ord-3", 1, hours(1)))
-	rel := released(t, "asg-4", "ord-4", 1)
+	rel := released(t, "asg-4", "ord-4")
 	saveHistory(t, fx, rel)
 	due, err := fx.Assignments.Due(ctx(), hours(1), 10)
-	if err != nil || !reflect.DeepEqual(due, []assignment.ID{"asg-2", "asg-3"}) {
+	if err != nil || !reflect.DeepEqual(due, []assignment.ID{fixtureAsgTwo, "asg-3"}) {
 		t.Fatalf("Due = %v %v: only QUEUED rows with releaseAt <= now, by releaseAt then id", due, err)
 	}
 	due, _ = fx.Assignments.Due(ctx(), hours(1), 1)
-	if len(due) != 1 || due[0] != "asg-2" {
+	if len(due) != 1 || due[0] != fixtureAsgTwo {
 		t.Fatalf("Due limit = %v", due)
 	}
 	due, _ = fx.Assignments.Due(ctx(), hours(0), 10)
@@ -238,10 +242,10 @@ func dueAndQueued(t *testing.T, fx Fixture) {
 		t.Fatalf("nothing is due before %v: %v", hours(1), due)
 	}
 	page, err := fx.Assignments.Queued(ctx(), "", 2)
-	if err != nil || !reflect.DeepEqual(page, []assignment.ID{"asg-1", "asg-2"}) {
+	if err != nil || !reflect.DeepEqual(page, []assignment.ID{"asg-1", fixtureAsgTwo}) {
 		t.Fatalf("Queued = %v %v", page, err)
 	}
-	page, _ = fx.Assignments.Queued(ctx(), "asg-2", 2)
+	page, _ = fx.Assignments.Queued(ctx(), fixtureAsgTwo, 2)
 	if !reflect.DeepEqual(page, []assignment.ID{"asg-3"}) {
 		t.Fatalf("Queued after asg-2 = %v", page)
 	}
