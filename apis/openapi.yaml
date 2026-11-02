@@ -20,7 +20,9 @@ info:
     returned by this context. No authentication, consistent with the rest of
     the network. Errors are RFC 9457 problem details. The shared problem types
     are not-found (404), illegal-transition (409), concurrent-update (409) and
-    validation-failed (422); the model's Err names add assignment-locked,
+    validation-failed (422); the idempotency problems are
+    idempotency-key-required and idempotency-key-invalid (400) and
+    idempotency-key-reused (409); the model's Err names add assignment-locked,
     release-in-flight, node-excluded, stale-assignment-version (409) and
     candidate-breaks-promise (422).
 servers:
@@ -38,7 +40,7 @@ paths:
         Filters combine with AND; an empty result is 200 with an empty list.
         nodeId matches the current candidate node (QUEUED), or the node of the
         latest release (RELEASED and later). Results are ordered by
-        assignmentId ascending and capped by limit.
+        assignmentId ascending (keyset pagination: limit and cursor, nextCursor is absent on the last page).
       parameters:
         - name: state
           in: query
@@ -55,24 +57,26 @@ paths:
           required: false
           schema:
             type: string
-        - name: limit
-          in: query
-          required: false
-          description: Maximum number of assignments returned. Defaults to 100.
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 500
-            default: 100
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
       responses:
         '200':
-          description: The matching assignments.
+          description: One page of the matching assignments.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AssignmentList'
+                $ref: '#/components/schemas/AssignmentPage'
+        '400':
+          description: >-
+            invalid-limit (limit is not an integer in 1..500), invalid-cursor
+            (the cursor does not decode) or unknown-query-parameter (any query
+            parameter other than state, nodeId, orderId, limit, cursor).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '422':
-          description: validation-failed (ErrValidation), an invalid state or limit query parameter.
+          description: validation-failed (ErrValidation), an invalid state query parameter.
           content:
             application/problem+json:
               schema:
@@ -98,7 +102,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
-  /assignments/{assignmentId}:reoptimise:
+  /assignments/{assignmentId}/reoptimisations:
     post:
       tags: [Assignments]
       operationId: reoptimiseAssignment
@@ -113,7 +117,7 @@ paths:
         candidate is left the assignment becomes UNSOURCEABLE at once
         (FulfillmentUnsourceable, gap G26). A repeat on unchanged read models
         changes nothing. The Idempotency-Key replays the first response for 24
-        hours.
+        hours; the same key with another request is 409 idempotency-key-reused.
       parameters:
         - $ref: '#/components/parameters/AssignmentId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -126,10 +130,22 @@ paths:
       responses:
         '200':
           description: The assignment after re-optimisation (unchanged if the best candidate is the current one).
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Assignment'
+        '400':
+          description: >-
+            idempotency-key-required (no Idempotency-Key header) or
+            idempotency-key-invalid (not 1 to 128 printable ASCII characters), or
+            malformed-request (the body is not valid JSON).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '404':
           description: not-found (ErrNotFound), no assignment has that id.
           content:
@@ -142,7 +158,9 @@ paths:
             (ErrReleaseInFlight), node-excluded (ErrNodeExcluded),
             stale-assignment-version (ErrStaleAssignmentVersion),
             illegal-transition (ErrIllegalTransition, the assignment is
-            UNSOURCEABLE or CANCELLED), or concurrent-update (ErrConcurrentUpdate).
+            UNSOURCEABLE or CANCELLED), concurrent-update (ErrConcurrentUpdate),
+            or idempotency-key-reused (the Idempotency-Key was already used with
+            a different request).
           content:
             application/problem+json:
               schema:
@@ -163,8 +181,7 @@ paths:
         '422':
           description: >-
             candidate-breaks-promise (ErrCandidateBreaksPromise), or
-            validation-failed (ErrValidation), an invalid request body or an
-            Idempotency-Key longer than 128 characters.
+            validation-failed (ErrValidation), an invalid request body.
           content:
             application/problem+json:
               schema:
@@ -177,15 +194,42 @@ components:
       required: true
       schema:
         type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items returned. Defaults to 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque token from the previous page's nextCursor; filters are repeated on every page request.
+      schema:
+        type: string
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
-      description: A repeated key returns the stored response of the first call (24 hours).
+      description: >-
+        1 to 128 printable ASCII characters, one per logical submit. A repeated
+        key with the same request returns the stored response of the first call
+        (24 hours, header Idempotency-Replayed: true); with another request it is
+        409 idempotency-key-reused.
       schema:
         type: string
         minLength: 1
         maxLength: 128
+  headers:
+    IdempotencyReplayed:
+      description: Present, with the value true, only when the response is a replay of the first answer.
+      schema:
+        type: string
+        enum: ["true"]
   schemas:
     Problem:
       type: object
@@ -364,14 +408,17 @@ components:
           format: date-time
         cancelReason:
           type: string
-    AssignmentList:
+    AssignmentPage:
       type: object
-      required: [assignments]
+      required: [items]
       properties:
-        assignments:
+        items:
           type: array
           items:
             $ref: '#/components/schemas/Assignment'
+        nextCursor:
+          type: string
+          description: Opaque cursor of the next page; absent on the last page.
     ReoptimiseRequest:
       type: object
       properties:
