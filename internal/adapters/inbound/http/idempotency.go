@@ -73,6 +73,18 @@ func validKey(key string) bool {
 	return true
 }
 
+// serve runs a genuinely new key: capture the response, persist the outcome in
+// the same transaction, commit, and only then write to the real client.
+//
+// The handler runs behind a SAVEPOINT. A mapped domain conflict (a racing
+// request losing on a unique index, say) fails a statement on the server and
+// leaves the transaction ABORTED even though the handler answers a truthful
+// 4xx. Releasing the savepoint exposes that: the release fails, ROLLBACK TO
+// SAVEPOINT discards the half-done work and heals the transaction, and the 4xx
+// outcome is recorded and committed like any other (otherwise the outcome write
+// hits SQLSTATE 25P02 and the client sees a 500). A 2xx answer behind a failed
+// release is a lie (its writes are gone), so it rolls everything back and fails
+// the request instead, and the same key retries the real work.
 func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBinder, key, fingerprint string, next http.Handler) {
 	ctx := r.Context()
 	tx, err := pool.Begin(ctx)
@@ -102,6 +114,11 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 		}
 		return
 	}
+	if _, err := tx.Exec(ctx, "SAVEPOINT handler_run"); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		writeError(w, r, err)
+		return
+	}
 	rec := &capture{header: http.Header{}}
 	next.ServeHTTP(rec, r.WithContext(bind(ctx, tx)))
 	if rec.code == 0 {
@@ -110,6 +127,11 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 	if rec.code >= http.StatusInternalServerError {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 		flush(w, rec)
+		return
+	}
+	if err := releaseHandlerSavepoint(ctx, tx, rec); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		writeError(w, r, err)
 		return
 	}
 	if err := store(ctx, tx, key, fingerprint, rec); err != nil {
@@ -122,6 +144,30 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 		return
 	}
 	flush(w, rec)
+}
+
+// releaseHandlerSavepoint closes the handler's savepoint. When the release
+// fails the handler aborted the transaction: ROLLBACK TO SAVEPOINT discards only
+// its partial writes and heals the transaction, which is fine for a 4xx answer.
+// A success answer whose writes are gone, or a failed heal, returns the error so
+// the caller rolls back and fails the request (the key retries).
+func releaseHandlerSavepoint(ctx context.Context, tx pgx.Tx, rec *capture) error {
+	err := execOnly(ctx, tx, "RELEASE SAVEPOINT handler_run")
+	if err == nil {
+		return nil
+	}
+	if rerr := execOnly(ctx, tx, "ROLLBACK TO SAVEPOINT handler_run"); rerr != nil {
+		return err
+	}
+	if rec.code < http.StatusBadRequest {
+		return err
+	}
+	return nil
+}
+
+func execOnly(ctx context.Context, tx pgx.Tx, sql string) error {
+	_, err := tx.Exec(ctx, sql)
+	return err
 }
 
 // replay answers a stored outcome for the same key and fingerprint (replayed);
