@@ -80,6 +80,52 @@ func TestProjectorNetworkGraph(t *testing.T) {
 	}
 }
 
+func TestProjectorDeclaredCosts(t *testing.T) {
+	e := newEnv(t)
+	p := usecases.NewProjector(e.deps)
+	ctx := context.Background()
+	rm := e.store.ReadModels()
+
+	// A lane cost before LaneOpened: stored keyed by laneId anyway, and the
+	// later open completes the row without losing the cost (ADR 0003).
+	e.must(p.LaneCostDeclared(ctx, meta("c1"), "lane-c", 320, h(2)))
+	if l, _ := rm.GetLane(ctx, "lane-c"); l.CostPerUnitCents != 320 || !l.CostDeclared() {
+		t.Fatalf("cost stub = %+v", l)
+	}
+	e.must(p.LaneOpened(ctx, meta("c2"), network.Lane{ID: "lane-c", Origin: "a", Destination: "b", Mode: "GROUND"}))
+	if l, _ := rm.GetLane(ctx, "lane-c"); l.Origin != "a" || l.CostPerUnitCents != 320 || !l.CostDeclared() {
+		t.Fatalf("open after cost = %+v", l)
+	}
+	// The other order: an open lane takes the declaration, and an older
+	// declaration never wins.
+	e.must(p.LaneOpened(ctx, meta("c3"), network.Lane{ID: "lane-o", Origin: "a", Destination: "c", Mode: "AIR"}))
+	e.must(p.LaneCostDeclared(ctx, meta("c4"), "lane-o", 700, h(5)))
+	e.must(p.LaneCostDeclared(ctx, meta("c5"), "lane-o", 900, h(4))) // older: ignored
+	if l, _ := rm.GetLane(ctx, "lane-o"); l.CostPerUnitCents != 700 || l.Mode != "AIR" {
+		t.Fatalf("cost after open = %+v", l)
+	}
+
+	// A wave cost before DeliveryWaveScheduled keeps through the schedule; a
+	// newer declaration after it still wins.
+	e.must(p.WaveCostDeclared(ctx, meta("c6"), "wave-c", 425, h(3)))
+	e.must(p.WaveScheduled(ctx, meta("c7"), network.Wave{ID: "wave-c", StationID: "s1", InductCutoffAt: h(5), WindowEnd: h(9), Capacity: 40}))
+	if w, _ := rm.GetWave(ctx, "wave-c"); w.CostPerStopCents != 425 || !w.Scheduled || !w.Usable() {
+		t.Fatalf("schedule after cost = %+v", w)
+	}
+	e.must(p.WaveCostDeclared(ctx, meta("c8"), "wave-c", 500, h(6)))
+	if w, _ := rm.GetWave(ctx, "wave-c"); w.CostPerStopCents != 500 || !w.Scheduled {
+		t.Fatalf("newer cost over schedule = %+v", w)
+	}
+	// A redelivery changes nothing.
+	before := e.store.Counts()
+	e.must(p.LaneCostDeclared(ctx, meta("c4"), "lane-o", 1, h(1)))
+	e.must(p.WaveCostDeclared(ctx, meta("c6"), "wave-c", 1, h(1)))
+	e.wantUnchanged(before)
+	if l, _ := rm.GetLane(ctx, "lane-o"); l.CostPerUnitCents != 700 {
+		t.Fatal("redelivery applied twice")
+	}
+}
+
 func TestProjectorAvailabilityScorecardsAndPressure(t *testing.T) {
 	e := newEnv(t)
 	p := usecases.NewProjector(e.deps)

@@ -102,7 +102,7 @@ CloudEvents 1.0 structured JSON, type `com.retailnetwork.commerce.order-sourcing
 | `retailnetwork.order-sourcing.events` (integration) | `FulfillmentReleasedToNode`, `FulfillmentReassigned`, `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused`, `FulfillmentConstraintRevised` |
 | `retailnetwork.order-sourcing.analytics` (analytics only) | `FulfillmentQueued`, `FulfillmentDelivered` |
 
-**Consumed** — 32 event types from nine producer topics, each under its own
+**Consumed** — 34 event types from nine producer topics, each under its own
 stable consumer group; delivery is at-least-once with a stable event id and
 an inbox on the consuming side ([ADR 0005](docs/adr/0005-outbox-relay-attempt-cap-sweep-and-shutdown.md)):
 

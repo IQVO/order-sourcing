@@ -6,7 +6,7 @@ Accepted (2026-10-23).
 
 ## Context
 
-order-sourcing consumes thirty-two event types from nine contexts and makes no
+order-sourcing consumes thirty-four event types from nine contexts and makes no
 synchronous call (`sync_calls: []`). The model forbids a live lookup: sibling
 data is an event-fed local read model.
 
@@ -20,10 +20,10 @@ data is an event-fed local read model.
 | delivery-promise | Customer/Supplier | `PromiseRevised`, `PromiseBookExhausted` |
 | vendor-connectivity | Customer/Supplier | `PurchaseOrderAccepted`, `PurchaseOrderRejected`, `PurchaseOrderExpired`, `VendorShipmentConfirmed` |
 | shipping-and-tracking | Conformist | `PackageDelivered` |
-| node-topology | Conformist | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `ServiceAreaAssigned`, `RegionDefined` |
+| node-topology | Conformist | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `ServiceAreaAssigned`, `RegionDefined` |
 | offer-availability | Conformist | `ListingCreated`, `ListingAvailabilityChanged`, `ListingSuppressed`, `ListingRestored`, `CatalogItemDiscontinued` |
 | linehaul-transportation | Conformist | `DepartureScheduled`, `DepartureCapacityChanged`, `DepartureCancelled`, `BookingMoved`, `BookingFailed` |
-| last-mile-delivery | Conformist | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled` |
+| last-mile-delivery | Conformist | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared` |
 | node-performance | Conformist | `NodeScorecardUpdated` |
 
 The planner (UI) is the REST client of the three routes.
@@ -41,6 +41,12 @@ never reserving or deciding anything:
   `rm_regions`): upsert by id; `ServiceAreaAssigned` keeps the newer
   `assignmentVersion`; a capacity event for an unknown departure or wave
   creates a stub that the schedule event completes (events may arrive in any order).
+  A lane's declared per-unit cost (`LaneCostDeclared`) and a wave's declared
+  per-stop cost (`WaveCostDeclared`) are columns of the same rows: the newer
+  `declaredAt` wins, and a declaration for an unknown lane or wave is stored
+  keyed by its id anyway — the later `LaneOpened` / `DeliveryWaveScheduled`
+  completes the row without losing the cost, exactly like the capacity stubs.
+  The costs feed the money-denominated AssignmentCost (ADR 0011).
 - `AvailabilityView` (`rm_listings`, `rm_discontinued_items`): an availability
   with an older `asOf` is ignored.
 - `ScorecardView` (`rm_scorecards`): by (`nodeId`, `window`); an older

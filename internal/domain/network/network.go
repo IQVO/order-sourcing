@@ -75,14 +75,43 @@ func (n Node) Eligible() bool {
 	return n.Type == TypeFulfillmentCenter && n.Operator == OperatorVendor && n.Status == StatusActive && n.ProfileRevision > 0
 }
 
-// Lane is a row of NetworkGraphView.
+// Lane is a row of NetworkGraphView. CostPerUnitCents is the planner's
+// declared marginal cost of moving ONE package-unit across the lane
+// (LaneCostDeclared); CostDeclaredAt zero means no declaration was seen, so
+// the lane contributes 0 to a money-denominated estimate and marks it
+// incomplete. A declaration may arrive before LaneOpened: the row is stored
+// keyed by laneId anyway and LaneOpened later completes it without losing the
+// cost (ADR 0003, ADR 0011).
 type Lane struct {
-	ID          string
-	Origin      string
-	Destination string
-	Mode        string
-	Closed      bool
+	ID               string
+	Origin           string
+	Destination      string
+	Mode             string
+	Closed           bool
+	CostPerUnitCents int64
+	CostDeclaredAt   time.Time
 }
+
+// ApplyOpened stores the static facts of an opened lane, keeping the closed
+// flag and any declared cost (a cost that arrived first is never lost).
+func (l *Lane) ApplyOpened(o Lane) {
+	closed, cost, at := l.Closed, l.CostPerUnitCents, l.CostDeclaredAt
+	*l = o
+	l.Closed, l.CostPerUnitCents, l.CostDeclaredAt = closed, cost, at
+}
+
+// ApplyCostDeclared stores a declared per-unit cost unless its instant is
+// older than the stored one; 0 is a legal declared cost (ADR 0011).
+func (l *Lane) ApplyCostDeclared(costPerUnitCents int64, at time.Time) bool {
+	if at.Before(l.CostDeclaredAt) {
+		return false
+	}
+	l.CostPerUnitCents, l.CostDeclaredAt = costPerUnitCents, at
+	return true
+}
+
+// CostDeclared reports whether a cost declaration was seen for the lane.
+func (l Lane) CostDeclared() bool { return !l.CostDeclaredAt.IsZero() }
 
 // Departure is a row of NetworkGraphView.
 type Departure struct {
@@ -123,26 +152,37 @@ func (d *Departure) ApplyCapacity(remaining int) {
 // Usable reports whether a package can be booked on the departure now.
 func (d Departure) Usable() bool { return d.Scheduled && !d.Cancelled && d.Remaining > 0 }
 
-// Wave is a row of NetworkGraphView.
+// Wave is a row of NetworkGraphView. CostPerStopCents is the planner's
+// declared marginal cost of ONE delivery stop on the wave
+// (WaveCostDeclared); CostDeclaredAt zero means no declaration was seen, so
+// the wave contributes 0 to a money-denominated estimate and marks it
+// incomplete. A declaration may arrive before DeliveryWaveScheduled: the row
+// is stored keyed by waveId anyway and the schedule later completes it without
+// losing the cost (ADR 0003, ADR 0011).
 type Wave struct {
-	ID             string
-	StationID      string
-	InductCutoffAt time.Time
-	WindowStart    time.Time
-	WindowEnd      time.Time
-	Capacity       int
-	Remaining      int
-	RemainingKnown bool
-	Scheduled      bool
-	Cancelled      bool
+	ID               string
+	StationID        string
+	InductCutoffAt   time.Time
+	WindowStart      time.Time
+	WindowEnd        time.Time
+	Capacity         int
+	Remaining        int
+	RemainingKnown   bool
+	Scheduled        bool
+	Cancelled        bool
+	CostPerStopCents int64
+	CostDeclaredAt   time.Time
 }
 
-// ApplySchedule stores the schedule, keeping remaining stops a capacity event set.
+// ApplySchedule stores the schedule, keeping remaining stops a capacity event
+// set and any declared cost (a cost that arrived first is never lost).
 func (w *Wave) ApplySchedule(s Wave) {
 	rem, known := w.Remaining, w.RemainingKnown
 	cancelled := w.Cancelled
+	cost, at := w.CostPerStopCents, w.CostDeclaredAt
 	*w = s
 	w.Scheduled, w.Cancelled = true, cancelled
+	w.CostPerStopCents, w.CostDeclaredAt = cost, at
 	if known {
 		w.Remaining, w.RemainingKnown = rem, true
 		return
@@ -154,6 +194,19 @@ func (w *Wave) ApplySchedule(s Wave) {
 func (w *Wave) ApplyCapacity(remaining int) {
 	w.Remaining, w.RemainingKnown = remaining, true
 }
+
+// ApplyCostDeclared stores a declared per-stop cost unless its instant is
+// older than the stored one; 0 is a legal declared cost (ADR 0011).
+func (w *Wave) ApplyCostDeclared(costPerStopCents int64, at time.Time) bool {
+	if at.Before(w.CostDeclaredAt) {
+		return false
+	}
+	w.CostPerStopCents, w.CostDeclaredAt = costPerStopCents, at
+	return true
+}
+
+// CostDeclared reports whether a cost declaration was seen for the wave.
+func (w Wave) CostDeclared() bool { return !w.CostDeclaredAt.IsZero() }
 
 // Usable reports whether a stop can be assigned to the wave now.
 func (w Wave) Usable() bool { return w.Scheduled && !w.Cancelled && w.Remaining > 0 }

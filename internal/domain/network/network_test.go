@@ -121,6 +121,70 @@ func wantWaveMerge(t *testing.T) {
 	}
 }
 
+func TestLaneCostMerge(t *testing.T) {
+	var l Lane
+	if l.CostDeclared() {
+		t.Fatal("a lane without a declaration is not cost-declared")
+	}
+	if !l.ApplyCostDeclared(320, t0) || l.CostPerUnitCents != 320 || !l.CostDeclaredAt.Equal(t0) || !l.CostDeclared() {
+		t.Fatalf("lane = %+v", l)
+	}
+	if l.ApplyCostDeclared(500, t0.Add(-time.Minute)) || l.CostPerUnitCents != 320 {
+		t.Fatal("an older declaration is ignored")
+	}
+	if !l.ApplyCostDeclared(410, t0) || l.CostPerUnitCents != 410 {
+		t.Fatal("a declaration at the same instant applies (equal instants are not older)")
+	}
+	if !l.ApplyCostDeclared(0, t1) || l.CostPerUnitCents != 0 || !l.CostDeclared() {
+		t.Fatal("0 is a legal declared cost, not an undeclared one")
+	}
+	wantOpenedKeepsCost(t, l)
+}
+
+func wantOpenedKeepsCost(t *testing.T, l Lane) {
+	t.Helper()
+	// LaneOpened after the declaration keeps the cost.
+	l.ApplyOpened(Lane{ID: "l1", Origin: "a", Destination: "b", Mode: "GROUND"})
+	if l.CostPerUnitCents != 0 || !l.CostDeclared() || l.Origin != "a" || l.Closed {
+		t.Fatalf("open after cost keeps the cost: %+v", l)
+	}
+	// The other order: a cost that arrives after the open keeps the lane facts.
+	var fresh Lane
+	fresh.ApplyOpened(Lane{ID: "l2", Origin: "a", Destination: "c", Mode: "AIR", Closed: false})
+	fresh.ApplyCostDeclared(90, t1)
+	if fresh.CostPerUnitCents != 90 || fresh.Origin != "a" || fresh.Mode != "AIR" {
+		t.Fatalf("cost after open keeps the lane facts: %+v", fresh)
+	}
+}
+
+func TestWaveCostMerge(t *testing.T) {
+	var w Wave
+	w.ApplyCostDeclared(425, t0)
+	if w.CostPerStopCents != 425 || !w.CostDeclared() || w.Usable() {
+		t.Fatalf("a wave cost alone is a stub: %+v", w)
+	}
+	// The schedule completes the row without losing the cost.
+	w.ApplySchedule(Wave{ID: "w1", StationID: "s1", Capacity: 50, WindowEnd: t1})
+	if w.CostPerStopCents != 425 || !w.CostDeclared() || !w.Scheduled || w.StationID != "s1" || !w.Usable() {
+		t.Fatalf("schedule after cost keeps the cost: %+v", w)
+	}
+	wantWaveCostRules(t, w)
+}
+
+func wantWaveCostRules(t *testing.T, w Wave) {
+	t.Helper()
+	if w.ApplyCostDeclared(600, t0.Add(-time.Hour)) || w.CostPerStopCents != 425 {
+		t.Fatal("an older declaration is ignored")
+	}
+	if !w.ApplyCostDeclared(500, t0) || w.CostPerStopCents != 500 || !w.Scheduled || !w.Usable() {
+		t.Fatalf("a newer declaration over a scheduled wave keeps the schedule: %+v", w)
+	}
+	var zero Wave
+	if !zero.ApplyCostDeclared(0, t0) || zero.CostPerStopCents != 0 || !zero.CostDeclared() {
+		t.Fatal("0 is a legal declared wave cost")
+	}
+}
+
 func TestServiceAreaScorecardListing(t *testing.T) {
 	if !(ServiceArea{Version: 2}).Newer(ServiceArea{Version: 1}) || (ServiceArea{Version: 2}).Newer(ServiceArea{Version: 2}) {
 		t.Fatal("only a higher assignment version replaces")
