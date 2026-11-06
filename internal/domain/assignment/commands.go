@@ -131,7 +131,18 @@ func (a *Assignment) Release(best *Candidate, lines []Line, now time.Time) ([]sh
 		Base: a.base(), ReleaseNo: rel.No, OrderID: a.orderID, GroupNo: a.groupNo, NodeID: rel.NodeID,
 		PickupDepartureID: best.PickupDepartureID, RequiredShipBy: rel.RequiredShipBy,
 		PromisedDeliverByLatest: a.promise.DeliverByLatest, Tier: a.promise.Tier, Lines: cloneLines(a.lines),
+		EstimatedCostCents: estimateOf(*best),
 	}), nil
+}
+
+// estimateOf is the wire value of a candidate's money-denominated estimate:
+// the cents when complete, nil when a component had no declared cost (ADR 0011).
+func estimateOf(c Candidate) *int64 {
+	if !c.CostComplete {
+		return nil
+	}
+	cents := c.EstimatedCostCents
+	return &cents
 }
 
 // checkReleaseLines requires the same lines as the group, each with a listing.

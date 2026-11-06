@@ -427,7 +427,10 @@ components:
         and key = the assignmentId; stream `events` (topic `retailnetwork.order-sourcing.events`). Raised by ReleaseToNode
         (QUEUED to RELEASED). `releaseNo` is 1 for the first release and +1 for each later one; with `assignmentId`
         it is the purchase order''s idempotency key. `lines` is the whole group (fill-or-kill) with this node''s
-        listingId. No ship-to data: the release carries no PII. Consumers: vendor-connectivity, linehaul-transportation.'
+        listingId. `estimatedCostCents` is the money-denominated AssignmentCost estimate of the released path in
+        planner-declared cents (ADR 0011); it is omitted when the estimate is incomplete (a lane or the wave had no
+        declared cost), so consumers must decode it tolerantly — the field is additive and optional. No ship-to data:
+        the release carries no PII. Consumers: vendor-connectivity, linehaul-transportation.'
       contentType: application/cloudevents+json
       tags:
       - name: assignment
@@ -455,6 +458,7 @@ components:
             requiredShipBy: '2026-10-22T21:00:00Z'
             promisedDeliverByLatest: '2026-10-24T23:00:00Z'
             tier: TWO_DAY
+            estimatedCostCents: 1065
             lines:
             - catalogItemId: cat-000123
               listingId: lst-000123-fc-ws-sor-01
@@ -1850,6 +1854,12 @@ components:
                 - NEXT_DAY
                 - TWO_DAY
                 - STANDARD
+              estimatedCostCents:
+                type: integer
+                minimum: 0
+                description: The money-denominated AssignmentCost estimate of the released path in planner-declared
+                  cents — the per-unit lane costs of every leg plus the final wave's per-stop cost (ADR 0011).
+                  Optional and omitted when the estimate is incomplete (a component had no declared cost).
               lines:
                 type: array
                 items:

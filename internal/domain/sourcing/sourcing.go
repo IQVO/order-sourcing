@@ -16,7 +16,8 @@ import (
 	"github.com/claudioed/order-sourcing/internal/domain/network"
 )
 
-// The AssignmentCost and VirtualQueue constants (ADR 0002, A12, A13, A15, A16).
+// The AssignmentCost and VirtualQueue constants (ADR 0002, A12, A13, A15, A16;
+// ADR 0011 demotes the ordinal terms to the legacy tie-break score).
 const (
 	LegCost             int64 = 100
 	HourCost            int64 = 10
@@ -60,8 +61,9 @@ type Option struct {
 	ReleaseAt time.Time
 }
 
-// Search returns the options ordered best first: lowest cost, then the
-// witness node, then the lower node id, then the lower pickup departure id.
+// Search returns the options ordered best first: the lowest estimated cost in
+// cents, then the lowest legacy penalty score, then the witness node, then the
+// lower node id, then the lower pickup departure id (ADR 0011).
 func Search(w World, r Request) []Option {
 	if w.Area.StationID == "" {
 		return nil
@@ -73,6 +75,7 @@ func Search(w World, r Request) []Option {
 	}
 	slices.SortFunc(out, func(a, b Option) int {
 		return cmp.Or(
+			cmp.Compare(a.Candidate.EstimatedCostCents, b.Candidate.EstimatedCostCents),
 			cmp.Compare(a.Candidate.Cost, b.Candidate.Cost),
 			boolRank(a.Candidate.NodeID == r.WitnessNodeID, b.Candidate.NodeID == r.WitnessNodeID),
 			strings.Compare(a.Candidate.NodeID, b.Candidate.NodeID),
@@ -141,11 +144,35 @@ type searcher struct {
 	byOrigin map[string][]network.Departure
 }
 
-// path is the best way from a pickup to a delivery wave found so far.
+// path is the best way from a pickup to a delivery wave found so far. cost is
+// the legacy ordinal score of the path's legs; est is the money-denominated
+// estimate of the onward legs plus the final wave (the pickup's lane is added
+// by option, which knows the pickup departure).
 type path struct {
 	legs []string
 	wave network.Wave
 	cost int64
+	est  estimate
+}
+
+// estimate is the money-denominated cost of a path in planner-declared cents:
+// the sum of the declared per-unit lane costs of every leg and the declared
+// per-stop cost of the final wave. An undeclared component contributes 0 and
+// counts towards unknown, which marks the whole estimate incomplete (ADR 0011).
+// The comparator never looks at unknown: an incomplete estimate still competes
+// by its sum, 0s included.
+type estimate struct {
+	cents   int64
+	unknown int
+}
+
+func (e estimate) add(cents int64, declared bool) estimate {
+	if !declared {
+		e.unknown++
+		return e
+	}
+	e.cents += cents
+	return e
 }
 
 func (s searcher) node(n network.Node) []Option {
@@ -185,7 +212,31 @@ func (s searcher) usable(d network.Departure) bool {
 	return !known || !l.Closed
 }
 
+// laneCost is the declared per-unit cost of a departure's lane: 0 and false
+// when the view does not know the lane or no cost was declared for it.
+func (s searcher) laneCost(d network.Departure) (int64, bool) {
+	l, known := s.w.Lanes[d.LaneID]
+	if !known || !l.CostDeclared() {
+		return 0, false
+	}
+	return l.CostPerUnitCents, true
+}
+
+// waveCost is the declared per-stop cost of a wave: 0 and false when no cost
+// was declared for it.
+func waveCost(w network.Wave) (int64, bool) {
+	if !w.CostDeclared() {
+		return 0, false
+	}
+	return w.CostPerStopCents, true
+}
+
 func (s searcher) option(n network.Node, pickup network.Departure, p path) Option {
+	// The money estimate covers every departure traversed — the pickup's lane
+	// plus the onward legs — and the final wave's per-stop cost. Per package-unit:
+	// the World and the request carry no package count, so nothing multiplies
+	// the sum (ADR 0011).
+	est := p.est.add(s.laneCost(pickup))
 	cost := p.cost + HourCost*int64(max(0, int(p.wave.WindowStart.Sub(pickup.DepartsAt)/time.Hour))) + s.penalties(n, pickup)
 	releaseAt := s.r.Now
 	if s.r.Tier != assignment.TierSameDay {
@@ -198,6 +249,7 @@ func (s searcher) option(n network.Node, pickup network.Departure, p path) Optio
 		Candidate: assignment.Candidate{
 			NodeID: n.ID, PickupDepartureID: pickup.ID, PickupCutoffAt: pickup.CutoffAt, Legs: slices.Clone(p.legs),
 			DeliveryWaveID: p.wave.ID, ETA: p.wave.WindowEnd, Cost: cost,
+			EstimatedCostCents: est.cents, CostComplete: est.unknown == 0,
 		},
 		ReleaseAt: releaseAt,
 	}
@@ -237,7 +289,11 @@ func (s searcher) explore(d network.Departure, visited map[string]bool, legs []s
 			continue
 		}
 		p, ok := s.explore(next, visited, append(slices.Clone(legs), next.ID), depth+1)
-		if ok && (!found || better(p, best)) {
+		if !ok {
+			continue
+		}
+		p.est = p.est.add(s.laneCost(next))
+		if !found || better(p, best) {
 			best, found = p, true
 		}
 	}
@@ -259,13 +315,16 @@ func (s searcher) finish(d network.Departure, legs []string) (path, bool) {
 	if !found {
 		return path{}, false
 	}
-	return path{legs: slices.Clone(legs), wave: best, cost: LegCost * int64(len(legs))}, true
+	cents, declared := waveCost(best)
+	return path{legs: slices.Clone(legs), wave: best, cost: LegCost * int64(len(legs)), est: estimate{}.add(cents, declared)}, true
 }
 
-// better orders two paths: cheaper legs first, then the earlier wave, then the
-// lexicographically lower legs, so the search is deterministic.
+// better orders two paths: the lower money estimate first, then the lower
+// legacy leg score, then the earlier wave, then the lexicographically lower
+// legs, so the search is deterministic (ADR 0011).
 func better(a, b path) bool {
 	return cmp.Or(
+		cmp.Compare(a.est.cents, b.est.cents),
 		cmp.Compare(a.cost, b.cost),
 		a.wave.WindowEnd.Compare(b.wave.WindowEnd),
 		slices.Compare(a.legs, b.legs),

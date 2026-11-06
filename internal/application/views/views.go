@@ -48,15 +48,19 @@ type Line struct {
 	Quantity      int
 }
 
-// Candidate is the current best node and path.
+// Candidate is the current best node and path. Cost is the legacy ordinal
+// score; EstimatedCostCents is the money-denominated estimate in
+// planner-declared cents, carried only when CostComplete (ADR 0011).
 type Candidate struct {
-	NodeID            string
-	PickupDepartureID string
-	PickupCutoffAt    time.Time
-	Legs              []string
-	DeliveryWaveID    string
-	ETA               time.Time
-	Cost              int64
+	NodeID             string
+	PickupDepartureID  string
+	PickupCutoffAt     time.Time
+	Legs               []string
+	DeliveryWaveID     string
+	ETA                time.Time
+	Cost               int64
+	EstimatedCostCents int64
+	CostComplete       bool
 }
 
 // Release is one release to a node.
@@ -94,6 +98,7 @@ func AssignmentFrom(a *assignment.Assignment) Assignment {
 		v.Candidate = &Candidate{
 			NodeID: c.NodeID, PickupDepartureID: c.PickupDepartureID, PickupCutoffAt: c.PickupCutoffAt,
 			Legs: append([]string{}, c.Legs...), DeliveryWaveID: c.DeliveryWaveID, ETA: c.ETA, Cost: c.Cost,
+			EstimatedCostCents: c.EstimatedCostCents, CostComplete: c.CostComplete,
 		}
 	}
 	for _, r := range a.Releases() {

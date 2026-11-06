@@ -154,6 +154,9 @@ func (a *Assignment) checkCandidate(c *Candidate) error {
 	if c.Cost < 0 {
 		return shared.Invalid("cost must not be negative")
 	}
+	if c.EstimatedCostCents < 0 {
+		return shared.Invalid("estimatedCostCents must not be negative")
+	}
 	if a.isExcluded(c.NodeID) {
 		return fmt.Errorf("%w: %s", ErrNodeExcluded, c.NodeID)
 	}

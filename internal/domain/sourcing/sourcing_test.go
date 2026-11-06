@@ -370,3 +370,122 @@ func TestPathTiebreakOnWaveBeforeLegs(t *testing.T) {
 		t.Fatal("cost orders first and equal paths are not better")
 	}
 }
+
+// declaredLane is a lane row known only through its cost declaration (a stub
+// LaneCostDeclared may leave behind) or a fully known lane with a cost.
+func declaredLane(id string, cents int64) network.Lane {
+	var l network.Lane
+	l.ID = id
+	l.ApplyCostDeclared(cents, h(1))
+	return l
+}
+
+func withWaveCost(w World, cents int64) World {
+	w.Waves[0].ApplyCostDeclared(cents, h(1))
+	return w
+}
+
+// TestMoneyBeatsLegs proves the inversion: a two-leg path whose declared cents
+// are lower wins over a one-leg path the ordinal cost (fewer legs) ranked
+// first before ADR 0011.
+func TestMoneyBeatsLegs(t *testing.T) {
+	w := world()
+	// fc-c reaches ds-1 through sc-x and sc-1: two onward legs, cheap lanes.
+	w.Nodes["fc-c"] = fc("fc-c", "r1")
+	w.Nodes["sc-x"] = network.Node{ID: "sc-x", Type: "SORTATION_CENTER", Operator: "NETWORK", Status: network.StatusActive, SortDwellMinutes: 30}
+	w.Listings = append(w.Listings, listing("fc-c", "cat-1", 10))
+	w.Departures = append(w.Departures,
+		dep("pk-c", "lane-c", "fc-c", "sc-x", 4, 5, 7),
+		dep("x-1", "lane-x", "sc-x", "sc-1", 8, 9, 10),
+		dep("lh-2", "lane-s2", "sc-1", "ds-1", 11, 12, 15),
+	)
+	w.Lanes["lane-a"], w.Lanes["lane-b"] = declaredLane("lane-a", 900), declaredLane("lane-b", 500)
+	w.Lanes["lane-c"], w.Lanes["lane-x"] = declaredLane("lane-c", 30), declaredLane("lane-x", 20)
+	w.Lanes["lane-s"], w.Lanes["lane-s2"] = declaredLane("lane-s", 50), declaredLane("lane-s2", 40)
+	w = withWaveCost(w, 0) // a declared zero is a complete component
+
+	opts := Search(w, request())
+	// Money: fc-c 30+20+40+0 = 90 < fc-b 500+40 = 540 < fc-a 900+40 = 940.
+	// The ordinal score alone would order fc-a (250) < fc-c (350) < fc-b (1250).
+	wantNodes(t, opts, "fc-c", "fc-b", "fc-a")
+	wantCost(t, opts[0], 350) // 2 legs + 15 queue hours: the legacy score is only the tie-break now
+	if !opts[0].Candidate.CostComplete || opts[0].Candidate.EstimatedCostCents != 90 {
+		t.Fatalf("fc-c estimate = %d complete %v", opts[0].Candidate.EstimatedCostCents, opts[0].Candidate.CostComplete)
+	}
+	if opts[2].Candidate.EstimatedCostCents != 940 {
+		t.Fatalf("fc-a estimate = %d", opts[2].Candidate.EstimatedCostCents)
+	}
+}
+
+// TestIncompleteEstimateStillCompetes: an undeclared component contributes 0
+// and the estimate still competes by its sum — it is never skipped or ranked
+// last (ADR 0011).
+func TestIncompleteEstimateStillCompetes(t *testing.T) {
+	w := world()
+	w.Lanes["lane-a"], w.Lanes["lane-s"] = declaredLane("lane-a", 900), declaredLane("lane-s", 50)
+	w = withWaveCost(w, 0)
+	opts := Search(w, request())
+	// fc-b's pickup lane is undeclared: estimate 50 (only the declared linehaul
+	// counts) and incomplete, but its sum still wins over fc-a's declared 950
+	// even though fc-b's legacy score is worse.
+	wantNodes(t, opts, "fc-b", "fc-a")
+	if opts[0].Candidate.EstimatedCostCents != 50 || opts[0].Candidate.CostComplete {
+		t.Fatalf("fc-b estimate = %d complete %v", opts[0].Candidate.EstimatedCostCents, opts[0].Candidate.CostComplete)
+	}
+	if !opts[1].Candidate.CostComplete || opts[1].Candidate.EstimatedCostCents != 950 {
+		t.Fatalf("fc-a estimate = %d complete %v", opts[1].Candidate.EstimatedCostCents, opts[1].Candidate.CostComplete)
+	}
+}
+
+// TestDeclaredZeroIsComplete: a declared 0 and an undeclared component both
+// contribute 0 cents; completeness is the only difference, and a money tie
+// falls to the legacy score.
+func TestDeclaredZeroIsComplete(t *testing.T) {
+	w := world()
+	w.Lanes["lane-a"], w.Lanes["lane-s"] = declaredLane("lane-a", 0), declaredLane("lane-s", 0)
+	w = withWaveCost(w, 0)
+	opts := Search(w, request())
+	wantNodes(t, opts, "fc-a", "fc-b") // 0 cents both: the legacy score decides (fc-b carries the region penalty)
+	if !opts[0].Candidate.CostComplete || opts[0].Candidate.EstimatedCostCents != 0 {
+		t.Fatalf("fc-a estimate = %d complete %v", opts[0].Candidate.EstimatedCostCents, opts[0].Candidate.CostComplete)
+	}
+	if opts[1].Candidate.CostComplete {
+		t.Fatal("an undeclared lane leaves the estimate incomplete")
+	}
+}
+
+// TestMoneyTieFallsToLegacyThenWitness: equal cents order by the legacy
+// penalty score; equal cents and score by the witness node.
+func TestMoneyTieFallsToLegacyThenWitness(t *testing.T) {
+	w := world()
+	w.Lanes["lane-a"], w.Lanes["lane-b"], w.Lanes["lane-s"] = declaredLane("lane-a", 300), declaredLane("lane-b", 300), declaredLane("lane-s", 50)
+	w = withWaveCost(w, 0)
+	r := request()
+	r.WitnessNodeID = "fc-b"
+	// Equal money (350); fc-b's legacy score is worse (cross-region), so it
+	// loses even though it is the witness.
+	wantNodes(t, Search(w, r), "fc-a", "fc-b")
+	// Equal money and equal legacy (fc-b in the same region): the witness wins.
+	w.Nodes["fc-b"] = fc("fc-b", "r1")
+	wantNodes(t, Search(w, r), "fc-b", "fc-a")
+}
+
+// TestUndeclaredWaveLeavesEstimateIncomplete: the wave term completes the
+// estimate only when a stop cost was declared for it.
+func TestUndeclaredWaveLeavesEstimateIncomplete(t *testing.T) {
+	w := world()
+	w.Lanes["lane-a"], w.Lanes["lane-s"] = declaredLane("lane-a", 300), declaredLane("lane-s", 50)
+	var est int64
+	var complete, found bool
+	for _, o := range Search(w, request()) {
+		if o.Candidate.NodeID == "fc-a" {
+			est, complete, found = o.Candidate.EstimatedCostCents, o.Candidate.CostComplete, true
+		}
+	}
+	if !found {
+		t.Fatal("fc-a has no candidate")
+	}
+	if est != 350 || complete {
+		t.Fatalf("estimate = %d complete %v", est, complete)
+	}
+}
