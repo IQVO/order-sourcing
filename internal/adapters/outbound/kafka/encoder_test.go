@@ -27,7 +27,7 @@ func allEvents() []shared.Event {
 	return []shared.Event{
 		assignment.FulfillmentQueued{Base: base(), OrderID: "ord-1", GroupNo: 1, PromiseID: "prm-1", DeliverByLatest: at, Lines: lines},
 		assignment.FulfillmentReleasedToNode{Base: base(), ReleaseNo: 1, OrderID: "ord-1", GroupNo: 1, NodeID: "n1", PickupDepartureID: "dep-1",
-			RequiredShipBy: at, PromisedDeliverByLatest: at, Tier: assignment.TierTwoDay, Lines: lines},
+			RequiredShipBy: at, PromisedDeliverByLatest: at, Tier: assignment.TierTwoDay, Lines: lines, EstimatedCostCents: &complete},
 		assignment.FulfillmentReassigned{Base: base(), FromNodeID: "n1", ToNodeID: "n2", Reason: "REJECTED"},
 		assignment.FulfillmentLocked{Base: base(), OrderID: "ord-1", GroupNo: 1, PromiseID: "prm-1", NodeID: "n1", PickupDepartureID: "dep-1", LockedAt: at, LockReason: "ACCEPTED"},
 		assignment.FulfillmentShipped{Base: base(), OrderID: "ord-1", GroupNo: 1, NodeID: "n1", TrackingNumbers: []string{"TRK1"}, ShippedAt: at},
@@ -68,6 +68,9 @@ func publishedKeys(t *testing.T) map[string][]string {
 	}
 	return out
 }
+
+// complete is a complete estimate: every cost component of the released path was declared.
+var complete = int64(1065)
 
 func TestEncoderMatchesThePublishedContract(t *testing.T) {
 	want := publishedKeys(t)

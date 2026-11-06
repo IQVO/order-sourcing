@@ -61,6 +61,8 @@ type releasedData struct {
 	PromisedDeliverByLatest time.Time      `json:"promisedDeliverByLatest"`
 	Tier                    string         `json:"tier"`
 	Lines                   []releasedLine `json:"lines"`
+	// EstimatedCostCents is omitted when the estimate is incomplete (ADR 0011).
+	EstimatedCostCents *int64 `json:"estimatedCostCents,omitempty"`
 }
 
 type reassignedData struct {
@@ -195,7 +197,7 @@ func payload(ev shared.Event) (any, error) {
 		return queuedData{id, e.OrderID, e.GroupNo, e.PromiseID, utc(e.DeliverByLatest), queuedLines(e.Lines)}, nil
 	case assignment.FulfillmentReleasedToNode:
 		return releasedData{id, e.ReleaseNo, e.OrderID, e.GroupNo, e.NodeID, e.PickupDepartureID, utc(e.RequiredShipBy),
-			utc(e.PromisedDeliverByLatest), string(e.Tier), releasedLines(e.Lines)}, nil
+			utc(e.PromisedDeliverByLatest), string(e.Tier), releasedLines(e.Lines), e.EstimatedCostCents}, nil
 	case assignment.FulfillmentReassigned:
 		return reassignedData{id, e.FromNodeID, e.ToNodeID, e.Reason, e.AggregateVersion()}, nil
 	case assignment.FulfillmentLocked:

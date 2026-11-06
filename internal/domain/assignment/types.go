@@ -124,15 +124,20 @@ type PromiseConstraint struct {
 }
 
 // Candidate is the current best node and path (model value object plus the
-// pickup cutoff, which is the requiredShipBy of a release).
+// pickup cutoff, which is the requiredShipBy of a release). Cost is the legacy
+// ordinal score (ADR 0002, A12); EstimatedCostCents is the money-denominated
+// estimate in planner-declared cents, complete only when every lane and wave
+// component of the path had a declared cost (ADR 0011).
 type Candidate struct {
-	NodeID            string
-	PickupDepartureID string
-	PickupCutoffAt    time.Time
-	Legs              []string
-	DeliveryWaveID    string
-	ETA               time.Time
-	Cost              int64
+	NodeID             string
+	PickupDepartureID  string
+	PickupCutoffAt     time.Time
+	Legs               []string
+	DeliveryWaveID     string
+	ETA                time.Time
+	Cost               int64
+	EstimatedCostCents int64
+	CostComplete       bool
 }
 
 func (c Candidate) clone() Candidate {
@@ -140,10 +145,12 @@ func (c Candidate) clone() Candidate {
 	return c
 }
 
-// Same reports whether two candidates are the same node, path, wave, eta and cost.
+// Same reports whether two candidates are the same node, path, wave, eta,
+// costs and estimate.
 func (c Candidate) Same(o Candidate) bool {
 	return c.NodeID == o.NodeID && c.PickupDepartureID == o.PickupDepartureID && c.PickupCutoffAt.Equal(o.PickupCutoffAt) &&
-		slices.Equal(c.Legs, o.Legs) && c.DeliveryWaveID == o.DeliveryWaveID && c.ETA.Equal(o.ETA) && c.Cost == o.Cost
+		slices.Equal(c.Legs, o.Legs) && c.DeliveryWaveID == o.DeliveryWaveID && c.ETA.Equal(o.ETA) && c.Cost == o.Cost &&
+		c.EstimatedCostCents == o.EstimatedCostCents && c.CostComplete == o.CostComplete
 }
 
 // Release is one release of the group to a node.

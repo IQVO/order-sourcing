@@ -41,6 +41,12 @@
             "deliveryWaveId": {
               "type": "string"
             },
+            "estimatedCostCents": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
             "eta": {
               "type": "string"
             },
@@ -303,6 +309,12 @@
                   },
                   "deliveryWaveId": {
                     "type": "string"
+                  },
+                  "estimatedCostCents": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
                   },
                   "eta": {
                     "type": "string"

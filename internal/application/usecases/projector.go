@@ -67,11 +67,23 @@ func (p *Projector) NodeStatusChanged(ctx context.Context, m Meta, nodeID, statu
 	})
 }
 
-// LaneOpened applies LaneOpened.
+// LaneOpened applies LaneOpened. A declared cost that arrived first is kept.
 func (p *Projector) LaneOpened(ctx context.Context, m Meta, l network.Lane) error {
 	return p.project(ctx, m, func(ctx context.Context) error {
 		return upsert(ctx, func(ctx context.Context) (network.Lane, error) { return p.ReadModels.GetLane(ctx, l.ID) }, p.ReadModels.PutLane,
-			func(row *network.Lane) bool { closed := row.Closed; *row = l; row.Closed = closed; return true })
+			func(row *network.Lane) bool { row.ID = l.ID; row.ApplyOpened(l); return true })
+	})
+}
+
+// LaneCostDeclared applies LaneCostDeclared: the newer declaredAt wins, and a
+// lane the view does not know is stored keyed by laneId anyway (ADR 0003).
+func (p *Projector) LaneCostDeclared(ctx context.Context, m Meta, laneID string, costPerUnitCents int64, declaredAt time.Time) error {
+	return p.project(ctx, m, func(ctx context.Context) error {
+		return upsert(ctx, func(ctx context.Context) (network.Lane, error) { return p.ReadModels.GetLane(ctx, laneID) }, p.ReadModels.PutLane,
+			func(row *network.Lane) bool {
+				row.ID = laneID
+				return row.ApplyCostDeclared(costPerUnitCents, declaredAt)
+			})
 	})
 }
 
@@ -151,8 +163,20 @@ func (p *Projector) WaveCapacityChanged(ctx context.Context, m Meta, waveID stri
 // WaveCancelled applies DeliveryWaveCancelled (G5).
 func (p *Projector) WaveCancelled(ctx context.Context, m Meta, waveID string) error {
 	return p.project(ctx, m, func(ctx context.Context) error {
-		return upsert(ctx, func(ctx context.Context) (network.Wave, error) { return p.ReadModels.GetWave(ctx, waveID) },
-			p.ReadModels.PutWave, func(row *network.Wave) bool { row.ID, row.Cancelled = waveID, true; return true })
+		return upsert(ctx, func(ctx context.Context) (network.Wave, error) { return p.ReadModels.GetWave(ctx, waveID) }, p.ReadModels.PutWave,
+			func(row *network.Wave) bool { row.ID, row.Cancelled = waveID, true; return true })
+	})
+}
+
+// WaveCostDeclared applies WaveCostDeclared: the newer declaredAt wins, and a
+// wave the view does not know is stored keyed by waveId anyway (ADR 0003).
+func (p *Projector) WaveCostDeclared(ctx context.Context, m Meta, waveID string, costPerStopCents int64, declaredAt time.Time) error {
+	return p.project(ctx, m, func(ctx context.Context) error {
+		return upsert(ctx, func(ctx context.Context) (network.Wave, error) { return p.ReadModels.GetWave(ctx, waveID) }, p.ReadModels.PutWave,
+			func(row *network.Wave) bool {
+				row.ID = waveID
+				return row.ApplyCostDeclared(costPerStopCents, declaredAt)
+			})
 	})
 }
 

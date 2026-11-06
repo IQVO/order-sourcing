@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted (2026-10-23).
+Accepted (2026-10-23). The ordinal AssignmentCost ordering of A12 is superseded
+by ADR 0011; everything else stands.
 
 ## Context
 
@@ -156,6 +157,10 @@ release; the consumer records it and moves on) and wraps `ErrValidation` and
   a fresh load, then lets the consumer redeliver.
 - **A23** `PromiseRevised.nodeId` is the new witness node and optional; absent
   keeps the witness.
+- **A24** (ADR 0011) The World and the request carry no package count
+  (`Line.Quantity` counts order units), so the money-denominated estimate is
+  the per-unit sum; multiplying by `packagesPerOrder` waits for a package
+  count on the promise or the order.
 
 ## Consequences
 

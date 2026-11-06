@@ -359,7 +359,13 @@ components:
         cost:
           type: integer
           minimum: 0
-          description: AssignmentCost in cost points (ADR 0002, A12).
+          description: AssignmentCost in cost points (ADR 0002, A12); the legacy ordinal tie-break score (ADR 0011).
+        estimatedCostCents:
+          type: integer
+          minimum: 0
+          description: 'The money-denominated AssignmentCost estimate of the path in planner-declared cents: the
+            per-unit lane costs of every leg plus the final wave''s per-stop cost (ADR 0011). Optional: absent
+            when the estimate is incomplete (a lane or the wave had no declared cost).'
     Release:
       type: object
       required: [releaseNo, nodeId, releasedAt, requiredShipBy, outcome]

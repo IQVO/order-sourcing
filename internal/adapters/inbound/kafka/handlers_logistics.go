@@ -37,6 +37,13 @@ func (h Handlers) LastMileDelivery() map[string]HandlerFunc {
 	}) error {
 		return h.UC.Project.WaveCancelled(ctx, meta(e), d.WaveID)
 	})
+	typed(m, p+"WaveCostDeclared", func(ctx context.Context, e ce.Event, d struct {
+		WaveID           string    `json:"waveId"`
+		CostPerStopCents int64     `json:"costPerStopCents"`
+		DeclaredAt       time.Time `json:"declaredAt"`
+	}) error {
+		return h.UC.Project.WaveCostDeclared(ctx, meta(e), d.WaveID, d.CostPerStopCents, d.DeclaredAt)
+	})
 	return m
 }
 
@@ -134,6 +141,13 @@ func (h Handlers) NodeTopology() map[string]HandlerFunc {
 		LaneID string `json:"laneId"`
 	}) error {
 		return h.UC.Project.LaneClosed(ctx, meta(e), d.LaneID)
+	})
+	typed(m, p+"lane.LaneCostDeclared", func(ctx context.Context, e ce.Event, d struct {
+		LaneID           string    `json:"laneId"`
+		CostPerUnitCents int64     `json:"costPerUnitCents"`
+		DeclaredAt       time.Time `json:"declaredAt"`
+	}) error {
+		return h.UC.Project.LaneCostDeclared(ctx, meta(e), d.LaneID, d.CostPerUnitCents, d.DeclaredAt)
 	})
 	typed(m, p+"servicearea.ServiceAreaAssigned", func(ctx context.Context, e ce.Event, d struct {
 		PostalPrefix          string `json:"postalPrefix"`

@@ -62,15 +62,20 @@ func wrap(what string, err error) error {
 // GetLane implements ports.ReadModels.
 func (r *ReadModels) GetLane(ctx context.Context, id string) (network.Lane, error) {
 	var l network.Lane
-	err := queryFor(ctx, r.pool).QueryRow(ctx, `SELECT lane_id, origin, destination, mode, closed FROM rm_lanes WHERE lane_id = $1`, id).
-		Scan(&l.ID, &l.Origin, &l.Destination, &l.Mode, &l.Closed)
+	var at *time.Time
+	err := queryFor(ctx, r.pool).QueryRow(ctx, `SELECT lane_id, origin, destination, mode, closed, cost_per_unit_cents, cost_declared_at
+		FROM rm_lanes WHERE lane_id = $1`, id).
+		Scan(&l.ID, &l.Origin, &l.Destination, &l.Mode, &l.Closed, &l.CostPerUnitCents, &at)
+	l.CostDeclaredAt = tp(at)
 	return l, miss(err)
 }
 
 // PutLane implements ports.ReadModels.
 func (r *ReadModels) PutLane(ctx context.Context, l network.Lane) error {
-	_, err := queryFor(ctx, r.pool).Exec(ctx, `INSERT INTO rm_lanes (lane_id, origin, destination, mode, closed) VALUES ($1,$2,$3,$4,$5)
-		ON CONFLICT (lane_id) DO UPDATE SET origin=$2, destination=$3, mode=$4, closed=$5`, l.ID, l.Origin, l.Destination, l.Mode, l.Closed)
+	_, err := queryFor(ctx, r.pool).Exec(ctx, `INSERT INTO rm_lanes (lane_id, origin, destination, mode, closed, cost_per_unit_cents, cost_declared_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		ON CONFLICT (lane_id) DO UPDATE SET origin=$2, destination=$3, mode=$4, closed=$5, cost_per_unit_cents=$6, cost_declared_at=$7`,
+		l.ID, l.Origin, l.Destination, l.Mode, l.Closed, l.CostPerUnitCents, nullTime(l.CostDeclaredAt))
 	return wrap("put lane", err)
 }
 
@@ -101,13 +106,14 @@ func (r *ReadModels) PutDeparture(ctx context.Context, d network.Departure) erro
 	return wrap("put departure", err)
 }
 
-const waveColumns = `wave_id, station_id, induct_cutoff_at, window_start, window_end, capacity, remaining, remaining_known, scheduled, cancelled`
+const waveColumns = `wave_id, station_id, induct_cutoff_at, window_start, window_end, capacity, remaining, remaining_known, scheduled, cancelled, cost_per_stop_cents, cost_declared_at`
 
 func scanWave(row pgx.Row) (network.Wave, error) {
 	var w network.Wave
-	var induct, start, end *time.Time
-	err := row.Scan(&w.ID, &w.StationID, &induct, &start, &end, &w.Capacity, &w.Remaining, &w.RemainingKnown, &w.Scheduled, &w.Cancelled)
-	w.InductCutoffAt, w.WindowStart, w.WindowEnd = tp(induct), tp(start), tp(end)
+	var induct, start, end, costAt *time.Time
+	err := row.Scan(&w.ID, &w.StationID, &induct, &start, &end, &w.Capacity, &w.Remaining, &w.RemainingKnown, &w.Scheduled, &w.Cancelled,
+		&w.CostPerStopCents, &costAt)
+	w.InductCutoffAt, w.WindowStart, w.WindowEnd, w.CostDeclaredAt = tp(induct), tp(start), tp(end), tp(costAt)
 	return w, err
 }
 
@@ -119,10 +125,11 @@ func (r *ReadModels) GetWave(ctx context.Context, id string) (network.Wave, erro
 
 // PutWave implements ports.ReadModels.
 func (r *ReadModels) PutWave(ctx context.Context, w network.Wave) error {
-	_, err := queryFor(ctx, r.pool).Exec(ctx, `INSERT INTO rm_waves (`+waveColumns+`) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+	_, err := queryFor(ctx, r.pool).Exec(ctx, `INSERT INTO rm_waves (`+waveColumns+`) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (wave_id) DO UPDATE SET station_id=$2, induct_cutoff_at=$3, window_start=$4, window_end=$5, capacity=$6, remaining=$7,
-		remaining_known=$8, scheduled=$9, cancelled=$10`,
-		w.ID, w.StationID, nullTime(w.InductCutoffAt), nullTime(w.WindowStart), nullTime(w.WindowEnd), w.Capacity, w.Remaining, w.RemainingKnown, w.Scheduled, w.Cancelled)
+		remaining_known=$8, scheduled=$9, cancelled=$10, cost_per_stop_cents=$11, cost_declared_at=$12`,
+		w.ID, w.StationID, nullTime(w.InductCutoffAt), nullTime(w.WindowStart), nullTime(w.WindowEnd), w.Capacity, w.Remaining, w.RemainingKnown, w.Scheduled, w.Cancelled,
+		w.CostPerStopCents, nullTime(w.CostDeclaredAt))
 	return wrap("put wave", err)
 }
 

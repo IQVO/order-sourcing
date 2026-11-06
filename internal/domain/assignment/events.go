@@ -44,7 +44,10 @@ func (FulfillmentQueued) EventName() string { return "FulfillmentQueued" }
 // Stream returns the analytics stream.
 func (FulfillmentQueued) Stream() string { return shared.StreamAnalytics }
 
-// FulfillmentReleasedToNode is raised by Release.
+// FulfillmentReleasedToNode is raised by Release. EstimatedCostCents carries
+// the money-denominated estimate of the released path in planner-declared
+// cents and is nil when the estimate is incomplete (a component had no
+// declared cost); consumers decode it tolerantly (ADR 0011).
 type FulfillmentReleasedToNode struct {
 	Base
 	ReleaseNo               int
@@ -56,6 +59,7 @@ type FulfillmentReleasedToNode struct {
 	PromisedDeliverByLatest time.Time
 	Tier                    Tier
 	Lines                   []Line
+	EstimatedCostCents      *int64
 }
 
 // EventName returns "FulfillmentReleasedToNode".
