@@ -40,11 +40,13 @@ type Promise struct {
 	RevisionNo      int
 }
 
-// Line is one line of the group.
+// Line is one line of the group. OwnerRef is whose stock the released line
+// takes ("" = operator-owned; ADR 0012).
 type Line struct {
 	LineNo        int
 	CatalogItemID string
 	ListingID     string
+	OwnerRef      string
 	Quantity      int
 }
 
@@ -92,7 +94,7 @@ func AssignmentFrom(a *assignment.Assignment) Assignment {
 		CancelReason: a.CancelReason(),
 	}
 	for _, l := range a.Lines() {
-		v.Lines = append(v.Lines, Line{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, Quantity: l.Quantity})
+		v.Lines = append(v.Lines, Line{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, OwnerRef: l.OwnerRef, Quantity: l.Quantity})
 	}
 	if c, ok := a.Candidate(); ok {
 		v.Candidate = &Candidate{

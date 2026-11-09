@@ -41,8 +41,11 @@ func queued(t *testing.T, id, order string, group int, releaseAt time.Time) *ass
 	return a
 }
 
+// fixtureOwner is the seller of the released line (ADR 0012).
+const fixtureOwner = "sel-1"
+
 func releaseLines() []assignment.Line {
-	return []assignment.Line{{LineNo: 1, CatalogItemID: fixtureCatItem, ListingID: fixtureListing, Quantity: 2}}
+	return []assignment.Line{{LineNo: 1, CatalogItemID: fixtureCatItem, ListingID: fixtureListing, OwnerRef: fixtureOwner, Quantity: 2}}
 }
 
 // released builds a RELEASED assignment of group 1 (version 2).

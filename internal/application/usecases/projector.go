@@ -180,30 +180,35 @@ func (p *Projector) WaveCostDeclared(ctx context.Context, m Meta, waveID string,
 	})
 }
 
-// ListingCreated applies ListingCreated; a known listing keeps its quantity.
-func (p *Projector) ListingCreated(ctx context.Context, m Meta, listingID, catalogItemID, nodeID string) error {
+// ListingCreated applies ListingCreated (in carries ID, CatalogItemID, NodeID
+// and OwnerRef, "" when the event had no ownerRef); a known listing keeps its
+// quantity and suppression state (ADR 0012).
+func (p *Projector) ListingCreated(ctx context.Context, m Meta, in network.Listing) error {
 	return p.project(ctx, m, func(ctx context.Context) error {
-		return upsert(ctx, func(ctx context.Context) (network.Listing, error) { return p.ReadModels.GetListing(ctx, listingID) },
+		return upsert(ctx, func(ctx context.Context) (network.Listing, error) { return p.ReadModels.GetListing(ctx, in.ID) },
 			p.ReadModels.PutListing, func(row *network.Listing) bool {
-				row.ID, row.CatalogItemID, row.NodeID = listingID, catalogItemID, nodeID
+				row.ID, row.CatalogItemID, row.NodeID, row.OwnerRef = in.ID, in.CatalogItemID, in.NodeID, in.OwnerRef
 				return true
 			})
 	})
 }
 
-// ListingAvailabilityChanged applies ListingAvailabilityChanged; an older asOf is ignored.
-func (p *Projector) ListingAvailabilityChanged(ctx context.Context, m Meta, listingID, catalogItemID, nodeID string, qty int, asOf time.Time) error {
+// ListingAvailabilityChanged applies ListingAvailabilityChanged (in carries ID,
+// CatalogItemID, NodeID, OwnerRef, AvailableQty and AsOf); an older asOf is
+// ignored. The owner is the event's ownerRef, absent meaning operator-owned
+// (ADR 0012).
+func (p *Projector) ListingAvailabilityChanged(ctx context.Context, m Meta, in network.Listing) error {
 	return p.project(ctx, m, func(ctx context.Context) error {
-		return upsert(ctx, func(ctx context.Context) (network.Listing, error) { return p.ReadModels.GetListing(ctx, listingID) },
+		return upsert(ctx, func(ctx context.Context) (network.Listing, error) { return p.ReadModels.GetListing(ctx, in.ID) },
 			p.ReadModels.PutListing, func(row *network.Listing) bool {
-				row.ID = listingID
-				if catalogItemID != "" {
-					row.CatalogItemID = catalogItemID
+				row.ID, row.OwnerRef = in.ID, in.OwnerRef
+				if in.CatalogItemID != "" {
+					row.CatalogItemID = in.CatalogItemID
 				}
-				if nodeID != "" {
-					row.NodeID = nodeID
+				if in.NodeID != "" {
+					row.NodeID = in.NodeID
 				}
-				return row.ApplyAvailability(qty, asOf)
+				return row.ApplyAvailability(in.AvailableQty, in.AsOf)
 			})
 	})
 }

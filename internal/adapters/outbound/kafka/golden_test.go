@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/kafka"
+	"github.com/claudioed/order-sourcing/internal/domain/assignment"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
@@ -57,5 +58,35 @@ func writeGolden(t *testing.T, path string, content []byte) {
 	}
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestGoldenReleasedToNodeWithASellerOwnedLine pins lines[].ownerRef: present
+// on the seller-owned line, omitted on the operator-owned one (ADR 0012). The
+// operator-only form is FulfillmentReleasedToNode.json above. FulfillmentQueued
+// never carries an owner, even when its lines have one.
+func TestGoldenReleasedToNodeWithASellerOwnedLine(t *testing.T) {
+	enc := kafka.Encoder{NewID: func() string { return "11111111-1111-4111-8111-111111111111" }}
+	mixed := []assignment.Line{
+		{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2},
+		{LineNo: 2, CatalogItemID: "cat-2", ListingID: "lst-2", OwnerRef: "sel-1", Quantity: 1},
+	}
+	ev := assignment.FulfillmentReleasedToNode{Base: base(), ReleaseNo: 1, OrderID: "ord-1", GroupNo: 1, NodeID: "n1", PickupDepartureID: "dep-1",
+		RequiredShipBy: at, PromisedDeliverByLatest: at, Tier: assignment.TierTwoDay, Lines: mixed, EstimatedCostCents: &complete}
+	got := encodeIndented(t, enc, ev)
+	path := filepath.Join("testdata", "golden", "FulfillmentReleasedToNode.seller-owned.json")
+	if *update {
+		writeGolden(t, path, got)
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(want, got) {
+		t.Errorf("seller-owned release differs from its golden file\n got:\n%s\nwant:\n%s", got, want)
+	}
+	queued := encodeIndented(t, enc, assignment.FulfillmentQueued{Base: base(), OrderID: "ord-1", GroupNo: 1, PromiseID: "prm-1", DeliverByLatest: at, Lines: mixed})
+	if bytes.Contains(queued, []byte("ownerRef")) {
+		t.Fatalf("FulfillmentQueued must not carry ownerRef:\n%s", queued)
 	}
 }

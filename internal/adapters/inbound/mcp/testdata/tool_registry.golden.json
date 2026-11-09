@@ -127,6 +127,9 @@
               "listingId": {
                 "type": "string"
               },
+              "ownerRef": {
+                "type": "string"
+              },
               "quantity": {
                 "type": "integer"
               }
@@ -394,6 +397,9 @@
                       "type": "integer"
                     },
                     "listingId": {
+                      "type": "string"
+                    },
+                    "ownerRef": {
                       "type": "string"
                     },
                     "quantity": {
