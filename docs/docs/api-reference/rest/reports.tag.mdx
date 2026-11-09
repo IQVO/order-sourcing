@@ -1,0 +1,20 @@
+---
+id: reports
+title: "reports"
+description: "reports"
+custom_edit_url: null
+---
+
+
+
+Read-only analytics reports (ADR 0013), served by cmd/os-reports from the separate analytical database the projector feeds from this context's own events and analytics topics. Days are UTC calendar days; from and to are inclusive dates. A share, mean or rate is null when its denominator is 0.
+
+
+
+```mdx-code-block
+import DocCardList from '@theme/DocCardList';
+import {useCurrentSidebarCategory} from '@docusaurus/theme-common';
+
+<DocCardList items={useCurrentSidebarCategory().items}/>
+```
+      
