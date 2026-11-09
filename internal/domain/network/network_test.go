@@ -208,3 +208,14 @@ func TestServiceAreaScorecardListing(t *testing.T) {
 		t.Fatal("a suppressed listing cannot ship")
 	}
 }
+
+func TestListingKeyIncludesTheOwner(t *testing.T) {
+	op := Listing{ID: "lst-1", CatalogItemID: "cat-1", NodeID: "fc-a"}
+	seller := Listing{ID: "lst-2", CatalogItemID: "cat-1", NodeID: "fc-a", OwnerRef: "sel-1"}
+	if op.Key() != (AvailabilityKey{CatalogItemID: "cat-1", NodeID: "fc-a", OwnerRef: OperatorOwned}) {
+		t.Fatalf("operator key = %+v", op.Key())
+	}
+	if seller.Key() != (AvailabilityKey{CatalogItemID: "cat-1", NodeID: "fc-a", OwnerRef: "sel-1"}) || seller.Key() == op.Key() {
+		t.Fatalf("seller key = %+v", seller.Key())
+	}
+}

@@ -23,6 +23,7 @@ func wantReleaseEvent(t *testing.T, ev shared.Event) {
 	e := ev.(FulfillmentReleasedToNode)
 	if e.ReleaseNo != 1 || e.NodeID != "node-a" || e.PickupDepartureID != "dep-node-a" || !e.RequiredShipBy.Equal(at(5)) ||
 		!e.PromisedDeliverByLatest.Equal(deadline) || e.Tier != TierTwoDay || len(e.Lines) != 2 || e.Lines[0].ListingID != "lst-1" ||
+		e.Lines[0].OwnerRef != "" || e.Lines[1].OwnerRef != "sel-1" ||
 		e.OrderID != "ord-1" || e.GroupNo != 1 {
 		t.Fatalf("release event = %+v", e)
 	}
@@ -34,8 +35,8 @@ func wantReleaseRecorded(t *testing.T, a *Assignment) {
 	if len(rels) != 1 || rels[0].Outcome != OutcomePending || rels[0].No != 1 || !rels[0].ReleasedAt.Equal(at(2)) || !rels[0].RequiredShipBy.Equal(at(5)) {
 		t.Fatalf("releases = %+v", rels)
 	}
-	if !a.ReleaseAt().IsZero() || a.Lines()[0].ListingID != "lst-1" {
-		t.Fatal("releaseAt is cleared and lines carry the listing")
+	if !a.ReleaseAt().IsZero() || a.Lines()[0].ListingID != "lst-1" || a.Lines()[1].OwnerRef != "sel-1" {
+		t.Fatal("releaseAt is cleared and lines carry the listing and its owner")
 	}
 }
 

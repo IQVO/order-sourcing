@@ -131,6 +131,9 @@ func validateLines(lines []Line) error {
 		if l.ListingID != "" && !shared.ValidID(l.ListingID) {
 			return shared.Invalid("listingId %q is not a valid id", l.ListingID)
 		}
+		if l.OwnerRef != "" && !shared.ValidID(l.OwnerRef) {
+			return shared.Invalid("ownerRef %q is not a valid id", l.OwnerRef)
+		}
 		if l.Quantity < 1 || l.Quantity > MaxInt32 {
 			return shared.Invalid("quantity must be between 1 and %d", MaxInt32)
 		}

@@ -32,7 +32,7 @@ func cand(node string) *Candidate {
 }
 
 func releaseLines() []Line {
-	return []Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2}, {LineNo: 2, CatalogItemID: "cat-2", ListingID: "lst-2", Quantity: 1}}
+	return []Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2}, {LineNo: 2, CatalogItemID: "cat-2", ListingID: "lst-2", OwnerRef: "sel-1", Quantity: 1}}
 }
 
 func mustQueue(t *testing.T) *Assignment {

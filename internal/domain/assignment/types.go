@@ -104,12 +104,14 @@ const (
 	MaxTrackingLen = 64
 )
 
-// Line is one line of the group. ListingID is set from the release on (the
-// listing of the released node).
+// Line is one line of the group. ListingID and OwnerRef are set from the
+// release on: the listing of the released node and whose stock it is, as the
+// OwnerChoice rule picked it ("" = operator-owned; ADR 0012).
 type Line struct {
 	LineNo        int
 	CatalogItemID string
 	ListingID     string
+	OwnerRef      string
 	Quantity      int
 }
 

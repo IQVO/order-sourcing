@@ -229,14 +229,33 @@ type Region struct {
 	Name string
 }
 
-// Listing is a row of AvailabilityView.
+// OperatorOwned is the OwnerRef of an operator-owned listing: the empty
+// string, never NULL in a key (ADR 0012).
+const OperatorOwned = ""
+
+// AvailabilityKey is the key of AvailabilityView: one row per catalogue item,
+// node and owner (ADR 0012).
+type AvailabilityKey struct {
+	CatalogItemID string
+	NodeID        string
+	OwnerRef      string
+}
+
+// Listing is a row of AvailabilityView. OwnerRef is the owning seller, or
+// OperatorOwned when the listing event carried no ownerRef (ADR 0012).
 type Listing struct {
 	ID            string
 	CatalogItemID string
 	NodeID        string
+	OwnerRef      string
 	AvailableQty  int
 	AsOf          time.Time
 	Suppressed    bool
+}
+
+// Key returns the AvailabilityView key of the row.
+func (l Listing) Key() AvailabilityKey {
+	return AvailabilityKey{CatalogItemID: l.CatalogItemID, NodeID: l.NodeID, OwnerRef: l.OwnerRef}
 }
 
 // ApplyAvailability stores a quantity unless asOf is older than the stored one.
