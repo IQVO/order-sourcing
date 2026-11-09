@@ -55,7 +55,7 @@ type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentConstraint
 | Event | Raised when | `data` |
 |---|---|---|
 | `FulfillmentQueued` | QueueAssignment is saved | `{assignmentId, orderId, groupNo, promiseId, deliverByLatest, lines[{lineNo, catalogItemId, quantity}]}` |
-| `FulfillmentReleasedToNode` | ReleaseToNode: QUEUED to RELEASED | `{assignmentId, releaseNo, orderId, groupNo, nodeId, pickupDepartureId, requiredShipBy, promisedDeliverByLatest, tier, lines[{catalogItemId, listingId, quantity}]}` |
+| `FulfillmentReleasedToNode` | ReleaseToNode: QUEUED to RELEASED | `{assignmentId, releaseNo, orderId, groupNo, nodeId, pickupDepartureId, requiredShipBy, promisedDeliverByLatest, tier, lines[{catalogItemId, listingId, ownerRef?, quantity}], estimatedCostCents?}` (`?` = optional and omitted: `ownerRef` when operator-owned, ADR 0012; `estimatedCostCents` when incomplete, ADR 0011) |
 | `FulfillmentReassigned` | the candidate node changes | `{assignmentId, fromNodeId, toNodeId, reason, assignmentVersion}` |
 | `FulfillmentLocked` | LockAssignment: RELEASED to LOCKED | `{assignmentId, orderId, groupNo, promiseId, nodeId, pickupDepartureId, lockedAt, lockReason}` (promiseId, groupNo, orderId: contracts-delta E1) |
 | `FulfillmentShipped` | MarkShipped: LOCKED to SHIPPED | `{assignmentId, orderId, groupNo, nodeId, trackingNumbers[], shippedAt}` |
