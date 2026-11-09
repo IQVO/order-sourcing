@@ -100,7 +100,7 @@ CloudEvents 1.0 structured JSON, type `com.retailnetwork.commerce.order-sourcing
 | Topic | Events |
 |---|---|
 | `retailnetwork.order-sourcing.events` (integration) | `FulfillmentReleasedToNode`, `FulfillmentReassigned`, `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused`, `FulfillmentConstraintRevised` |
-| `retailnetwork.order-sourcing.analytics` (analytics only) | `FulfillmentQueued`, `FulfillmentDelivered` |
+| `retailnetwork.order-sourcing.analytics` (analytics only) | `FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered` |
 
 **Consumed** — 34 event types from nine producer topics, each under its own
 stable consumer group; delivery is at-least-once with a stable event id and

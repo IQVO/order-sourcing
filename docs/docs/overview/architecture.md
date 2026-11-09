@@ -110,8 +110,9 @@ Source: `cmd/api/main.go` (`buildServices`, `startConsumers`, `startOutboxRelay`
 
 ## Data stores
 
-One Postgres database, created by the single embedded migration
-(`internal/adapters/outbound/postgres/migrations/0001_order_sourcing_schema.up.sql`, applied by golang-migrate at every boot):
+One Postgres database (the OLTP one), created by `0001_order_sourcing_schema.up.sql` in
+`internal/adapters/outbound/postgres/migrations/` and altered by `0002_idempotency_global_key`, `0003_rm_lane_wave_cost` and
+`0004_rm_listings_owner_ref`, none of which adds a table (applied by golang-migrate at every boot):
 
 | Table | Holds |
 | --- | --- |
@@ -124,7 +125,7 @@ One Postgres database, created by the single embedded migration
 | `outbox_events` | The transactional outbox; one row per message, with `attempts`, `last_error` and `published_at`. |
 | `idempotency_keys` | Stored answers of `POST /assignments/{assignmentId}/reoptimisations`, replayed for 24 hours. |
 
-Postgres is the only store: `cmd/api` refuses to boot without `DATABASE_URL`, and nothing is served from process memory.
+`cmd/api` refuses to boot without `DATABASE_URL`, and nothing is served from process memory. The only other store is the separate analytical Postgres database (4 tables: `queued_groups`, `sourcing_decisions`, `unsourceable_declarations`, `analytics_processed_events`, from `analytics/migrations/0001_sourcing_facts.up.sql`) that `cmd/os-projector` writes and `cmd/os-reports` reads when `analytics.enabled` is set; `cmd/api` never opens it. See the [Entity relationship](/docs/ddd/entity-relationship#analytical-database) page.
 Kafka is the platform's single broker. This service consumes nine `retailnetwork.<producer>.events` topics (see
 [Integration](/docs/ecosystem/integration)) and produces to `retailnetwork.order-sourcing.events` and
 `retailnetwork.order-sourcing.analytics`. It never creates a topic through an admin API: the broker auto-creates each on first

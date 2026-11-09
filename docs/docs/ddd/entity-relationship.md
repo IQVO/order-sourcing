@@ -2,15 +2,20 @@
 id: entity-relationship
 title: Entity relationship
 sidebar_label: Entity relationship
-description: "The Postgres schema of Order Sourcing as migrated: the assignments table, the rm_ read-model tables fed by sibling events, and the outbox, inbox and idempotency tables."
+description: "The Postgres schemas of Order Sourcing as migrated: the OLTP assignments table, the rm_ read-model tables fed by sibling events, the outbox, inbox and idempotency tables, and the separate analytical database."
 ---
 
 # Entity relationship
 
-The schema of this context's own Postgres database ("every context owns its database; no shared tables"), exactly as created by
-the single embedded migration `internal/adapters/outbound/postgres/migrations/0001_order_sourcing_schema.up.sql`, applied by
-golang-migrate at every boot. There are **14 tables** and no foreign keys: the aggregate is one row with `jsonb` columns, the
-read models are projections that can be dropped and replayed, and every id of another context is a plain value.
+The schema of this context's own Postgres database ("every context owns its database; no shared tables"), as created by
+the embedded migrations in `internal/adapters/outbound/postgres/migrations/`, applied by golang-migrate at every boot:
+`0001_order_sourcing_schema` creates all **14 tables**; `0002_idempotency_global_key`, `0003_rm_lane_wave_cost` and
+`0004_rm_listings_owner_ref` only alter existing tables (none creates or drops a table). There are no foreign keys: the aggregate
+is one row with `jsonb` columns, the read models are projections that can be dropped and replayed, and every id of another
+context is a plain value.
+
+A second, separate **analytical database** (ADR 0013) has its own migration, `analytics/migrations/0001_sourcing_facts.up.sql`,
+with **4 tables**; it is described in [Analytical database](#analytical-database) at the end of this page.
 
 ## FulfillmentAssignment (one table)
 
@@ -105,6 +110,8 @@ erDiagram
         text destination
         text mode
         boolean closed
+        bigint cost_per_unit_cents "default 0, added by 0003"
+        timestamptz cost_declared_at "NULL = no declaration"
     }
     rm_departures {
         text departure_id PK
@@ -132,6 +139,8 @@ erDiagram
         boolean remaining_known
         boolean scheduled
         boolean cancelled
+        bigint cost_per_stop_cents "default 0, added by 0003"
+        timestamptz cost_declared_at "NULL = no declaration"
     }
     rm_service_areas {
         text postal_prefix PK
@@ -155,13 +164,14 @@ erDiagram
         integer available_qty
         timestamptz as_of
         boolean suppressed
+        text owner_ref "default empty = operator-owned, added by 0004"
     }
     rm_discontinued_items {
         text catalog_item_id PK
     }
 ```
 
-Source: the `rm_*` tables of the migration; the projection rules are in `internal/domain/network/network.go` and
+Source: the `rm_*` tables of `0001_order_sourcing_schema.up.sql`, plus the columns added later: `cost_per_unit_cents` and `cost_declared_at` on `rm_lanes` and `cost_per_stop_cents` and `cost_declared_at` on `rm_waves` (`0003_rm_lane_wave_cost.up.sql`; `cost_declared_at` NULL means no declaration was seen, so the component contributes 0 to a cost estimate and marks it incomplete) and `owner_ref` on `rm_listings` (`0004_rm_listings_owner_ref.up.sql`; `''` is operator-owned, and the unique index `rm_listings_item_node_owner_key` on `(catalog_item_id, node_id, owner_ref) WHERE catalog_item_id <> ''` keys the availability view by item, node and owner while `listing_id` stays the primary key). The projection rules are in `internal/domain/network/network.go` and
 `internal/application/usecases/projector.go`.
 
 | View | Tables | Event source |
@@ -210,7 +220,7 @@ erDiagram
     }
 ```
 
-Source: the same migration. All three are infrastructure, not domain tables:
+Source: `0001_order_sourcing_schema.up.sql`, with `idempotency_keys` as reshaped by `0002_idempotency_global_key.up.sql`. All three are infrastructure, not domain tables:
 
 - `outbox_events` is written in the same transaction as the aggregate and drained by the relay. `value` is the already-encoded
   CloudEvents message, `event_id` its stable CloudEvents `id`; a partial index serves the unpublished rows by `id`. `attempts` and
@@ -218,7 +228,7 @@ Source: the same migration. All three are infrastructure, not domain tables:
 - `processed_events` is the inbox: one row per consumed CloudEvents `id`, written in the same transaction as its effect.
 - `idempotency_keys` stores the first answer of `POST /assignments/{id}/reoptimisations` per `key` (global), with the request fingerprint (method + path + SHA-256 of the body), ignored after 24 hours. Migration `0002` moved the key from `(route, key)` to `key` alone.
 
-golang-migrate also keeps its own bookkeeping table (`schema_migrations`), created by the tool and not by this migration.
+golang-migrate also keeps its own bookkeeping table (`schema_migrations`), created by the tool and not by these migrations.
 
 ## No foreign key across aggregates or contexts
 
@@ -235,3 +245,59 @@ golang-migrate also keeps its own bookkeeping table (`schema_migrations`), creat
 | `assignments` | **FulfillmentAssignment** root, with its lines, release history and exclusions embedded as JSON |
 | `rm_nodes`, `rm_lanes`, `rm_departures`, `rm_waves`, `rm_service_areas`, `rm_regions`, `rm_listings`, `rm_discontinued_items`, `rm_scorecards`, `rm_book_pressure` | read models; no invariant of this context |
 | `outbox_events`, `processed_events`, `idempotency_keys` | infrastructure |
+
+## Analytical database
+
+The analytical database is separate from the OLTP one, written only by `cmd/os-projector` and read (read-only) by `cmd/os-reports` (ADR 0013). It is a projection of this context's own two topics (`retailnetwork.order-sourcing.events` and `.analytics`), not a source of truth, and can be dropped and rebuilt from them. It has no foreign keys; the dotted lines are shared `assignment_id` values, not constraints.
+
+```mermaid
+erDiagram
+    queued_groups ||..o{ sourcing_decisions : "assignment_id"
+    queued_groups ||..o{ unsourceable_declarations : "assignment_id"
+
+    analytics_processed_events {
+        text event_id PK
+        text event_type
+        timestamptz occurred_at "CloudEvents time"
+        timestamptz applied_at "default now()"
+    }
+    queued_groups {
+        text assignment_id PK
+        text order_id
+        integer group_no "1 or more"
+        timestamptz queued_at "CloudEvents time"
+        text event_id
+    }
+    sourcing_decisions {
+        text assignment_id PK
+        integer release_no PK
+        text order_id
+        integer group_no "NULL when omitted"
+        text node_id
+        text node_region_id "NULL when unknown"
+        text destination_region_id "NULL when unknown"
+        boolean in_region "NULL when unknown"
+        integer legs "0 or more"
+        bigint estimated_cost_cents "present exactly when cost_complete"
+        boolean cost_complete
+        integer units "1 or more"
+        integer candidate_count "1 or more"
+        timestamptz decided_at
+        text event_id
+    }
+    unsourceable_declarations {
+        text event_id PK
+        text assignment_id
+        text order_id
+        timestamptz declared_at "CloudEvents time"
+    }
+```
+
+Source: `analytics/migrations/0001_sourcing_facts.up.sql`; the projection is `internal/adapters/outbound/analyticsstore/projection.go` and the reports are `internal/adapters/outbound/analyticsstore/reader.go`.
+
+- `queued_groups`: one row per assignment, from `FulfillmentQueued` (analytics topic); `idx_queued_groups_order` on `order_id` serves the order-split report.
+- `sourcing_decisions`: one row per release, from `FulfillmentSourcingDecided` (analytics topic), keyed `(assignment_id, release_no)`; the check `sourcing_decisions_cost_complete` makes `cost_complete` equal `estimated_cost_cents IS NOT NULL` (ADR 0011); index `idx_sourcing_decisions_decided_at`.
+- `unsourceable_declarations`: one row per `FulfillmentUnsourceable` (events topic), on its CloudEvents time; index `idx_unsourceable_declarations_declared_at`.
+- `analytics_processed_events`: the projector's inbox. Every applied CloudEvents id is recorded once, in the same transaction as its effect on a fact table (`projection.go` claims the id, then projects); `occurred_at` is the basis of `/reports/freshness`; index `idx_analytics_processed_events_occurred_at`.
+
+Down migration: `0001_sourcing_facts.down.sql` in the same directory.
