@@ -69,11 +69,11 @@ func (uc *QueueAssignment) queueGroup(ctx context.Context, cmd QueueAssignmentCo
 	}
 	now := uc.now()
 	promise := assignment.PromiseConstraint{PromiseID: g.PromiseID, Tier: g.Tier, DeliverByLatest: g.DeliverByLatest, WitnessNodeID: g.WitnessNodeID}
-	best, world, err := uc.bestOption(ctx, now, cmd.DestinationPostalPrefix, promise, g.Lines, nil)
+	found, err := uc.bestOption(ctx, now, cmd.DestinationPostalPrefix, promise, g.Lines, nil)
 	if err != nil {
 		return nil, err
 	}
-	cand, releaseAt := candidateOf(best)
+	cand, releaseAt := candidateOf(found.best)
 	a, events, err := assignment.Queue(assignment.New{
 		ID: uc.IDs.NewAssignmentID(), OrderID: cmd.OrderID, GroupNo: g.GroupNo, DestinationPostalPrefix: cmd.DestinationPostalPrefix,
 		Promise: promise, Lines: g.Lines,
@@ -87,19 +87,19 @@ func (uc *QueueAssignment) queueGroup(ctx context.Context, cmd QueueAssignmentCo
 	if err := uc.publish(ctx, events); err != nil {
 		return nil, err
 	}
-	if best != nil && g.Tier == assignment.TierSameDay {
-		return a, uc.releaseNow(ctx, a, best, world, now)
+	if found.best != nil && g.Tier == assignment.TierSameDay {
+		return a, uc.releaseNow(ctx, a, found, now)
 	}
 	return a, nil
 }
 
-// releaseNow releases an assignment to the option's node on the world the
-// option was found in.
-func (uc *QueueAssignment) releaseNow(ctx context.Context, a *assignment.Assignment, best *sourcing.Option, world sourcing.World, now time.Time) error {
+// releaseNow releases an assignment to the best option's node on the world
+// the option was found in.
+func (uc *QueueAssignment) releaseNow(ctx context.Context, a *assignment.Assignment, found searchResult, now time.Time) error {
 	// The search only returns nodes that ship every line (see ReleaseToNode).
-	lines, _ := sourcing.ResolveLines(world, best.Candidate.NodeID, a.Lines())
+	lines, _ := sourcing.ResolveLines(found.world, found.best.Candidate.NodeID, a.Lines())
 	before := a.Version()
-	events, err := a.Release(&best.Candidate, lines, now)
+	events, err := a.Release(&found.best.Candidate, lines, found.facts(), now)
 	if err != nil {
 		return err
 	}

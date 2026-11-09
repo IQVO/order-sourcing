@@ -52,7 +52,7 @@ func releaseLines() []assignment.Line {
 func released(t *testing.T, id, order string) *assignment.Assignment {
 	t.Helper()
 	a := queued(t, id, order, 1, hours(2))
-	if _, err := a.Release(candidate("node-a"), releaseLines(), hours(2)); err != nil {
+	if _, err := a.Release(candidate("node-a"), releaseLines(), assignment.SourcingFacts{NodeRegionID: "r1", DestinationRegionID: "r1", CandidateCount: 1}, hours(2)); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
 	return a

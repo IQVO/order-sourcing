@@ -13,7 +13,7 @@ Feature: The virtual queue timer and the booking facts
     When the sweep runs
     Then the sweep released 1 assignment
     And the assignment of "ord-1" group 1 is "RELEASED"
-    And the last command published "FulfillmentReleasedToNode"
+    And the last command published "FulfillmentReleasedToNode, FulfillmentSourcingDecided"
 
   Scenario: Nothing is released before the release point
     When the sweep runs

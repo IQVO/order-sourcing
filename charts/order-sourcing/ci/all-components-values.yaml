@@ -1,5 +1,6 @@
 # Used by `helm lint` / `ct lint`: every optional component switched on at
-# once (api + mcp + a2a + the web remote). The api's mandatory values (database,
+# once (api + mcp + a2a + the web remote + analytics projector/reports +
+# reports route). The api's mandatory values (database,
 # Kafka, the nine consumer groups) are the same as ci/default-values.yaml.
 database:
   url: "postgres://u@example.invalid:5432/db"
@@ -33,3 +34,15 @@ a2a:
         sectionName: http
 frontend:
   enabled: true
+analytics:
+  enabled: true
+  database:
+    projectorUrl: "postgres://projector@example.invalid:5432/analytics"
+    reportsUrl: "postgres://reports@example.invalid:5432/analytics"
+  reports:
+    route:
+      enabled: true
+      parentRefs:
+        - name: warehouse-gateway
+          namespace: kong
+          sectionName: http

@@ -45,7 +45,7 @@ pick, so the acceptance is the first moment the vendor commits.
 | Follow the group through `SHIPPED` and `DELIVERED`, record a moved pickup departure | `MarkShipped`, `MarkDelivered`, `RecordPickupMoved` |
 | Decide cancels (`FulfillmentCancelled` before the lock, `FulfillmentCancelRefused` after it) and apply revised promises in every non-terminal state | `CancelAssignment`, `ApplyRevisedPromise` |
 | Maintain local read models of the network (five views stored in ten `rm_*` tables: nodes, lanes, departures, waves, service areas, regions, listings, discontinued items, scorecards, book pressure) from nine sibling topics | `Projector`, [Integration](/docs/ecosystem/integration) |
-| Publish eight integration events and two analytics-only events through a transactional outbox | [Events](/docs/api-reference/events) |
+| Publish eight integration events and three analytics-only events through a transactional outbox | [Events](/docs/api-reference/events) |
 | Serve a read-only REST, MCP and A2A surface plus one planner action | [API overview](/docs/api-reference), [MCP tools](/docs/mcp/tools) |
 | A small read-only operator remote (`web/`, `order_sourcing_mfe`) mounted by the warehouse console | `web/`, [ADR 0007](/docs/adr/0007-console-remote) |
 

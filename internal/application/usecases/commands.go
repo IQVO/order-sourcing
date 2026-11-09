@@ -51,11 +51,11 @@ func (uc *ReoptimiseAssignment) Execute(ctx context.Context, id assignment.ID, e
 		if a.State() != assignment.StateQueued {
 			return a.Reoptimise(nil, time.Time{}, expectedVersion, now) // the guard's error for this state
 		}
-		best, _, err := uc.search(ctx, a, now)
+		found, err := uc.search(ctx, a, now)
 		if err != nil {
 			return nil, err
 		}
-		cand, releaseAt := candidateOf(best)
+		cand, releaseAt := candidateOf(found.best)
 		return a.Reoptimise(cand, releaseAt, expectedVersion, now)
 	})
 }
@@ -74,17 +74,17 @@ func (uc *ReleaseToNode) Execute(ctx context.Context, id assignment.ID) (views.A
 		if a.State() != assignment.StateQueued {
 			return nil, nil
 		}
-		best, world, err := uc.search(ctx, a, now)
+		found, err := uc.search(ctx, a, now)
 		if err != nil {
 			return nil, err
 		}
-		if best == nil {
-			return a.Release(nil, nil, now)
+		if found.best == nil {
+			return a.Release(nil, nil, assignment.SourcingFacts{}, now)
 		}
 		// The search only returns nodes that ship every line, so the listings resolve; a missing
 		// listing would fail the aggregate's own check.
-		lines, _ := sourcing.ResolveLines(world, best.Candidate.NodeID, a.Lines())
-		return a.Release(&best.Candidate, lines, now)
+		lines, _ := sourcing.ResolveLines(found.world, found.best.Candidate.NodeID, a.Lines())
+		return a.Release(&found.best.Candidate, lines, found.facts(), now)
 	})
 }
 
@@ -112,11 +112,11 @@ func (uc *HandleNodeRefusal) Execute(ctx context.Context, cmd HandleNodeRefusalC
 		if rels := a.Releases(); a.State() == assignment.StateReleased && len(rels) > 0 {
 			extra = append(extra, assignment.ExcludedNode{NodeID: rels[len(rels)-1].NodeID, Reason: string(cmd.Outcome)})
 		}
-		best, _, err := uc.search(ctx, a, now, extra...)
+		found, err := uc.search(ctx, a, now, extra...)
 		if err != nil {
 			return nil, err
 		}
-		cand, releaseAt := candidateOf(best)
+		cand, releaseAt := candidateOf(found.best)
 		return a.RefuseRelease(cmd.ReleaseNo, cmd.Outcome, cmd.ReasonCode, cand, releaseAt, now)
 	})
 }

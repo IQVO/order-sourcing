@@ -1,0 +1,70 @@
+---
+id: get-cost-to-serve-report
+title: "Cost to serve per unit, per day"
+description: "Over the LAST sourcing decision of each assignment (highest releaseNo), per UTC day of its decidedAt: costCompleteShare = decisions with a complete estimate / decisions; costPerUnitCents = the sum of estimatedCostCents of the complete decisions / the sum of their units (null when undefined); p50CostCentsPerGroup and p90CostCentsPerGroup = the continuous percentiles of estimatedCostCents per group over the complete decisions (null without one). Estimates are planner-declared cents per package-unit (ADR 0011). Days without a decision are omitted."
+sidebar_label: "Cost to serve per unit, per day"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "get api-method"
+info_path: docs/api-reference/rest/order-sourcing-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Cost to serve per unit, per day"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/reports/cost-to-serve"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Over the LAST sourcing decision of each assignment (highest releaseNo), per UTC day of its decidedAt: costCompleteShare = decisions with a complete estimate / decisions; costPerUnitCents = the sum of estimatedCostCents of the complete decisions / the sum of their units (null when undefined); p50CostCentsPerGroup and p90CostCentsPerGroup = the continuous percentiles of estimatedCostCents per group over the complete decisions (null without one). Estimates are planner-declared cents per package-unit (ADR 0011). Days without a decision are omitted.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./get-cost-to-serve-report.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./get-cost-to-serve-report.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./get-cost-to-serve-report.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

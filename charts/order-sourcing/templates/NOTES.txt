@@ -31,3 +31,9 @@ The nine consumers are ON, each under its own stable consumer group:
   offer-availability       group {{ .Values.config.offerAvailabilityConsumerGroup }}, topic retailnetwork.offer-availability.events
   shipping-and-tracking    group {{ .Values.config.shippingAndTrackingConsumerGroup }}, topic retailnetwork.shipping-and-tracking.events
   vendor-connectivity      group {{ .Values.config.vendorConnectivityConsumerGroup }}, topic retailnetwork.vendor-connectivity.events
+{{- if .Values.analytics.enabled }}
+
+Analytics read side (ADR 0013): {{ include "order-sourcing.projectorFullname" . }} projects
+retailnetwork.order-sourcing.events and .analytics (group {{ .Values.analytics.projector.consumerGroup }}) into the
+analytical database; {{ include "order-sourcing.reportsFullname" . }} serves GET /reports/... read-only.
+{{- end }}

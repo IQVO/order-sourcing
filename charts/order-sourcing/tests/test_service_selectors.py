@@ -74,12 +74,21 @@ A2A_ENV = (
     "A2A_ADDR", "A2A_AGENT_URL", "LOG_LEVEL", "SERVICE_VERSION", "ENVIRONMENT", "DATABASE_URL", "MIGRATIONS_DATABASE_URL",
 )
 
+# The analytics read side (ADR 0013) never sees the OLTP database, the api
+# ConfigMap env or the api's consumer groups; the reports pod gets no Kafka and
+# no DSN but the reader's.
+ANALYTICS_STRAY = {"DATABASE_URL", "MIGRATIONS_DATABASE_URL", "EVENT_PUBLISHER", "OUTBOX_RELAY_INTERVAL", "SWEEP_INTERVAL",
+                   *(k for k in API_ENV if k.endswith("_CONSUMER_GROUP"))}
+REPORTS_STRAY = ANALYTICS_STRAY | {"KAFKA_BROKERS", "ANALYTICS_DATABASE_URL", "ANALYTICS_CONSUMER_GROUP"}
+
 BASE = runtime()
 ENABLE_EVERYTHING = BASE + [
     "--set", "autoscaling.api.enabled=true",
     "--set", "mcp.enabled=true",
     "--set", "a2a.enabled=true",
     "--set", "frontend.enabled=true",
+    "--set", "analytics.enabled=true",
+    "--set", "analytics.database.projectorUrl=postgres://projector@example.invalid:5432/analytics",
     "--set", "gatewayApi.enabled=true",
     "--set", "ingress.enabled=true",
     "--set", "config.outboxRelayInterval=2s",
@@ -134,11 +143,13 @@ def check_components(docs: list[dict], failures: list[str], expect: list[str] | 
     services = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Service"}
     deployments = {d["metadata"]["name"]: d for d in docs if d.get("kind") == "Deployment"}
     want = sorted(expect) if expect is not None else [RELEASE]
+    # The analytics projector is a Deployment with NO Service (admin probes only).
+    want_services = [n for n in want if n != f"{RELEASE}-projector"]
 
     if sorted(deployments) != want:
         failures.append(f"expected Deployments {want}, got {sorted(deployments)}")
-    if sorted(services) != want:
-        failures.append(f"expected Services {want}, got {sorted(services)}")
+    if sorted(services) != want_services:
+        failures.append(f"expected Services {want_services} (the projector has none), got {sorted(services)}")
     if RELEASE not in services:
         failures.append("the api Service was not rendered")
     elif selector_of(services[RELEASE]).get("app.kubernetes.io/component") != "api":
@@ -272,6 +283,39 @@ def check_frontend(docs: list[dict], deployments: dict, services: dict, failures
             failures.append(f"{d['kind']} {d['metadata']['name']}: frontend routing must not live in this chart")
 
 
+def check_analytics(deployments: dict, services: dict, failures: list[str]) -> None:
+    """The projector and the reports run their own binaries with their own env (ADR 0013)."""
+    wants = (
+        ("projector", "/app/os-projector", ANALYTICS_STRAY,
+         ("ANALYTICS_DATABASE_URL", "KAFKA_BROKERS", "ANALYTICS_CONSUMER_GROUP", "ADMIN_ADDR", "LOG_LEVEL", "SERVICE_VERSION", "ENVIRONMENT")),
+        ("reports", "/app/os-reports", REPORTS_STRAY,
+         ("ANALYTICS_READER_DATABASE_URL", "HTTP_ADDR", "LOG_LEVEL", "SERVICE_VERSION", "ENVIRONMENT")),
+    )
+    for suffix, command, stray_set, needs in wants:
+        dep = deployments.get(f"{RELEASE}-{suffix}")
+        if dep is None:
+            failures.append(f"the analytics {suffix} Deployment was not rendered with analytics.enabled=true")
+            continue
+        if command_of(dep) != [command]:
+            failures.append(f"the analytics {suffix} Deployment must run {command}")
+        if dep["spec"]["template"]["spec"]["containers"][0].get("envFrom"):
+            failures.append(f"the analytics {suffix} Deployment must not mount the api ConfigMap")
+        env = set(env_names(dep))
+        stray = stray_set & env
+        if stray:
+            failures.append(f"the analytics {suffix} Deployment must not get {sorted(stray)}")
+        for need in needs:
+            if need not in env:
+                failures.append(f"the analytics {suffix} Deployment does not render {need}")
+    projector = deployments.get(f"{RELEASE}-projector")
+    if projector is not None and env_value(projector, "ANALYTICS_CONSUMER_GROUP") != "order-sourcing-analytics":
+        failures.append("the projector consumer group must default to order-sourcing-analytics")
+    if not pins(services.get(f"{RELEASE}-reports"), "analytics-reports"):
+        failures.append("the reports Service must exist and pin component=analytics-reports")
+    if f"{RELEASE}-projector" in services:
+        failures.append("the projector must have no Service (it serves only its admin probes)")
+
+
 def check_refusals(failures: list[str]) -> None:
     cases: list[tuple[str, list[str], str]] = [
         ("without a database source", runtime("database"), "requires database.url or database.existingSecret"),
@@ -289,6 +333,13 @@ def check_refusals(failures: list[str]) -> None:
     ]
     for key in GROUPS:
         cases.append((f"without config.{key}", runtime(key), f"config.{key} is required"))
+    analytics = BASE + ["--set", "analytics.enabled=true"]
+    dsn = ["--set", "analytics.database.projectorUrl=postgres://p@example.invalid/a"]
+    cases += [
+        ("analytics without a DSN source", analytics, "analytics.database.projectorUrl"),
+        ("analytics without a consumer group", analytics + dsn + ["--set", "analytics.projector.consumerGroup="],
+         "analytics.projector.consumerGroup is required"),
+    ]
     for label, args, needle in cases:
         result = helm_template(args)
         if result.returncode == 0 or needle not in result.stderr:
@@ -299,13 +350,14 @@ def main() -> int:
     failures: list[str] = []
 
     everything = render(ENABLE_EVERYTHING)
-    expected = [RELEASE, f"{RELEASE}-mcp", f"{RELEASE}-a2a", f"{RELEASE}-frontend"]
+    expected = [RELEASE, f"{RELEASE}-mcp", f"{RELEASE}-a2a", f"{RELEASE}-frontend", f"{RELEASE}-projector", f"{RELEASE}-reports"]
     check_components(everything, failures, expected)
     deployments = {d["metadata"]["name"]: d for d in everything if d.get("kind") == "Deployment"}
     services = {d["metadata"]["name"]: d for d in everything if d.get("kind") == "Service"}
     check_mcp(deployments, services, failures)
     check_a2a(deployments, services, failures)
     check_frontend(everything, deployments, services, failures)
+    check_analytics(deployments, services, failures)
 
     # Default values must not deploy an HPA or a route, and must not render the
     # optional env that lets the binary's own defaults apply.
@@ -313,9 +365,9 @@ def main() -> int:
     stray = [d["kind"] for d in defaults if d.get("kind") in {"HorizontalPodAutoscaler", "Ingress", "HTTPRoute"}]
     if stray:
         failures.append(f"optional objects rendered with default values: {stray}")
-    optional = [n for n in (d["metadata"]["name"] for d in defaults) if n.endswith(("-mcp", "-a2a", "-frontend"))]
+    optional = [n for n in (d["metadata"]["name"] for d in defaults) if n.endswith(("-mcp", "-a2a", "-frontend", "-projector", "-reports", "-analytics"))]
     if optional:
-        failures.append(f"mcp/a2a/frontend rendered with default values: {optional}")
+        failures.append(f"mcp/a2a/frontend/analytics rendered with default values: {optional}")
     dep = next(d for d in defaults if d.get("kind") == "Deployment")
     names = env_names(dep)
     off = {"OUTBOX_RELAY_INTERVAL", "SWEEP_INTERVAL"}
@@ -332,7 +384,8 @@ def main() -> int:
             print(f"FAIL: {f}")
         return 1
 
-    print("PASS: every Service selects exactly one Deployment (api, mcp, a2a, frontend); mcp, a2a and frontend are off "
+    print("PASS: every Service selects exactly one Deployment (api, mcp, a2a, frontend, analytics-reports; analytics-projector "
+          "has none); mcp, a2a, frontend and analytics are off "
           "by default and render when enabled; every env var cmd/api, cmd/mcp and cmd/a2a read is rendered, the mcp "
           "and a2a Deployments get no Kafka env and the frontend none at all; the chart refuses to render without a database source, "
           "brokers or any of the nine consumer groups, with a non-kafka publisher (also through extraEnv), with a "

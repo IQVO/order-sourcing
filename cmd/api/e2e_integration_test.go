@@ -363,9 +363,18 @@ func TestRealWiringEndToEnd(t *testing.T) {
 			t.Fatalf("dataschema = %v", e.Raw["dataschema"])
 		}
 	}
-	an := readUntil(t, brokers, topicAnalytics, func(e []outEvent) bool { return count(e, "FulfillmentQueued") >= 2 })
-	if count(an, "FulfillmentQueued") != 2 {
-		t.Fatalf("analytics: %d queued events", count(an, "FulfillmentQueued"))
+	an := readUntil(t, brokers, topicAnalytics, func(e []outEvent) bool {
+		return count(e, "FulfillmentQueued") >= 2 && count(e, "FulfillmentSourcingDecided") >= 1
+	})
+	if count(an, "FulfillmentQueued") != 2 || count(an, "FulfillmentSourcingDecided") != 1 || count(ev, "FulfillmentSourcingDecided") != 0 {
+		t.Fatalf("analytics: %d queued, %d decisions (and %d on .events)", count(an, "FulfillmentQueued"),
+			count(an, "FulfillmentSourcingDecided"), count(ev, "FulfillmentSourcingDecided"))
+	}
+	for _, e := range an {
+		if e.Type == ceTypePrefix+"FulfillmentSourcingDecided" && (e.Subject != id2 || e.Data["nodeId"] != "n-mc-1" || e.Data["releaseNo"].(float64) != 1 ||
+			e.Data["candidateCount"].(float64) < 1 || e.Data["units"].(float64) < 1) {
+			t.Fatalf("decision data = %v", e.Data)
+		}
 	}
 
 	// --- REST: reoptimise (idempotent), refusals, problem details ---

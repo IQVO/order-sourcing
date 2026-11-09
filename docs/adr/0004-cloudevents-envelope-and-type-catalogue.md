@@ -37,11 +37,14 @@ Eight types go to `retailnetwork.order-sourcing.events`. `FulfillmentQueued` and
 `FulfillmentDelivered` are analytics only in the model (consumers: analytics
 only), so by `conventions.analytics_rule` they go ONLY to
 `retailnetwork.order-sourcing.analytics` (assumption A2 of ADR 0002) and never to
-the events topic.
+the events topic. `FulfillmentSourcingDecided` (ADR 0013) is analytics only too:
+raised with every `FulfillmentReleasedToNode`, in the same transaction, with its
+own id, ONLY on the analytics topic.
 
 ```text
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentQueued stream: analytics
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode stream: events
+type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentSourcingDecided stream: analytics
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReassigned stream: events
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked stream: events
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentShipped stream: events
@@ -56,6 +59,7 @@ type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentConstraint
 |---|---|---|
 | `FulfillmentQueued` | QueueAssignment is saved | `{assignmentId, orderId, groupNo, promiseId, deliverByLatest, lines[{lineNo, catalogItemId, quantity}]}` |
 | `FulfillmentReleasedToNode` | ReleaseToNode: QUEUED to RELEASED | `{assignmentId, releaseNo, orderId, groupNo, nodeId, pickupDepartureId, requiredShipBy, promisedDeliverByLatest, tier, lines[{catalogItemId, listingId, ownerRef?, quantity}], estimatedCostCents?}` (`?` = optional and omitted: `ownerRef` when operator-owned, ADR 0012; `estimatedCostCents` when incomplete, ADR 0011) |
+| `FulfillmentSourcingDecided` | ReleaseToNode, with every `FulfillmentReleasedToNode` (analytics only, ADR 0013) | `{assignmentId, orderId, groupNo?, releaseNo, nodeId, nodeRegionId?, destinationRegionId?, inRegion?, legs, estimatedCostCents?, costComplete, units, candidateCount, decidedAt}` (regions omitted when unknown, `inRegion` when either is; `estimatedCostCents` present exactly when `costComplete`, ADR 0011) |
 | `FulfillmentReassigned` | the candidate node changes | `{assignmentId, fromNodeId, toNodeId, reason, assignmentVersion}` |
 | `FulfillmentLocked` | LockAssignment: RELEASED to LOCKED | `{assignmentId, orderId, groupNo, promiseId, nodeId, pickupDepartureId, lockedAt, lockReason}` (promiseId, groupNo, orderId: contracts-delta E1) |
 | `FulfillmentShipped` | MarkShipped: LOCKED to SHIPPED | `{assignmentId, orderId, groupNo, nodeId, trackingNumbers[], shippedAt}` |

@@ -44,9 +44,12 @@ USER 1000
 # server of docs/adr/0006-mcp-server-adoption.md) serves Streamable HTTP on
 # :8090 when the chart runs it with `command: ["/app/mcp"]`; cmd/a2a (the
 # read-only A2A agent of docs/adr/0009-a2a-inbound-adapter.md) serves JSON-RPC
-# on :8093 with `command: ["/app/a2a"]` — one image, three composition roots,
-# so all three ports are documented here.
-EXPOSE 8080 8090 8093
+# on :8093 with `command: ["/app/a2a"]`; cmd/os-projector (the analytics
+# projector of docs/adr/0013-analytics-read-side-and-the-sourcing-decision-fact.md)
+# serves only its admin /healthz and /readyz on :8091 and cmd/os-reports the
+# read-only reports on :8092 — one image, five composition roots, so all five
+# ports are documented here.
+EXPOSE 8080 8090 8091 8092 8093
 
 # cmd/api is the service's main binary (HTTP on :8080). Additional cmd/*
 # binaries are run by the chart with `command: ["/app/<dirname>"]`.

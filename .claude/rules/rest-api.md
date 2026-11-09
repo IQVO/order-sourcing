@@ -14,6 +14,7 @@ Route -> use case, kept in sync with `apis/openapi.yaml`. Routes are registered 
 - `GET /assignments/{assignmentId}` -> `GetAssignment`
 - `POST /assignments/{assignmentId}/reoptimisations` -> `ReoptimiseAssignment` (optional body `{"assignmentVersion"}`)
 - `GET /healthz` (liveness), `GET /readyz` (readiness): not business operations.
+- Not served by `cmd/api`: the read-only `GET /reports/...` routes (tag `reports`, `cmd/os-reports`, `internal/adapters/inbound/reportshttp`, ADR 0013; rules in `.claude/rules/analytics.md`).
 
 Every other transition (queue, release, refusal, lock, ship, deliver, cancel, revise) is driven by Kafka events,
 not by REST (ADR 0002).
