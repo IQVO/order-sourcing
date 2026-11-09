@@ -36,6 +36,10 @@ analytical database, and the read-only `cmd/os-reports`; neither opens the OLTP 
 - **Postgres** (schema in `internal/adapters/outbound/postgres/migrations/0001_order_sourcing_schema.up.sql`): `assignments`,
   the `rm_*` read models, `outbox_events`, `processed_events`, `idempotency_keys`. Every binary runs the embedded migrations at
   boot, then pings, each wrapped in `bootretry` (5 attempts, 15 s of backoff in total).
+- **Analytical Postgres** (`analytics.enabled`): `cmd/os-projector` runs the embedded analytical migration
+  (`analytics/migrations/0001_sourcing_facts.up.sql`: `queued_groups`, `sourcing_decisions`, `unsourceable_declarations` and
+  `analytics_processed_events`, 4 tables) against `ANALYTICS_DATABASE_URL`; `cmd/os-reports` only reads it. It is a projection of the
+  context's own topics and can be rebuilt from them. To roll back by hand use `0001_sourcing_facts.down.sql`.
 - **PgBouncer versus a direct DSN**: `DATABASE_URL` is the pooled DSN the pool uses; `MIGRATIONS_DATABASE_URL` (an optional key in
   the same secret) is a direct, session-mode DSN used only by the migration step, because golang-migrate holds a session
   advisory lock a transaction-pooling proxy cannot honour. If unset, the binary falls back to `DATABASE_URL`. In the fleet both
@@ -109,8 +113,10 @@ python3 charts/order-sourcing/tests/test_service_selectors.py
 
 ## Migrations
 
-A single migration, `0001_order_sourcing_schema`, is embedded in the binary (`internal/adapters/outbound/postgres/migrations/`).
-It runs at boot in all three binaries through golang-migrate over `MIGRATIONS_DATABASE_URL`, so a config change or a new image is a
+Four migrations are embedded in the binary (`internal/adapters/outbound/postgres/migrations/`): `0001_order_sourcing_schema`
+creates the 14 tables, `0002_idempotency_global_key` re-keys `idempotency_keys` by `key` alone (adding `fingerprint`),
+`0003_rm_lane_wave_cost` adds the declared cost columns to `rm_lanes` and `rm_waves`, and `0004_rm_listings_owner_ref` adds
+`rm_listings.owner_ref`. They run at boot in all three binaries through golang-migrate over `MIGRATIONS_DATABASE_URL`, so a config change or a new image is a
 rollout that migrates before serving. State lives in `schema_migrations`; a failed partial migration leaves `dirty = true` and
 every later boot fails until the schema is repaired by hand and the version forced with the golang-migrate tooling (take a
 backup first).
