@@ -28,12 +28,21 @@ info:
     idempotency-key-required and idempotency-key-invalid (400) and
     idempotency-key-reused (409); the model's Err names add assignment-locked,
     release-in-flight, node-excluded, stale-assignment-version (409) and
-    candidate-breaks-promise (422).
+    candidate-breaks-promise (422). The read-only analytics reports (tag
+    reports, ADR 0013) are served by cmd/os-reports on its own port (per-path
+    server) from the separate analytical database; their range problem is
+    invalid-report-range (400).
 servers:
   - url: http://localhost:8080
 tags:
   - name: Assignments
     description: FulfillmentAssignment, one per shipment group of a customer order.
+  - name: reports
+    description: >-
+      Read-only analytics reports (ADR 0013), served by cmd/os-reports from the
+      separate analytical database the projector feeds from this context's own
+      events and analytics topics. Days are UTC calendar days; from and to are
+      inclusive dates. A share, mean or rate is null when its denominator is 0.
 paths:
   /assignments:
     get:
@@ -224,6 +233,116 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/InternalError'
+  /reports/sourcing-mix:
+    servers:
+      - url: http://localhost:8092
+    get:
+      tags: [reports]
+      operationId: getSourcingMixReport
+      x-pagination-exempt: report
+      summary: Sourcing mix (in-region share, legs, reassignments), per day
+      description: >-
+        Per UTC day of release (decidedAt of FulfillmentSourcingDecided):
+        groupsReleased = the releases of that day; inRegionShare = releases
+        whose node is in the destination's region / releases with both regions
+        known, with unknownRegionCount = releases with an unknown region;
+        meanLegs = the departures after the pickup per release;
+        reassignmentRate = releases with releaseNo > 1 / groupsReleased;
+        unsourceableCount = the FulfillmentUnsourceable events of that day. A
+        day appears when it has a release or an unsourceable declaration.
+      parameters:
+        - $ref: '#/components/parameters/ReportFrom'
+        - $ref: '#/components/parameters/ReportTo'
+      responses:
+        '200':
+          description: The report for the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcingMixReport'
+        '400':
+          $ref: '#/components/responses/InvalidReportRange'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /reports/order-splits:
+    servers:
+      - url: http://localhost:8092
+    get:
+      tags: [reports]
+      operationId: getOrderSplitsReport
+      x-pagination-exempt: report
+      summary: Order splits (groups per order), per day
+      description: >-
+        Per UTC day of FulfillmentQueued (an order belongs to the day its first
+        group was queued): ordersQueued = the distinct orders; groupsPerOrder =
+        their queued groups / ordersQueued; splitOrderShare = orders with more
+        than one group / ordersQueued. Days without a queued order are omitted.
+      parameters:
+        - $ref: '#/components/parameters/ReportFrom'
+        - $ref: '#/components/parameters/ReportTo'
+      responses:
+        '200':
+          description: The report for the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderSplitsReport'
+        '400':
+          $ref: '#/components/responses/InvalidReportRange'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /reports/cost-to-serve:
+    servers:
+      - url: http://localhost:8092
+    get:
+      tags: [reports]
+      operationId: getCostToServeReport
+      x-pagination-exempt: report
+      summary: Cost to serve per unit, per day
+      description: >-
+        Over the LAST sourcing decision of each assignment (highest releaseNo),
+        per UTC day of its decidedAt: costCompleteShare = decisions with a
+        complete estimate / decisions; costPerUnitCents = the sum of
+        estimatedCostCents of the complete decisions / the sum of their units
+        (null when undefined); p50CostCentsPerGroup and p90CostCentsPerGroup =
+        the continuous percentiles of estimatedCostCents per group over the
+        complete decisions (null without one). Estimates are planner-declared
+        cents per package-unit (ADR 0011). Days without a decision are omitted.
+      parameters:
+        - $ref: '#/components/parameters/ReportFrom'
+        - $ref: '#/components/parameters/ReportTo'
+      responses:
+        '200':
+          description: The report for the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostToServeReport'
+        '400':
+          $ref: '#/components/responses/InvalidReportRange'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /reports/freshness:
+    servers:
+      - url: http://localhost:8092
+    get:
+      tags: [reports]
+      operationId: getReportFreshness
+      summary: How far the analytics projection is behind
+      description: >-
+        asOf is the CloudEvents time of the newest event the projector
+        applied; lagSeconds is now minus asOf, never negative. Both are null
+        until the first event. One endpoint for every report: they all read
+        the same projection.
+      responses:
+        '200':
+          description: The projection's freshness.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportFreshness'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   responses:
     MethodNotAllowed:
@@ -238,7 +357,29 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    InvalidReportRange:
+      description: invalid-report-range. from or to is not a date (YYYY-MM-DD), from is after to, or the range exceeds 366 days.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
   parameters:
+    ReportFrom:
+      name: from
+      in: query
+      required: false
+      description: First UTC day of the range, inclusive. Omitted = 29 days before `to` (a 30-day range).
+      schema:
+        type: string
+        format: date
+    ReportTo:
+      name: to
+      in: query
+      required: false
+      description: Last UTC day of the range, inclusive. Omitted = today. At most 366 days from `from`.
+      schema:
+        type: string
+        format: date
     AssignmentId:
       name: assignmentId
       in: path
@@ -282,6 +423,146 @@ components:
         type: string
         enum: ["true"]
   schemas:
+    SourcingMixReport:
+      type: object
+      required: [from, to, days]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourcingMixDay'
+    SourcingMixDay:
+      type: object
+      required: [day, groupsReleased, inRegionShare, unknownRegionCount, meanLegs, reassignmentRate, unsourceableCount]
+      properties:
+        day:
+          type: string
+          format: date
+        groupsReleased:
+          type: integer
+          minimum: 0
+          description: The releases (sourcing decisions) of the day.
+        inRegionShare:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: Releases in the destination's region / releases with both regions known; null when none is known.
+        unknownRegionCount:
+          type: integer
+          minimum: 0
+          description: Releases whose node or destination region is unknown.
+        meanLegs:
+          type: number
+          minimum: 0
+          nullable: true
+          description: The mean departures after the pickup per release; null without a release.
+        reassignmentRate:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: Releases with releaseNo > 1 / groupsReleased; null without a release.
+        unsourceableCount:
+          type: integer
+          minimum: 0
+          description: FulfillmentUnsourceable events of the day.
+    OrderSplitsReport:
+      type: object
+      required: [from, to, days]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderSplitsDay'
+    OrderSplitsDay:
+      type: object
+      required: [day, ordersQueued, groupsPerOrder, splitOrderShare]
+      properties:
+        day:
+          type: string
+          format: date
+        ordersQueued:
+          type: integer
+          minimum: 1
+          description: Distinct orders whose first group was queued that day.
+        groupsPerOrder:
+          type: number
+          minimum: 1
+          nullable: true
+          description: The mean queued groups per order.
+        splitOrderShare:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: Orders with more than one group / ordersQueued.
+    CostToServeReport:
+      type: object
+      required: [from, to, days]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostToServeDay'
+    CostToServeDay:
+      type: object
+      required: [day, costCompleteShare, costPerUnitCents, p50CostCentsPerGroup, p90CostCentsPerGroup]
+      properties:
+        day:
+          type: string
+          format: date
+        costCompleteShare:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: Last decisions with a complete estimate / last decisions of the day.
+        costPerUnitCents:
+          type: number
+          minimum: 0
+          nullable: true
+          description: Sum of estimatedCostCents / sum of units over the complete last decisions; null when undefined.
+        p50CostCentsPerGroup:
+          type: number
+          minimum: 0
+          nullable: true
+          description: Median estimatedCostCents per group over the complete last decisions; null without one.
+        p90CostCentsPerGroup:
+          type: number
+          minimum: 0
+          nullable: true
+          description: 90th-percentile estimatedCostCents per group over the complete last decisions; null without one.
+    ReportFreshness:
+      type: object
+      required: [asOf, lagSeconds]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          nullable: true
+        lagSeconds:
+          type: number
+          minimum: 0
+          nullable: true
     Problem:
       type: object
       description: RFC 9457 problem details.
@@ -359,7 +640,13 @@ components:
         cost:
           type: integer
           minimum: 0
-          description: AssignmentCost in cost points (ADR 0002, A12).
+          description: AssignmentCost in cost points (ADR 0002, A12); the legacy ordinal tie-break score (ADR 0011).
+        estimatedCostCents:
+          type: integer
+          minimum: 0
+          description: 'The money-denominated AssignmentCost estimate of the path in planner-declared cents: the
+            per-unit lane costs of every leg plus the final wave''s per-stop cost (ADR 0011). Optional: absent
+            when the estimate is incomplete (a lane or the wave had no declared cost).'
     Release:
       type: object
       required: [releaseNo, nodeId, releasedAt, requiredShipBy, outcome]
@@ -400,6 +687,11 @@ components:
         listingId:
           type: string
           description: The listing of the released node; absent while QUEUED.
+        ownerRef:
+          type: string
+          description: >-
+            The seller (sellerId) whose stock the released line takes, chosen by the OwnerChoice rule at the
+            released node (ADR 0012). Absent while QUEUED and when the line is operator-owned.
         quantity:
           type: integer
           minimum: 1

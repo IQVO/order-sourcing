@@ -2,8 +2,10 @@
 # nine Kafka consumers + virtual-queue sweep + outbox relay) plus two OPTIONAL,
 # default-off components: the mcp Deployment (cmd/mcp, the read-only MCP server
 # of docs/adr/0006-mcp-server-adoption.md) and the frontend Deployment (the
-# order_sourcing_mfe web remote of docs/adr/0007-console-remote.md). There is
-# no projector or reports component.
+# order_sourcing_mfe web remote of docs/adr/0007-console-remote.md), plus the
+# a2a Deployment (cmd/a2a, ADR 0009) and the analytics read side
+# (cmd/os-projector and cmd/os-reports over a separate analytical database,
+# ADR 0013), all off by default.
 
 replicaCount: 1
 
@@ -288,6 +290,61 @@ frontend:
 # OTEL_SERVICE_NAME of the api; the mcp component gets "<serviceName>-mcp".
 # SERVICE_VERSION is the image tag (appVersion when empty), ENVIRONMENT is
 # `environment`.
+# The analytics read side (ADR 0013), OFF by default: cmd/os-projector projects
+# this context's own events and analytics topics into a SEPARATE analytical Postgres and
+# cmd/os-reports serves read-only reports over it. Both run from the same image.
+analytics:
+  enabled: false
+  # LOG_LEVEL of both analytics binaries.
+  logLevel: "info"
+  database:
+    # The projector's read-write analytical DSN (DIRECT Postgres, not
+    # PgBouncer: it also runs the migrations). No password in committed values.
+    projectorUrl: ""
+    # The reports reader's DSN -- a read-only role where possible; falls back
+    # to projectorUrl when empty (local/dev).
+    reportsUrl: ""
+    # Name of an existing Secret holding ANALYTICS_DATABASE_URL (projector) and
+    # ANALYTICS_READER_DATABASE_URL (reports). Takes precedence over the URLs.
+    existingSecret: ""
+  projector:
+    replicaCount: 1
+    adminAddr: ":8091"                  # ADMIN_ADDR (/healthz, /readyz)
+    adminPort: 8091
+    # ANALYTICS_CONSUMER_GROUP: the projector's FIXED consumer group on
+    # retailnetwork.order-sourcing.events and .analytics.
+    consumerGroup: "order-sourcing-analytics"
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  reports:
+    replicaCount: 1
+    httpAddr: ":8092"                   # HTTP_ADDR
+    service:
+      type: ClusterIP
+      port: 80
+      targetPort: 8092
+    # Kong exposure: /api/order-sourcing/reports -> Service :80, prefix
+    # rewritten to /reports. Needs the Gateway parentRef from warehouse-infra.
+    route:
+      enabled: false
+      path: "/api/order-sourcing/reports"
+      parentRefs:
+        - name: ""
+          namespace: ""
+          sectionName: "http"
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
 otel:
   enabled: true
   endpoint: "otel-collector.observability.svc.cluster.local:4317"

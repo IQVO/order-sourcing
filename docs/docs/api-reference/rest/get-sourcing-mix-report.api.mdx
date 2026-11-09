@@ -1,0 +1,70 @@
+---
+id: get-sourcing-mix-report
+title: "Sourcing mix (in-region share, legs, reassignments), per day"
+description: "Per UTC day of release (decidedAt of FulfillmentSourcingDecided): groupsReleased = the releases of that day; inRegionShare = releases whose node is in the destination's region / releases with both regions known, with unknownRegionCount = releases with an unknown region; meanLegs = the departures after the pickup per release; reassignmentRate = releases with releaseNo > 1 / groupsReleased; unsourceableCount = the FulfillmentUnsourceable events of that day. A day appears when it has a release or an unsourceable declaration."
+sidebar_label: "Sourcing mix (in-region share, legs, reassignments), per day"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "get api-method"
+info_path: docs/api-reference/rest/order-sourcing-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Sourcing mix (in-region share, legs, reassignments), per day"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/reports/sourcing-mix"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Per UTC day of release (decidedAt of FulfillmentSourcingDecided): groupsReleased = the releases of that day; inRegionShare = releases whose node is in the destination's region / releases with both regions known, with unknownRegionCount = releases with an unknown region; meanLegs = the departures after the pickup per release; reassignmentRate = releases with releaseNo > 1 / groupsReleased; unsourceableCount = the FulfillmentUnsourceable events of that day. A day appears when it has a release or an unsourceable declaration.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./get-sourcing-mix-report.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./get-sourcing-mix-report.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./get-sourcing-mix-report.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

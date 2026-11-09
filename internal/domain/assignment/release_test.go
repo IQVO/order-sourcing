@@ -9,10 +9,10 @@ import (
 
 func TestReleaseSameNode(t *testing.T) {
 	a := mustQueue(t)
-	events, err := a.Release(cand("node-a"), releaseLines(), at(2))
+	events, err := a.Release(cand("node-a"), releaseLines(), facts(), at(2))
 	wantNoErr(t, err)
 	wantState(t, a, StateReleased, 2)
-	wantEvents(t, events, "FulfillmentReleasedToNode")
+	wantEvents(t, events, "FulfillmentReleasedToNode", "FulfillmentSourcingDecided")
 	wantEventVersions(t, a, events)
 	wantReleaseEvent(t, events[0])
 	wantReleaseRecorded(t, a)
@@ -23,6 +23,7 @@ func wantReleaseEvent(t *testing.T, ev shared.Event) {
 	e := ev.(FulfillmentReleasedToNode)
 	if e.ReleaseNo != 1 || e.NodeID != "node-a" || e.PickupDepartureID != "dep-node-a" || !e.RequiredShipBy.Equal(at(5)) ||
 		!e.PromisedDeliverByLatest.Equal(deadline) || e.Tier != TierTwoDay || len(e.Lines) != 2 || e.Lines[0].ListingID != "lst-1" ||
+		e.Lines[0].OwnerRef != "" || e.Lines[1].OwnerRef != "sel-1" ||
 		e.OrderID != "ord-1" || e.GroupNo != 1 {
 		t.Fatalf("release event = %+v", e)
 	}
@@ -34,17 +35,17 @@ func wantReleaseRecorded(t *testing.T, a *Assignment) {
 	if len(rels) != 1 || rels[0].Outcome != OutcomePending || rels[0].No != 1 || !rels[0].ReleasedAt.Equal(at(2)) || !rels[0].RequiredShipBy.Equal(at(5)) {
 		t.Fatalf("releases = %+v", rels)
 	}
-	if !a.ReleaseAt().IsZero() || a.Lines()[0].ListingID != "lst-1" {
-		t.Fatal("releaseAt is cleared and lines carry the listing")
+	if !a.ReleaseAt().IsZero() || a.Lines()[0].ListingID != "lst-1" || a.Lines()[1].OwnerRef != "sel-1" {
+		t.Fatal("releaseAt is cleared and lines carry the listing and its owner")
 	}
 }
 
 func TestReleaseRecheckPicksAnotherNode(t *testing.T) {
 	a := mustQueue(t)
-	events, err := a.Release(cand("node-b"), releaseLines(), at(2))
+	events, err := a.Release(cand("node-b"), releaseLines(), facts(), at(2))
 	wantNoErr(t, err)
 	wantState(t, a, StateReleased, 2)
-	wantEvents(t, events, "FulfillmentReassigned", "FulfillmentReleasedToNode")
+	wantEvents(t, events, "FulfillmentReassigned", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided")
 	wantEventVersions(t, a, events)
 	r := events[0].(FulfillmentReassigned)
 	if r.FromNodeID != "node-a" || r.ToNodeID != "node-b" || r.Reason != ReasonReleaseRecheck {
@@ -54,7 +55,7 @@ func TestReleaseRecheckPicksAnotherNode(t *testing.T) {
 
 func TestReleaseWithoutCandidateIsUnsourceable(t *testing.T) {
 	a := mustQueue(t)
-	events, err := a.Release(nil, nil, at(2))
+	events, err := a.Release(nil, nil, facts(), at(2))
 	wantNoErr(t, err)
 	wantState(t, a, StateUnsourceable, 2)
 	wantEvents(t, events, "FulfillmentUnsourceable")
@@ -67,7 +68,7 @@ func TestReleaseGuards(t *testing.T) {
 	late := cand("node-a")
 	late.ETA = deadline.Add(time.Second)
 	a := mustQueue(t)
-	_, err := a.Release(late, releaseLines(), at(2))
+	_, err := a.Release(late, releaseLines(), facts(), at(2))
 	wantErr(t, err, ErrCandidateBreaksPromise)
 
 	noListing := releaseLines()
@@ -81,7 +82,7 @@ func TestReleaseGuards(t *testing.T) {
 	otherNo[0].LineNo = 5
 	for name, lines := range map[string][]Line{"no listing": noListing, "short": short, "other item": otherItem, "other quantity": otherQty, "other line": otherNo, "none": nil} {
 		t.Run(name, func(t *testing.T) {
-			_, err := a.Release(cand("node-a"), lines, at(2))
+			_, err := a.Release(cand("node-a"), lines, facts(), at(2))
 			wantErr(t, err, shared.ErrValidation)
 			wantState(t, a, StateQueued, 1)
 		})
@@ -90,10 +91,10 @@ func TestReleaseGuards(t *testing.T) {
 
 func TestReleaseStateErrors(t *testing.T) {
 	r := mustRelease(t)
-	_, err := r.Release(cand("node-a"), releaseLines(), at(3))
+	_, err := r.Release(cand("node-a"), releaseLines(), facts(), at(3))
 	wantErr(t, err, ErrReleaseInFlight)
 	l := mustLock(t)
-	_, err = l.Release(cand("node-a"), releaseLines(), at(3))
+	_, err = l.Release(cand("node-a"), releaseLines(), facts(), at(3))
 	wantErr(t, err, ErrAssignmentLocked)
 }
 
@@ -189,7 +190,7 @@ func TestRefuseReleaseStateErrors(t *testing.T) {
 func TestSecondReleaseIsNumberedTwo(t *testing.T) {
 	a := mustRelease(t)
 	_, _ = a.RefuseRelease(1, OutcomeRejected, "", cand("node-b"), at(4), at(3))
-	events, err := a.Release(cand("node-b"), releaseLines(), at(4))
+	events, err := a.Release(cand("node-b"), releaseLines(), facts(), at(4))
 	wantNoErr(t, err)
 	if e := events[0].(FulfillmentReleasedToNode); e.ReleaseNo != 2 || e.NodeID != "node-b" {
 		t.Fatalf("second release = %+v", e)

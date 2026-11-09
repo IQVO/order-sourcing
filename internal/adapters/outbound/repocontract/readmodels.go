@@ -15,19 +15,60 @@ import (
 func runReadModels(t *testing.T, f Factory) {
 	t.Run("a miss is ErrNotFound and a put replaces", func(t *testing.T) { putGet(t, f(t)) })
 	t.Run("the inbox claims once", func(t *testing.T) { inboxClaims(t, f(t)) })
+	t.Run("one listing per item, node and owner", func(t *testing.T) { listingKey(t, f(t)) })
+}
+
+// listingKey proves AvailabilityView is keyed by (item, node, owner): owners
+// share an item at a node, a second listing id on a taken key is refused, and a
+// stub with no item yet (a suppression seen first) is never a key (ADR 0012).
+func listingKey(t *testing.T, fx Fixture) {
+	const sellerListing = "lst-s1"
+	rm := fx.ReadModels
+	steps := []struct {
+		name    string
+		listing network.Listing
+		ok      bool
+	}{
+		{"operator", network.Listing{ID: "lst-op", CatalogItemID: fixtureCatItem, NodeID: "n1", AvailableQty: 3}, true},
+		{"a seller on the same item and node", network.Listing{ID: sellerListing, CatalogItemID: fixtureCatItem, NodeID: "n1", OwnerRef: fixtureOwner, AvailableQty: 3}, true},
+		{"another seller", network.Listing{ID: "lst-s2", CatalogItemID: fixtureCatItem, NodeID: "n1", OwnerRef: "sel-2", AvailableQty: 1}, true},
+		{"the same row again", network.Listing{ID: sellerListing, CatalogItemID: fixtureCatItem, NodeID: "n1", OwnerRef: fixtureOwner, AvailableQty: 4}, true},
+		{"another id on the operator key", network.Listing{ID: "lst-op2", CatalogItemID: fixtureCatItem, NodeID: "n1", AvailableQty: 9}, false},
+		{"another id on a seller key", network.Listing{ID: "lst-s1b", CatalogItemID: fixtureCatItem, NodeID: "n1", OwnerRef: fixtureOwner}, false},
+		{"a stub with no item", network.Listing{ID: "lst-stub1", NodeID: "n1", Suppressed: true}, true},
+		{"a second stub at the node", network.Listing{ID: "lst-stub2", NodeID: "n1", Suppressed: true}, true},
+	}
+	for _, s := range steps {
+		if err := rm.PutListing(ctx(), s.listing); (err == nil) != s.ok {
+			t.Fatalf("%s: PutListing = %v, want ok=%v", s.name, err, s.ok)
+		}
+	}
+	w, err := fx.World.Load(ctx(), repository.WorldQuery{DestinationPostalPrefix: "30301", CatalogItemIDs: []string{fixtureCatItem}, Now: hours(1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []network.Listing{
+		{ID: "lst-op", CatalogItemID: fixtureCatItem, NodeID: "n1", AvailableQty: 3},
+		{ID: sellerListing, CatalogItemID: fixtureCatItem, NodeID: "n1", OwnerRef: fixtureOwner, AvailableQty: 4},
+		{ID: "lst-s2", CatalogItemID: fixtureCatItem, NodeID: "n1", OwnerRef: "sel-2", AvailableQty: 1},
+	}
+	if !reflect.DeepEqual(w.Listings, want) {
+		t.Fatalf("world listings = %+v, want %+v", w.Listings, want)
+	}
 }
 
 func putGet(t *testing.T, fx Fixture) {
 	rm := fx.ReadModels
 	node := network.Node{ID: "n1", Type: "FULFILLMENT_CENTER", Subtype: "SORTABLE", Operator: "VENDOR", RegionID: "r1", Status: "ACTIVE",
 		StatusAt: hours(1), ProfileRevision: 2, HandlingMinutes: 95, SortDwellMinutes: 30}
-	lane := network.Lane{ID: "l1", Origin: "n1", Destination: "n2", Mode: "GROUND", Closed: true}
+	lane := network.Lane{ID: "l1", Origin: "n1", Destination: "n2", Mode: "GROUND", Closed: true,
+		CostPerUnitCents: 320, CostDeclaredAt: hours(2)}
 	dep := network.Departure{ID: "d1", LaneID: "l1", Kind: "PICKUP", Origin: "n1", Destination: "n2", CutoffAt: hours(4), DepartsAt: hours(5),
 		ArrivesAt: hours(8), Capacity: 50, Remaining: 7, RemainingKnown: true, Scheduled: true, Cancelled: true}
 	wave := network.Wave{ID: "w1", StationID: "s1", InductCutoffAt: hours(10), WindowStart: hours(12), WindowEnd: hours(18), Capacity: 90,
-		Remaining: 3, RemainingKnown: true, Scheduled: true, Cancelled: true}
+		Remaining: 3, RemainingKnown: true, Scheduled: true, Cancelled: true, CostPerStopCents: 425, CostDeclaredAt: hours(3)}
 	area := network.ServiceArea{PostalPrefix: "30301", StationID: "s1", RegionID: "r1", Version: 3}
-	listing := network.Listing{ID: "lst1", CatalogItemID: fixtureCatItem, NodeID: "n1", AvailableQty: 8, AsOf: hours(2), Suppressed: true}
+	listing := network.Listing{ID: "lst1", CatalogItemID: fixtureCatItem, NodeID: "n1", OwnerRef: fixtureOwner, AvailableQty: 8, AsOf: hours(2), Suppressed: true}
 	card := network.Scorecard{NodeID: "n1", Window: "30d", Grade: "B", ComputedAt: hours(3)}
 
 	if _, err := rm.GetNode(ctx(), "n1"); !errors.Is(err, ports.ErrNotFound) {

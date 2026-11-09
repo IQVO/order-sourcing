@@ -104,12 +104,14 @@ const (
 	MaxTrackingLen = 64
 )
 
-// Line is one line of the group. ListingID is set from the release on (the
-// listing of the released node).
+// Line is one line of the group. ListingID and OwnerRef are set from the
+// release on: the listing of the released node and whose stock it is, as the
+// OwnerChoice rule picked it ("" = operator-owned; ADR 0012).
 type Line struct {
 	LineNo        int
 	CatalogItemID string
 	ListingID     string
+	OwnerRef      string
 	Quantity      int
 }
 
@@ -124,15 +126,20 @@ type PromiseConstraint struct {
 }
 
 // Candidate is the current best node and path (model value object plus the
-// pickup cutoff, which is the requiredShipBy of a release).
+// pickup cutoff, which is the requiredShipBy of a release). Cost is the legacy
+// ordinal score (ADR 0002, A12); EstimatedCostCents is the money-denominated
+// estimate in planner-declared cents, complete only when every lane and wave
+// component of the path had a declared cost (ADR 0011).
 type Candidate struct {
-	NodeID            string
-	PickupDepartureID string
-	PickupCutoffAt    time.Time
-	Legs              []string
-	DeliveryWaveID    string
-	ETA               time.Time
-	Cost              int64
+	NodeID             string
+	PickupDepartureID  string
+	PickupCutoffAt     time.Time
+	Legs               []string
+	DeliveryWaveID     string
+	ETA                time.Time
+	Cost               int64
+	EstimatedCostCents int64
+	CostComplete       bool
 }
 
 func (c Candidate) clone() Candidate {
@@ -140,10 +147,12 @@ func (c Candidate) clone() Candidate {
 	return c
 }
 
-// Same reports whether two candidates are the same node, path, wave, eta and cost.
+// Same reports whether two candidates are the same node, path, wave, eta,
+// costs and estimate.
 func (c Candidate) Same(o Candidate) bool {
 	return c.NodeID == o.NodeID && c.PickupDepartureID == o.PickupDepartureID && c.PickupCutoffAt.Equal(o.PickupCutoffAt) &&
-		slices.Equal(c.Legs, o.Legs) && c.DeliveryWaveID == o.DeliveryWaveID && c.ETA.Equal(o.ETA) && c.Cost == o.Cost
+		slices.Equal(c.Legs, o.Legs) && c.DeliveryWaveID == o.DeliveryWaveID && c.ETA.Equal(o.ETA) && c.Cost == o.Cost &&
+		c.EstimatedCostCents == o.EstimatedCostCents && c.CostComplete == o.CostComplete
 }
 
 // Release is one release of the group to a node.
@@ -160,6 +169,16 @@ type Release struct {
 type ExcludedNode struct {
 	NodeID string
 	Reason string
+}
+
+// SourcingFacts is what the candidate search knew when it chose the released
+// candidate (ADR 0013): the regionId of the node and of the destination's
+// service area ("" when the read model does not know it) and the size of the
+// ranked candidate set the release chose from.
+type SourcingFacts struct {
+	NodeRegionID        string
+	DestinationRegionID string
+	CandidateCount      int
 }
 
 // DeliveredPackage is a delivered package of a shipped group.

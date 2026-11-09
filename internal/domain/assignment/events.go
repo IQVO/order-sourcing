@@ -21,7 +21,7 @@ func (Base) Entity() string { return entity }
 // SubjectID returns the assignmentId.
 func (b Base) SubjectID() string { return string(b.AssignmentID) }
 
-// Stream returns the events stream; the two analytics-only events override it.
+// Stream returns the events stream; the three analytics-only events override it.
 func (Base) Stream() string { return shared.StreamEvents }
 
 func newBase(id ID, version int64, at time.Time) Base {
@@ -44,7 +44,10 @@ func (FulfillmentQueued) EventName() string { return "FulfillmentQueued" }
 // Stream returns the analytics stream.
 func (FulfillmentQueued) Stream() string { return shared.StreamAnalytics }
 
-// FulfillmentReleasedToNode is raised by Release.
+// FulfillmentReleasedToNode is raised by Release. EstimatedCostCents carries
+// the money-denominated estimate of the released path in planner-declared
+// cents and is nil when the estimate is incomplete (a component had no
+// declared cost); consumers decode it tolerantly (ADR 0011).
 type FulfillmentReleasedToNode struct {
 	Base
 	ReleaseNo               int
@@ -56,10 +59,50 @@ type FulfillmentReleasedToNode struct {
 	PromisedDeliverByLatest time.Time
 	Tier                    Tier
 	Lines                   []Line
+	EstimatedCostCents      *int64
 }
 
 // EventName returns "FulfillmentReleasedToNode".
 func (FulfillmentReleasedToNode) EventName() string { return "FulfillmentReleasedToNode" }
+
+// FulfillmentSourcingDecided is raised by Release next to
+// FulfillmentReleasedToNode: the analytics-only fact of the sourcing decision
+// (ADR 0013). The regions are "" when the read model did not know them; Legs
+// are the departures after the pickup; EstimatedCostCents follows ADR 0011
+// (nil when incomplete); Units is the sum of the line quantities and
+// CandidateCount the size of the candidate set the release chose from.
+type FulfillmentSourcingDecided struct {
+	Base
+	OrderID             string
+	GroupNo             int
+	ReleaseNo           int
+	NodeID              string
+	NodeRegionID        string
+	DestinationRegionID string
+	Legs                int
+	EstimatedCostCents  *int64
+	Units               int
+	CandidateCount      int
+	DecidedAt           time.Time
+}
+
+// EventName returns "FulfillmentSourcingDecided".
+func (FulfillmentSourcingDecided) EventName() string { return "FulfillmentSourcingDecided" }
+
+// Stream returns the analytics stream.
+func (FulfillmentSourcingDecided) Stream() string { return shared.StreamAnalytics }
+
+// InRegion reports whether the node is in the destination's region; known is
+// false when either region is unknown.
+func (e FulfillmentSourcingDecided) InRegion() (inRegion, known bool) {
+	if e.NodeRegionID == "" || e.DestinationRegionID == "" {
+		return false, false
+	}
+	return e.NodeRegionID == e.DestinationRegionID, true
+}
+
+// CostComplete reports whether the estimate is complete (ADR 0011).
+func (e FulfillmentSourcingDecided) CostComplete() bool { return e.EstimatedCostCents != nil }
 
 // FulfillmentReassigned is raised when the candidate node changes.
 type FulfillmentReassigned struct {
@@ -162,6 +205,7 @@ func (FulfillmentConstraintRevised) EventName() string { return "FulfillmentCons
 var (
 	_ shared.Event = FulfillmentQueued{}
 	_ shared.Event = FulfillmentReleasedToNode{}
+	_ shared.Event = FulfillmentSourcingDecided{}
 	_ shared.Event = FulfillmentReassigned{}
 	_ shared.Event = FulfillmentLocked{}
 	_ shared.Event = FulfillmentShipped{}

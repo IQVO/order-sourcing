@@ -148,3 +148,17 @@ func TestRestoreAcceptsAReleaseHistory(t *testing.T) {
 		t.Fatalf("history not preserved: %+v", got)
 	}
 }
+
+// TestSnapshotRestoreKeepsTheLineOwner proves the line's ownerRef survives the
+// Snapshot builder and Restore (ADR 0012).
+func TestSnapshotRestoreKeepsTheLineOwner(t *testing.T) {
+	s := mustRelease(t).Snapshot()
+	if s.Lines[0].OwnerRef != "" || s.Lines[1].OwnerRef != "sel-1" {
+		t.Fatalf("snapshot lines = %+v", s.Lines)
+	}
+	back, err := Restore(s)
+	wantNoErr(t, err)
+	if got := back.Lines(); got[0].OwnerRef != "" || got[1].OwnerRef != "sel-1" {
+		t.Fatalf("restored lines = %+v", got)
+	}
+}

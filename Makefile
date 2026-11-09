@@ -18,7 +18,7 @@ GREMLINS_VERSION   := v0.6.0
 GOVULNCHECK        ?= govulncheck
 
 COVERAGE_OUT       := coverage.out
-COVERAGE_PKGS      := ./internal/domain/...,./internal/application/...
+COVERAGE_PKGS      := ./internal/domain/...,./internal/application/...,./internal/analytics/...
 COVERAGE_THRESHOLD := 90
 
 # The fast mutation subset — kept in sync with the `mutation-fast` CI job.
@@ -30,6 +30,10 @@ MUTATION_FAST_PKG  := ./internal/domain/assignment
 # Every domain package is mutation-tested (campaign rule 6): `make mutation` and the
 # CI `mutation-fast` job loop over each internal/domain/<pkg>.
 MUTATION_PKGS      := $(sort $(wildcard internal/domain/*))
+# The pure analytics read-model region (ADR 0013): KPI rules, range rules,
+# percentile, shares. gremlins takes one path per run, so the loop below runs
+# it after the domain packages.
+MUTATION_ANALYTICS_PKG := internal/analytics/report
 # The exhaustive scheduled run — kept in sync with the `mutation` CI job.
 MUTATION_FULL_PKG  := ./internal/domain
 
@@ -52,7 +56,7 @@ help:
 	@echo "                 (testcontainers boots its own Postgres/Kafka; needs only Docker; not in check)"
 	@echo "  bdd            go test ./... -run TestFeatures -v — godog/Gherkin acceptance"
 	@echo "  arch-test      go test ./internal/architecture/... -v — hexagonal fitness"
-	@echo "  mutation       gremlins on every internal/domain/<pkg> (the blocking subset)"
+	@echo "  mutation       gremlins on every internal/domain/<pkg> and internal/analytics/report (the blocking subset)"
 	@echo "  mutation-full  gremlins on $(MUTATION_FULL_PKG) — the exhaustive scheduled run"
 	@echo "  vuln           govulncheck ./... — supply-chain / stdlib CVE sensor"
 	@echo ""
@@ -125,7 +129,7 @@ mutation:
 		echo "  go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)"; \
 		exit 1; \
 	fi
-	@set -e; for p in $(MUTATION_PKGS); do echo "== gremlins unleash ./$$p"; $(GREMLINS) unleash ./$$p; done
+	@set -e; for p in $(MUTATION_PKGS) $(MUTATION_ANALYTICS_PKG); do echo "== gremlins unleash ./$$p"; $(GREMLINS) unleash ./$$p; done
 
 mutation-full:
 	@if ! command -v $(GREMLINS) >/dev/null 2>&1; then \

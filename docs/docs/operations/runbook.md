@@ -22,11 +22,14 @@ Everything it knows about the network is a local read model fed by sibling event
 | `api` Deployment | `cmd/api` | always on | 8080 (Service port 80) | Kong route `/api/order-sourcing`, prefix stripped |
 | `mcp` Deployment | `cmd/mcp` | `mcp.enabled` (default off, on in the fleet) | 8090 | Kong route `/api/mcp/order-sourcing`, rewritten to `/mcp` |
 | `a2a` Deployment | `cmd/a2a` | `a2a.enabled` (default off, on in the fleet) | 8093 | Kong route `/api/a2a/order-sourcing`, rewritten to `/`; the Agent Card stays under the same prefix |
+| `analytics-projector` Deployment | `cmd/os-projector` | `analytics.enabled` (default off) | 8091 (admin probes only, no Service) | none |
+| `analytics-reports` Deployment | `cmd/os-reports` | `analytics.enabled` (default off) | 8092 (Service port 80) | `analytics.reports.route.enabled`: Kong `/api/order-sourcing/reports`, rewritten to `/reports` |
 | `frontend` Deployment | nginx serving `web/` | `frontend.enabled` (default off, on in the fleet) | 8080 | the web gateway, `/mfes/order-sourcing/` (never the API route) |
 
 The three Go binaries are in one image (`ghcr.io/iqvo/order-sourcing`). `cmd/api` is the only one that writes: one process runs
 the REST API, nine Kafka consumers, the transactional-outbox relay and the virtual-queue sweep. `cmd/mcp` and `cmd/a2a` are
-read-only and only read Postgres. See [Runtime](/docs/overview/runtime) for how each boots and drains.
+read-only and only read Postgres. The analytics read side (ADR 0013) adds `cmd/os-projector`, the only writer of a SEPARATE
+analytical database, and the read-only `cmd/os-reports`; neither opens the OLTP database. See [Runtime](/docs/overview/runtime) for how each boots and drains.
 
 ## Dependencies
 
@@ -54,7 +57,8 @@ read-only and only read Postgres. See [Runtime](/docs/overview/runtime) for how 
 | consumes | `retailnetwork.shipping-and-tracking.events` | `SHIPPING_AND_TRACKING_CONSUMER_GROUP`, `order-sourcing-shipping-and-tracking` |
 | consumes | `retailnetwork.vendor-connectivity.events` | `VENDOR_CONNECTIVITY_CONSUMER_GROUP`, `order-sourcing-vendor-connectivity` |
 | produces | `retailnetwork.order-sourcing.events` | integration events (8 types) |
-| produces | `retailnetwork.order-sourcing.analytics` | analytics-only events (`FulfillmentQueued`, `FulfillmentDelivered`) |
+| produces | `retailnetwork.order-sourcing.analytics` | analytics-only events (`FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered`) |
+| consumes (`cmd/os-projector`, ADR 0013) | `retailnetwork.order-sourcing.events` and `retailnetwork.order-sourcing.analytics` (its own topics) | `ANALYTICS_CONSUMER_GROUP`, `order-sourcing-analytics`; poison only to `retailnetwork.order-sourcing.analytics.dlq`, transient failures retry forever |
 | dead letter | `<consumed topic>.dlq` | written by the consumers, read by no one in this service |
 
 The consumer group ids are stable names you choose (the fleet values come from `warehouse-infra`

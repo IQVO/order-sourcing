@@ -129,17 +129,21 @@ func (h Handlers) OfferAvailability() map[string]HandlerFunc {
 		ListingID     string `json:"listingId"`
 		CatalogItemID string `json:"catalogItemId"`
 		NodeID        string `json:"nodeId"`
+		OwnerRef      string `json:"ownerRef"`
 	}) error {
-		return h.UC.Project.ListingCreated(ctx, meta(e), d.ListingID, d.CatalogItemID, d.NodeID)
+		return h.UC.Project.ListingCreated(ctx, meta(e), network.Listing{ID: d.ListingID, CatalogItemID: d.CatalogItemID, NodeID: d.NodeID, OwnerRef: d.OwnerRef})
 	})
 	typed(m, p+"listing.ListingAvailabilityChanged", func(ctx context.Context, e ce.Event, d struct {
 		ListingID     string    `json:"listingId"`
 		CatalogItemID string    `json:"catalogItemId"`
 		NodeID        string    `json:"nodeId"`
+		OwnerRef      string    `json:"ownerRef"`
 		AvailableQty  int       `json:"availableQty"`
 		AsOf          time.Time `json:"asOf"`
 	}) error {
-		return h.UC.Project.ListingAvailabilityChanged(ctx, meta(e), d.ListingID, d.CatalogItemID, d.NodeID, d.AvailableQty, d.AsOf)
+		return h.UC.Project.ListingAvailabilityChanged(ctx, meta(e), network.Listing{
+			ID: d.ListingID, CatalogItemID: d.CatalogItemID, NodeID: d.NodeID, OwnerRef: d.OwnerRef, AvailableQty: d.AvailableQty, AsOf: d.AsOf,
+		})
 	})
 	for name, suppressed := range map[string]bool{"ListingSuppressed": true, "ListingRestored": false} {
 		typed(m, p+"listing."+name, func(ctx context.Context, e ce.Event, d struct {

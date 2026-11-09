@@ -125,11 +125,11 @@ func (uc *ApplyRevisedPromise) apply(ctx context.Context, a *assignment.Assignme
 			next.WitnessNodeID = cmd.WitnessNodeID
 		}
 		if cmd.RevisionNo > a.Promise().RevisionNo {
-			best, _, err := uc.bestOption(ctx, now, a.DestinationPostalPrefix(), next, a.Lines(), nil)
+			found, err := uc.bestOption(ctx, now, a.DestinationPostalPrefix(), next, a.Lines(), nil)
 			if err != nil {
 				return nil, err
 			}
-			cand, releaseAt = candidateOf(best)
+			cand, releaseAt = candidateOf(found.best)
 		}
 	}
 	return a.ApplyRevisedPromise(rev, cand, releaseAt, now)

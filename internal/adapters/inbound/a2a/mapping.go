@@ -81,17 +81,19 @@ type lineView struct {
 	LineNo        int    `json:"lineNo"`
 	CatalogItemID string `json:"catalogItemId"`
 	ListingID     string `json:"listingId,omitempty"`
+	OwnerRef      string `json:"ownerRef,omitempty"`
 	Quantity      int    `json:"quantity"`
 }
 
 type candidateView struct {
-	NodeID            string   `json:"nodeId"`
-	PickupDepartureID string   `json:"pickupDepartureId"`
-	PickupCutoffAt    string   `json:"pickupCutoffAt"`
-	Legs              []string `json:"legs"`
-	DeliveryWaveID    string   `json:"deliveryWaveId"`
-	ETA               string   `json:"eta"`
-	Cost              int64    `json:"cost"`
+	NodeID             string   `json:"nodeId"`
+	PickupDepartureID  string   `json:"pickupDepartureId"`
+	PickupCutoffAt     string   `json:"pickupCutoffAt"`
+	Legs               []string `json:"legs"`
+	DeliveryWaveID     string   `json:"deliveryWaveId"`
+	ETA                string   `json:"eta"`
+	Cost               int64    `json:"cost"`
+	EstimatedCostCents *int64   `json:"estimatedCostCents,omitempty"`
 }
 
 type releaseView struct {
@@ -154,7 +156,7 @@ func toPromise(p views.Promise) promiseView {
 func toLines(lines []views.Line) []lineView {
 	out := make([]lineView, 0, len(lines))
 	for _, l := range lines {
-		out = append(out, lineView{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, Quantity: l.Quantity})
+		out = append(out, lineView{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, OwnerRef: l.OwnerRef, Quantity: l.Quantity})
 	}
 	return out
 }
@@ -166,7 +168,18 @@ func toCandidate(c *views.Candidate) *candidateView {
 	return &candidateView{
 		NodeID: c.NodeID, PickupDepartureID: c.PickupDepartureID, PickupCutoffAt: instant(c.PickupCutoffAt),
 		Legs: append([]string{}, c.Legs...), DeliveryWaveID: c.DeliveryWaveID, ETA: instant(c.ETA), Cost: c.Cost,
+		EstimatedCostCents: estimateCents(c),
 	}
+}
+
+// estimateCents is the wire value of a candidate's money-denominated estimate:
+// the cents when complete, absent when incomplete (ADR 0011).
+func estimateCents(c *views.Candidate) *int64 {
+	if !c.CostComplete {
+		return nil
+	}
+	cents := c.EstimatedCostCents
+	return &cents
 }
 
 func toReleases(releases []views.Release) []releaseView {

@@ -1,0 +1,70 @@
+---
+id: get-order-splits-report
+title: "Order splits (groups per order), per day"
+description: "Per UTC day of FulfillmentQueued (an order belongs to the day its first group was queued): ordersQueued = the distinct orders; groupsPerOrder = their queued groups / ordersQueued; splitOrderShare = orders with more than one group / ordersQueued. Days without a queued order are omitted."
+sidebar_label: "Order splits (groups per order), per day"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "get api-method"
+info_path: docs/api-reference/rest/order-sourcing-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Order splits (groups per order), per day"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"get"}
+  path={"/reports/order-splits"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Per UTC day of FulfillmentQueued (an order belongs to the day its first group was queued): ordersQueued = the distinct orders; groupsPerOrder = their queued groups / ordersQueued; splitOrderShare = orders with more than one group / ordersQueued. Days without a queued order are omitted.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./get-order-splits-report.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./get-order-splits-report.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./get-order-splits-report.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

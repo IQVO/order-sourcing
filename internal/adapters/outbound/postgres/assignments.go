@@ -38,6 +38,7 @@ type lineJSON struct {
 	LineNo        int    `json:"lineNo"`
 	CatalogItemID string `json:"catalogItemId"`
 	ListingID     string `json:"listingId,omitempty"`
+	OwnerRef      string `json:"ownerRef,omitempty"`
 	Quantity      int    `json:"quantity"`
 }
 
@@ -96,7 +97,7 @@ func encode(s assignment.Snapshot) (encoded, error) {
 	var err error
 	lines := make([]lineJSON, 0, len(s.Lines))
 	for _, l := range s.Lines {
-		lines = append(lines, lineJSON{l.LineNo, l.CatalogItemID, l.ListingID, l.Quantity})
+		lines = append(lines, lineJSON{l.LineNo, l.CatalogItemID, l.ListingID, l.OwnerRef, l.Quantity})
 	}
 	if e.lines, err = toJSON(lines); err != nil {
 		return e, err
@@ -228,7 +229,7 @@ func decode(s *assignment.Snapshot, lines, candidate, releases, excluded, tracki
 		}
 	}
 	for _, l := range ls {
-		s.Lines = append(s.Lines, assignment.Line{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, Quantity: l.Quantity})
+		s.Lines = append(s.Lines, assignment.Line{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, OwnerRef: l.OwnerRef, Quantity: l.Quantity})
 	}
 	for _, r := range rs {
 		s.Releases = append(s.Releases, assignment.Release{No: r.No, NodeID: r.NodeID, ReleasedAt: r.ReleasedAt.UTC(), RequiredShipBy: r.RequiredShipBy.UTC(),

@@ -65,8 +65,8 @@ Kafka types below are the CloudEvents `type` suffix; the full type is
 | 15 | assignment id | Unknown id is `ports.ErrNotFound` (404 over REST). | none |
 
 Which events go to which topic is on [Domain events](/docs/ddd/domain-events) and the
-[event catalogue](/docs/api-reference/events). Eight of the ten events are on `retailnetwork.order-sourcing.events`;
-`FulfillmentQueued` and `FulfillmentDelivered` are analytics-only (`Stream()` in `internal/domain/assignment/events.go`).
+[event catalogue](/docs/api-reference/events). Eight of the eleven events are on `retailnetwork.order-sourcing.events`;
+`FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentDelivered` are analytics-only (`Stream()` in `internal/domain/assignment/events.go`).
 
 ## The projected events (use case 13)
 

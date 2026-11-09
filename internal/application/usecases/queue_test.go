@@ -66,7 +66,7 @@ func TestQueueAssignmentSameDayReleasesAtOnce(t *testing.T) {
 	if got[0].State != "RELEASED" || got[0].AssignmentVersion != 2 || len(got[0].Releases) != 1 || got[0].Lines[0].ListingID != "lst-1-fc-a" {
 		t.Fatalf("view = %+v", got[0])
 	}
-	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode")
+	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided")
 }
 
 func TestQueueAssignmentWithoutCandidateIsUnsourceable(t *testing.T) {

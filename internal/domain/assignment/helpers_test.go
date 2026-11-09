@@ -31,8 +31,13 @@ func cand(node string) *Candidate {
 	}
 }
 
+// facts is a decision with both regions known and equal, among two candidates.
+func facts() SourcingFacts {
+	return SourcingFacts{NodeRegionID: "r1", DestinationRegionID: "r1", CandidateCount: 2}
+}
+
 func releaseLines() []Line {
-	return []Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2}, {LineNo: 2, CatalogItemID: "cat-2", ListingID: "lst-2", Quantity: 1}}
+	return []Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2}, {LineNo: 2, CatalogItemID: "cat-2", ListingID: "lst-2", OwnerRef: "sel-1", Quantity: 1}}
 }
 
 func mustQueue(t *testing.T) *Assignment {
@@ -47,7 +52,7 @@ func mustQueue(t *testing.T) *Assignment {
 func mustRelease(t *testing.T) *Assignment {
 	t.Helper()
 	a := mustQueue(t)
-	if _, err := a.Release(cand("node-a"), releaseLines(), at(2)); err != nil {
+	if _, err := a.Release(cand("node-a"), releaseLines(), facts(), at(2)); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
 	return a

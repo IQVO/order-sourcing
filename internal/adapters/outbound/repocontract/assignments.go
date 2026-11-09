@@ -75,6 +75,21 @@ func roundTrip(t *testing.T, fx Fixture) {
 			t.Fatalf("round trip of %s differs:\n got %+v\nwant %+v", a.ID(), got.Snapshot(), a.Snapshot())
 		}
 	}
+	wantLineOwner(t, fx, shipped.ID(), fixtureOwner)
+	wantLineOwner(t, fx, "asg-q", "")
+}
+
+// wantLineOwner asserts the persisted ownerRef of an assignment's first line
+// (ADR 0012: the line value object persists it; "" = operator-owned).
+func wantLineOwner(t *testing.T, fx Fixture, id assignment.ID, owner string) {
+	t.Helper()
+	got, err := fx.Assignments.Get(ctx(), id)
+	if err != nil {
+		t.Fatalf("Get %s: %v", id, err)
+	}
+	if lines := got.Snapshot().Lines; len(lines) != 1 || lines[0].OwnerRef != owner {
+		t.Fatalf("lines of %s = %+v, want ownerRef %q", id, lines, owner)
+	}
 }
 
 // saveHistory stores an assignment that is already past version 1: it saves a

@@ -21,17 +21,19 @@ type lineDTO struct {
 	LineNo        int    `json:"lineNo"`
 	CatalogItemID string `json:"catalogItemId"`
 	ListingID     string `json:"listingId,omitempty"`
+	OwnerRef      string `json:"ownerRef,omitempty"`
 	Quantity      int    `json:"quantity"`
 }
 
 type candidateDTO struct {
-	NodeID            string    `json:"nodeId"`
-	PickupDepartureID string    `json:"pickupDepartureId"`
-	PickupCutoffAt    time.Time `json:"pickupCutoffAt"`
-	Legs              []string  `json:"legs"`
-	DeliveryWaveID    string    `json:"deliveryWaveId"`
-	ETA               time.Time `json:"eta"`
-	Cost              int64     `json:"cost"`
+	NodeID             string    `json:"nodeId"`
+	PickupDepartureID  string    `json:"pickupDepartureId"`
+	PickupCutoffAt     time.Time `json:"pickupCutoffAt"`
+	Legs               []string  `json:"legs"`
+	DeliveryWaveID     string    `json:"deliveryWaveId"`
+	ETA                time.Time `json:"eta"`
+	Cost               int64     `json:"cost"`
+	EstimatedCostCents *int64    `json:"estimatedCostCents,omitempty"`
 }
 
 type releaseDTO struct {
@@ -78,6 +80,16 @@ func optTime(t time.Time) *time.Time {
 	return &u
 }
 
+// estimateCentsOf is the wire value of a candidate's money-denominated
+// estimate: the cents when complete, absent when incomplete (ADR 0011).
+func estimateCentsOf(c *views.Candidate) *int64 {
+	if !c.CostComplete {
+		return nil
+	}
+	cents := c.EstimatedCostCents
+	return &cents
+}
+
 func toDTO(v views.Assignment) assignmentDTO {
 	d := assignmentDTO{
 		AssignmentID: v.AssignmentID, OrderID: v.OrderID, GroupNo: v.GroupNo, DestinationPostalPrefix: v.DestinationPostalPrefix,
@@ -89,10 +101,11 @@ func toDTO(v views.Assignment) assignmentDTO {
 		CancelReason: v.CancelReason,
 	}
 	for _, l := range v.Lines {
-		d.Lines = append(d.Lines, lineDTO{l.LineNo, l.CatalogItemID, l.ListingID, l.Quantity})
+		d.Lines = append(d.Lines, lineDTO{l.LineNo, l.CatalogItemID, l.ListingID, l.OwnerRef, l.Quantity})
 	}
 	if c := v.Candidate; c != nil {
-		d.Candidate = &candidateDTO{c.NodeID, c.PickupDepartureID, c.PickupCutoffAt.UTC(), append([]string{}, c.Legs...), c.DeliveryWaveID, c.ETA.UTC(), c.Cost}
+		d.Candidate = &candidateDTO{c.NodeID, c.PickupDepartureID, c.PickupCutoffAt.UTC(), append([]string{}, c.Legs...), c.DeliveryWaveID, c.ETA.UTC(), c.Cost,
+			estimateCentsOf(c)}
 	}
 	for _, r := range v.Releases {
 		d.Releases = append(d.Releases, releaseDTO{r.ReleaseNo, r.NodeID, r.ReleasedAt.UTC(), r.RequiredShipBy.UTC(), r.Outcome, r.ReasonCode})

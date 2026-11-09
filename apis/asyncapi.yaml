@@ -19,11 +19,11 @@ info:
     it decides which vendor node and path fulfil each shipment group (ADR 0001, ADR 0002).
 
 
-    **Published.** Ten events of the FulfillmentAssignment aggregate (entity `assignment`): eight on `retailnetwork.order-sourcing.events`
-    and the two analytics-only ones (FulfillmentQueued, FulfillmentDelivered) ONLY on `retailnetwork.order-sourcing.analytics`,
+    **Published.** Eleven events of the FulfillmentAssignment aggregate (entity `assignment`): eight on `retailnetwork.order-sourcing.events`
+    and the three analytics-only ones (FulfillmentQueued, FulfillmentSourcingDecided, FulfillmentDelivered) ONLY on `retailnetwork.order-sourcing.analytics`,
     through a **transactional outbox**: the aggregate row and its already-encoded events are written in ONE database
     transaction and an always-on relay drains them to Kafka (at-least-once; the CloudEvents `id` is stored with
-    the outbox row, so a retry republishes the same `id`). The ten types are catalogued in ADR 0004.
+    the outbox row, so a retry republishes the same `id`). The eleven types are catalogued in ADR 0004.
 
 
     **Consumed.** Thirty-two event types from nine producers (ADR 0003): commands that drive the aggregate (CustomerOrderPlaced,
@@ -31,6 +31,14 @@ info:
     BookingMoved) and the events that feed the five local read models (NodeProfileView, NetworkGraphView, AvailabilityView,
     ScorecardView, PromiseBookPressureView). Every consumer is idempotent on the CloudEvents `id` and dispatches
     on the full `type`; unknown types and fields are ignored. Messages that are not CloudEvents and unrouted types are skipped; undecodable or invalid payloads and handlers that exhaust 5 attempts go to `<topic>.dlq`.
+
+
+    **Own events, read back for analytics (ADR 0013).** The analytics projector (`cmd/os-projector`) reads this
+    context''s OWN two topics in the fixed group `order-sourcing-analytics` and projects FulfillmentQueued,
+    FulfillmentSourcingDecided and FulfillmentUnsourceable into a separate analytical database. It dedupes on the
+    CloudEvents `id` in the same transaction as the projection, dead-letters only deterministic poison to
+    `retailnetwork.order-sourcing.analytics.dlq` and retries transient failures without a bound. It reads no
+    sibling topic.
 
 
     **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka header `content-type: application/cloudevents+json;
@@ -83,6 +91,8 @@ channels:
     messages:
       FulfillmentQueued:
         $ref: '#/components/messages/FulfillmentQueued'
+      FulfillmentSourcingDecided:
+        $ref: '#/components/messages/FulfillmentSourcingDecided'
       FulfillmentDelivered:
         $ref: '#/components/messages/FulfillmentDelivered'
   customerOrderingEvents:
@@ -111,7 +121,7 @@ channels:
     address: retailnetwork.last-mile-delivery.events
     title: last-mile-delivery integration topic
     description: last-mile-delivery's integration topic. This service consumes `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`,
-      `DeliveryWaveCancelled` under the stable consumer group read from the mandatory environment variable named
+      `DeliveryWaveCancelled`, `WaveCostDeclared` under the stable consumer group read from the mandatory environment variable named
       in the operation. Every other type on the topic is ignored.
     messages:
       DeliveryWaveScheduled:
@@ -120,6 +130,8 @@ channels:
         $ref: '#/components/messages/DeliveryWaveCapacityChanged'
       DeliveryWaveCancelled:
         $ref: '#/components/messages/DeliveryWaveCancelled'
+      WaveCostDeclared:
+        $ref: '#/components/messages/WaveCostDeclared'
   linehaulTransportationEvents:
     address: retailnetwork.linehaul-transportation.events
     title: linehaul-transportation integration topic
@@ -150,8 +162,8 @@ channels:
     address: retailnetwork.node-topology.events
     title: node-topology integration topic
     description: node-topology's integration topic. This service consumes `NodeRegistered`, `NodeOperationalProfileDeclared`,
-      `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `ServiceAreaAssigned`, `RegionDefined`
-      under the stable consumer group read from the mandatory environment variable named in the operation. Every
+      `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `ServiceAreaAssigned`,
+      `RegionDefined` under the stable consumer group read from the mandatory environment variable named in the operation. Every
       other type on the topic is ignored.
     messages:
       NodeRegistered:
@@ -168,6 +180,8 @@ channels:
         $ref: '#/components/messages/LaneOpened'
       LaneClosed:
         $ref: '#/components/messages/LaneClosed'
+      LaneCostDeclared:
+        $ref: '#/components/messages/LaneCostDeclared'
       ServiceAreaAssigned:
         $ref: '#/components/messages/ServiceAreaAssigned'
       RegionDefined:
@@ -236,15 +250,45 @@ operations:
   publishOrderSourcingAnalytics:
     action: send
     title: Publish order-sourcing analytics events
-    summary: Publish the two analytics-only events through the transactional outbox.
-    description: 'FulfillmentQueued and FulfillmentDelivered are analytics only: they are sent ONLY to `retailnetwork.order-sourcing.analytics`.'
+    summary: Publish the three analytics-only events through the transactional outbox.
+    description: 'FulfillmentQueued, FulfillmentSourcingDecided and FulfillmentDelivered are analytics only: they are
+      sent ONLY to `retailnetwork.order-sourcing.analytics`.'
     tags:
     - name: assignment
     channel:
       $ref: '#/channels/orderSourcingAnalytics'
     messages:
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentQueued'
+    - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentSourcingDecided'
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentDelivered'
+  projectOwnAnalyticsForAnalytics:
+    action: receive
+    title: Project this context's own analytics events into the analytical database
+    summary: The analytics projector reads back FulfillmentQueued and FulfillmentSourcingDecided (ADR 0013).
+    description: Inbound adapter internal/adapters/inbound/kafka/analytics_consumer.go, run by cmd/os-projector in
+      the consumer group ANALYTICS_CONSUMER_GROUP (default order-sourcing-analytics), one reader over both own topics.
+      Dispatches on the full `type`; FulfillmentDelivered is acknowledged without projection; any other type or a
+      non-CloudEvents message is skipped with a sampled warning. Poison only goes to
+      `retailnetwork.order-sourcing.analytics.dlq`.
+    tags:
+    - name: assignment
+    channel:
+      $ref: '#/channels/orderSourcingAnalytics'
+    messages:
+    - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentQueued'
+    - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentSourcingDecided'
+  projectOwnEventsForAnalytics:
+    action: receive
+    title: Project this context's own integration events into the analytical database
+    summary: The analytics projector reads back FulfillmentUnsourceable (ADR 0013).
+    description: Same adapter, binary and consumer group as projectOwnAnalyticsForAnalytics. The other seven
+      integration events are acknowledged without projection.
+    tags:
+    - name: assignment
+    channel:
+      $ref: '#/channels/orderSourcingEvents'
+    messages:
+    - $ref: '#/channels/orderSourcingEvents/messages/FulfillmentUnsourceable'
   consumeCustomerOrdering:
     action: receive
     title: Consume customer-ordering events
@@ -274,7 +318,7 @@ operations:
   consumeLastMileDelivery:
     action: receive
     title: Consume last-mile-delivery events
-    summary: Consume 3 event type(s) of last-mile-delivery.
+    summary: Consume 4 event type(s) of last-mile-delivery.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
       as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `LAST_MILE_DELIVERY_CONSUMER_GROUP`.
     tags:
@@ -285,6 +329,7 @@ operations:
     - $ref: '#/channels/lastMileDeliveryEvents/messages/DeliveryWaveScheduled'
     - $ref: '#/channels/lastMileDeliveryEvents/messages/DeliveryWaveCapacityChanged'
     - $ref: '#/channels/lastMileDeliveryEvents/messages/DeliveryWaveCancelled'
+    - $ref: '#/channels/lastMileDeliveryEvents/messages/WaveCostDeclared'
   consumeLinehaulTransportation:
     action: receive
     title: Consume linehaul-transportation events
@@ -316,7 +361,7 @@ operations:
   consumeNodeTopology:
     action: receive
     title: Consume node-topology events
-    summary: Consume 9 event type(s) of node-topology.
+    summary: Consume 10 event type(s) of node-topology.
     description: Idempotent on the CloudEvents `id` (inbox table processed_events, written in the same transaction
       as the effect); dispatch on the full `type`. A message that is not a valid CloudEvents 1.0 event, or whose `type` is not handled, is logged and skipped (committed, not dead-lettered). A payload that can never be applied (undecodable `data` or a validation failure) and a handler that keeps failing (5 attempts) are published to `<topic>.dlq` with `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset` and `x-dlq-error` headers. Consumer group from `NODE_TOPOLOGY_CONSUMER_GROUP`.
     tags:
@@ -331,6 +376,7 @@ operations:
     - $ref: '#/channels/nodeTopologyEvents/messages/NodeRetired'
     - $ref: '#/channels/nodeTopologyEvents/messages/LaneOpened'
     - $ref: '#/channels/nodeTopologyEvents/messages/LaneClosed'
+    - $ref: '#/channels/nodeTopologyEvents/messages/LaneCostDeclared'
     - $ref: '#/channels/nodeTopologyEvents/messages/ServiceAreaAssigned'
     - $ref: '#/channels/nodeTopologyEvents/messages/RegionDefined'
   consumeOfferAvailability:
@@ -421,7 +467,14 @@ components:
         and key = the assignmentId; stream `events` (topic `retailnetwork.order-sourcing.events`). Raised by ReleaseToNode
         (QUEUED to RELEASED). `releaseNo` is 1 for the first release and +1 for each later one; with `assignmentId`
         it is the purchase order''s idempotency key. `lines` is the whole group (fill-or-kill) with this node''s
-        listingId. No ship-to data: the release carries no PII. Consumers: vendor-connectivity, linehaul-transportation.'
+        listingId. `estimatedCostCents` is the money-denominated AssignmentCost estimate of the released path in
+        planner-declared cents (ADR 0011); it is omitted when the estimate is incomplete (a lane or the wave had no
+        declared cost), so consumers must decode it tolerantly — the field is additive and optional. Each line''s
+        optional `ownerRef` is the seller whose stock the line takes, as the OwnerChoice rule picked it at this node
+        (ADR 0012: operator-owned first if it covers the line, else the covering seller with the highest availableQty,
+        ties to the lowest ownerRef in byte order; a line never spans owners); it is omitted when the line is
+        operator-owned. No ship-to data: the release carries no PII. Consumers: vendor-connectivity,
+        linehaul-transportation. Consumers: vendor-connectivity (lines[].ownerRef).'
       contentType: application/cloudevents+json
       tags:
       - name: assignment
@@ -449,10 +502,60 @@ components:
             requiredShipBy: '2026-10-22T21:00:00Z'
             promisedDeliverByLatest: '2026-10-24T23:00:00Z'
             tier: TWO_DAY
+            estimatedCostCents: 1065
             lines:
             - catalogItemId: cat-000123
               listingId: lst-000123-fc-ws-sor-01
               quantity: 2
+            - catalogItemId: cat-000456
+              listingId: lst-000456-fc-ws-sor-01-sel-0042
+              ownerRef: sel-0042
+              quantity: 1
+    FulfillmentSourcingDecided:
+      name: FulfillmentSourcingDecided
+      title: The sourcing decision of one release (analytics only)
+      summary: The sourcing decision of one release (analytics only).
+      description: '`type` = `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentSourcingDecided`; subject
+        and key = the assignmentId; stream `analytics` (topic `retailnetwork.order-sourcing.analytics`). Raised by
+        ReleaseToNode in the SAME transaction as each FulfillmentReleasedToNode (same aggregate version, its own
+        CloudEvents id), ADR 0013. `nodeRegionId` and `destinationRegionId` are the regions of the released node and
+        of the destination''s service area from the local NetworkGraphView, each omitted when unknown; `inRegion`
+        is omitted when either is unknown. `legs` counts the departures after the pickup (0 = straight to the
+        station). `estimatedCostCents` follows ADR 0011 and is present exactly when `costComplete` is true. `units`
+        is the sum of the line quantities; `candidateCount` the size of the ranked candidate set the release chose
+        from. Analytics only: published ONLY to retailnetwork.order-sourcing.analytics.'
+      contentType: application/cloudevents+json
+      tags:
+      - name: assignment
+      payload:
+        $ref: '#/components/schemas/FulfillmentSourcingDecidedEvent'
+      examples:
+      - name: FulfillmentSourcingDecided
+        summary: The sourcing decision of one release (analytics only).
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c67
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentSourcingDecided
+          subject: asg-7f3c2d10
+          time: '2026-10-22T19:01:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:analytics:FulfillmentSourcingDecided:v1
+          data:
+            assignmentId: asg-7f3c2d10
+            orderId: ord-51a0c9
+            groupNo: 1
+            releaseNo: 1
+            nodeId: node-fc-ws-sor-01
+            nodeRegionId: reg-west
+            destinationRegionId: reg-west
+            inRegion: true
+            legs: 1
+            estimatedCostCents: 1065
+            costComplete: true
+            units: 3
+            candidateCount: 4
+            decidedAt: '2026-10-22T19:01:00Z'
     FulfillmentReassigned:
       name: FulfillmentReassigned
       title: The candidate node of a group changed
@@ -929,6 +1032,37 @@ components:
           data:
             waveId: wave-DS-ATL1-2026-10-23-W1
             reason: WEATHER
+    WaveCostDeclared:
+      name: WaveCostDeclared
+      title: The planner declared the per-stop cost of a wave
+      summary: The planner declared what one delivery stop on the wave costs, in cents.
+      description: '`type` = `com.retailnetwork.logistics.last-mile-delivery.wave.WaveCostDeclared`, from last-mile-delivery.
+        Fields relied on are required; every other field is ignored. `costPerStopCents` is an integer 0 to 10000000
+        (0 is a legal declared zero); a later declaration supersedes the earlier one, so the consumer keeps the
+        newer `declaredAt`. A wave the view does not know is stored keyed by `waveId` anyway: `DeliveryWaveScheduled`
+        later completes the row without losing the cost. Use: NetworkGraphView, the per-stop wave term of the
+        money-denominated AssignmentCost (ADR 0011).'
+      contentType: application/cloudevents+json
+      tags:
+      - name: consumed
+      payload:
+        $ref: '#/components/schemas/WaveCostDeclaredEvent'
+      examples:
+      - name: WaveCostDeclared
+        summary: A planner declares 425 cents per stop on a morning wave.
+        payload:
+          specversion: '1.0'
+          id: 3f8e2a91-6d44-4b7c-9e0a-8c1d5f4b2a77
+          source: /retailnetwork/last-mile-delivery
+          type: com.retailnetwork.logistics.last-mile-delivery.wave.WaveCostDeclared
+          subject: wave-3b9f
+          time: '2026-10-24T05:30:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:last-mile-delivery:events:WaveCostDeclared:v1
+          data:
+            waveId: wave-3b9f
+            costPerStopCents: 425
+            declaredAt: '2026-10-24T05:30:00Z'
     DepartureScheduled:
       name: DepartureScheduled
       title: A departure was scheduled on a lane
@@ -1303,6 +1437,37 @@ components:
           data:
             laneId: lane-1
             closedAt: '2026-10-22T10:00:00Z'
+    LaneCostDeclared:
+      name: LaneCostDeclared
+      title: The planner declared the per-unit cost of a lane
+      summary: The planner declared the cost of moving one package-unit across the lane.
+      description: '`type` = `com.retailnetwork.logistics.node-topology.lane.LaneCostDeclared`, from node-topology.
+        Fields relied on are required; every other field is ignored. `costPerUnitCents` is an integer 0 to 10000000
+        (0 is a legal declared zero); a later declaration supersedes the earlier one, so the consumer keeps the
+        newer `declaredAt`. A lane the view does not know is stored keyed by `laneId` anyway: `LaneOpened` later
+        completes the row without losing the cost. Use: NetworkGraphView, the per-unit lane term of the
+        money-denominated AssignmentCost (ADR 0011).'
+      contentType: application/cloudevents+json
+      tags:
+      - name: consumed
+      payload:
+        $ref: '#/components/schemas/LaneCostDeclaredEvent'
+      examples:
+      - name: LaneCostDeclared
+        summary: The planner declared the cost of moving one package-unit across the lane.
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c4c
+          source: /retailnetwork/node-topology
+          type: com.retailnetwork.logistics.node-topology.lane.LaneCostDeclared
+          subject: lane-5c21d8
+          time: '2026-11-05T09:30:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:node-topology:events:LaneCostDeclared:v1
+          data:
+            laneId: lane-5c21d8
+            costPerUnitCents: 320
+            declaredAt: '2026-11-05T09:30:00Z'
     ServiceAreaAssigned:
       name: ServiceAreaAssigned
       title: A postal prefix was assigned to a delivery station
@@ -1365,7 +1530,8 @@ components:
       summary: A listing was created.
       description: '`type` = `com.retailnetwork.commerce.offer-availability.listing.ListingCreated`, from offer-availability.
         Fields relied on are required; every other field is ignored. Use: AvailabilityView: a listing of an item
-        at a node.'
+        at a node for one owner, keyed by (catalogItemId, nodeId, ownerRef), an absent ownerRef meaning operator-owned
+        (ADR 0012).'
       contentType: application/cloudevents+json
       tags:
       - name: consumed
@@ -1393,7 +1559,8 @@ components:
       summary: The available quantity of a listing changed.
       description: '`type` = `com.retailnetwork.commerce.offer-availability.listing.ListingAvailabilityChanged`,
         from offer-availability. Fields relied on are required; every other field is ignored. Use: AvailabilityView:
-        an availability with an older asOf is ignored.'
+        an availability with an older asOf is ignored; the optional ownerRef sets the owner of the row''s key, absent
+        meaning operator-owned (ADR 0012).'
       contentType: application/cloudevents+json
       tags:
       - name: consumed
@@ -1782,6 +1949,12 @@ components:
                 - NEXT_DAY
                 - TWO_DAY
                 - STANDARD
+              estimatedCostCents:
+                type: integer
+                minimum: 0
+                description: The money-denominated AssignmentCost estimate of the released path in planner-declared
+                  cents — the per-unit lane costs of every leg plus the final wave's per-stop cost (ADR 0011).
+                  Optional and omitted when the estimate is incomplete (a component had no declared cost).
               lines:
                 type: array
                 items:
@@ -1793,7 +1966,73 @@ components:
                   properties:
                     catalogItemId: *id002
                     listingId: *id002
+                    ownerRef:
+                      type: string
+                      description: The seller (sellerId) whose stock the line takes, chosen by the OwnerChoice rule
+                        at this node (ADR 0012). Optional and omitted when the line is operator-owned.
                     quantity: *id003
+    FulfillmentSourcingDecidedEvent:
+      allOf:
+      - $ref: '#/components/schemas/CloudEventEnvelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            required:
+            - assignmentId
+            - orderId
+            - releaseNo
+            - nodeId
+            - legs
+            - costComplete
+            - units
+            - candidateCount
+            - decidedAt
+            properties:
+              assignmentId: *id002
+              orderId: *id002
+              groupNo:
+                type: integer
+                minimum: 1
+                description: The shipment group number. Optional and omitted when unknown.
+              releaseNo:
+                type: integer
+                minimum: 1
+              nodeId: *id002
+              nodeRegionId:
+                type: string
+                description: The released node's regionId in the local NetworkGraphView. Optional and omitted when
+                  unknown.
+              destinationRegionId:
+                type: string
+                description: The region of the destination's service area (RegionAndServiceArea). Optional and omitted
+                  when unknown.
+              inRegion:
+                type: boolean
+                description: nodeRegionId equals destinationRegionId. Optional and omitted when either region is unknown.
+              legs:
+                type: integer
+                minimum: 0
+                description: The departures of the released path after the pickup (ADR 0002 A12); 0 = the pickup
+                  reaches the destination's station directly.
+              estimatedCostCents:
+                type: integer
+                minimum: 0
+                description: The money-denominated estimate of the released path in planner-declared cents (ADR 0011).
+                  Optional and omitted when the estimate is incomplete, i.e. exactly when costComplete is false.
+              costComplete:
+                type: boolean
+                description: Every cost component of the released path was declared (ADR 0011).
+              units:
+                type: integer
+                minimum: 1
+                description: The sum of the group's line quantities.
+              candidateCount:
+                type: integer
+                minimum: 1
+                description: The size of the ranked candidate set (one per node and pickup departure) the release
+                  chose from.
+              decidedAt: *id001
     FulfillmentReassignedEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'
@@ -2120,6 +2359,26 @@ components:
             properties:
               waveId: *id002
               reason: *id002
+    WaveCostDeclaredEvent:
+      allOf:
+      - $ref: '#/components/schemas/ConsumedCloudEvent'
+      - type: object
+        properties:
+          data:
+            type: object
+            required:
+            - waveId
+            - costPerStopCents
+            - declaredAt
+            properties:
+              waveId: *id002
+              costPerStopCents:
+                type: integer
+                minimum: 0
+                maximum: 10000000
+                description: The declared marginal cost of ONE delivery stop on the wave (driver time plus mileage
+                  share), integer cents; 0 is a legal declared zero.
+              declaredAt: *id001
     DepartureScheduledEvent:
       allOf:
       - $ref: '#/components/schemas/ConsumedCloudEvent'
@@ -2356,6 +2615,26 @@ components:
             properties:
               laneId: *id002
               closedAt: *id001
+    LaneCostDeclaredEvent:
+      allOf:
+      - $ref: '#/components/schemas/ConsumedCloudEvent'
+      - type: object
+        properties:
+          data:
+            type: object
+            required:
+            - laneId
+            - costPerUnitCents
+            - declaredAt
+            properties:
+              laneId: *id002
+              costPerUnitCents:
+                type: integer
+                minimum: 0
+                maximum: 10000000
+                description: The declared marginal cost of moving ONE package-unit across the lane, integer cents;
+                  0 is a legal declared zero.
+              declaredAt: *id001
     ServiceAreaAssignedEvent:
       allOf:
       - $ref: '#/components/schemas/ConsumedCloudEvent'
@@ -2401,6 +2680,10 @@ components:
               listingId: *id002
               catalogItemId: *id002
               nodeId: *id002
+              ownerRef:
+                type: string
+                description: The owning seller (sellerId); omitted for an operator-owned listing, stored as the
+                  empty owner of the AvailabilityView key (ADR 0012).
     ListingAvailabilityChangedEvent:
       allOf:
       - $ref: '#/components/schemas/ConsumedCloudEvent'
@@ -2416,6 +2699,10 @@ components:
               listingId: *id002
               catalogItemId: *id002
               nodeId: *id002
+              ownerRef:
+                type: string
+                description: The owning seller (sellerId); omitted for an operator-owned listing, stored as the
+                  empty owner of the AvailabilityView key (ADR 0012).
               availableQty: *id003
               basis: *id002
               asOf: *id001
