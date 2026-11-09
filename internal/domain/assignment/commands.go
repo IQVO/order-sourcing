@@ -100,8 +100,11 @@ func (a *Assignment) Reoptimise(best *Candidate, releaseAt time.Time, expectedVe
 
 // Release sends the group to the node of best, the candidate re-checked
 // against fresh read models (ReleaseToNode). lines carry the listingId of that
-// node for every line. best nil means no candidate is left: UNSOURCEABLE.
-func (a *Assignment) Release(best *Candidate, lines []Line, now time.Time) ([]shared.Event, error) {
+// node for every line; facts are what the search knew when it chose best (ADR
+// 0013). best nil means no candidate is left: UNSOURCEABLE. A release raises
+// FulfillmentReleasedToNode and, in the same change, the analytics-only
+// FulfillmentSourcingDecided.
+func (a *Assignment) Release(best *Candidate, lines []Line, facts SourcingFacts, now time.Time) ([]shared.Event, error) {
 	if err := a.guardMovable(); err != nil {
 		return nil, err
 	}
@@ -112,6 +115,9 @@ func (a *Assignment) Release(best *Candidate, lines []Line, now time.Time) ([]sh
 		return nil, err
 	}
 	if err := a.checkReleaseLines(lines); err != nil {
+		return nil, err
+	}
+	if err := facts.validate(); err != nil {
 		return nil, err
 	}
 	from := ""
@@ -132,7 +138,34 @@ func (a *Assignment) Release(best *Candidate, lines []Line, now time.Time) ([]sh
 		PickupDepartureID: best.PickupDepartureID, RequiredShipBy: rel.RequiredShipBy,
 		PromisedDeliverByLatest: a.promise.DeliverByLatest, Tier: a.promise.Tier, Lines: cloneLines(a.lines),
 		EstimatedCostCents: estimateOf(*best),
-	}), nil
+	}, a.sourcingDecided(rel, *best, facts)), nil
+}
+
+// sourcingDecided is the analytics fact of release rel (ADR 0013).
+func (a *Assignment) sourcingDecided(rel Release, best Candidate, facts SourcingFacts) FulfillmentSourcingDecided {
+	return FulfillmentSourcingDecided{
+		Base: a.base(), OrderID: a.orderID, GroupNo: a.groupNo, ReleaseNo: rel.No, NodeID: rel.NodeID,
+		NodeRegionID: facts.NodeRegionID, DestinationRegionID: facts.DestinationRegionID, Legs: len(best.Legs),
+		EstimatedCostCents: estimateOf(best), Units: unitsOf(a.lines), CandidateCount: facts.CandidateCount,
+		DecidedAt: rel.ReleasedAt,
+	}
+}
+
+// unitsOf is the sum of the line quantities.
+func unitsOf(lines []Line) int {
+	units := 0
+	for _, l := range lines {
+		units += l.Quantity
+	}
+	return units
+}
+
+// validate requires at least one candidate: a release always chooses one.
+func (f SourcingFacts) validate() error {
+	if f.CandidateCount < 1 || f.CandidateCount > MaxInt32 {
+		return shared.Invalid("a release chooses from 1 to %d candidates, got %d", MaxInt32, f.CandidateCount)
+	}
+	return nil
 }
 
 // estimateOf is the wire value of a candidate's money-denominated estimate:

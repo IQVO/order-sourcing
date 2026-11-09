@@ -10,27 +10,48 @@ import (
 	"github.com/claudioed/order-sourcing/internal/domain/sourcing"
 )
 
-// bestOption loads a fresh snapshot of the read models and returns the best
-// option under the constraint, or nil when the candidate set is empty. The
-// world is returned for the release, which resolves the listings from it.
+// searchResult is one candidate search: the best option (nil when the
+// candidate set is empty), the world it was found in (the release resolves the
+// listings from it) and the size of the ranked candidate set.
+type searchResult struct {
+	best       *sourcing.Option
+	world      sourcing.World
+	candidates int
+}
+
+// facts is what the search knew about its best option (ADR 0013): the regions
+// of the node and of the destination's service area, and the candidate count.
+func (s searchResult) facts() assignment.SourcingFacts {
+	if s.best == nil {
+		return assignment.SourcingFacts{}
+	}
+	return assignment.SourcingFacts{
+		NodeRegionID: s.world.Nodes[s.best.Candidate.NodeID].RegionID, DestinationRegionID: s.world.Area.RegionID,
+		CandidateCount: s.candidates,
+	}
+}
+
+// bestOption loads a fresh snapshot of the read models and ranks the options
+// under the constraint (sourcing.Search); best is nil when the candidate set
+// is empty.
 func (w writer) bestOption(ctx context.Context, now time.Time, prefix string, p assignment.PromiseConstraint,
 	lines []assignment.Line, excluded []assignment.ExcludedNode,
-) (*sourcing.Option, sourcing.World, error) {
+) (searchResult, error) {
 	items := make([]string, 0, len(lines))
 	for _, l := range lines {
 		items = append(items, l.CatalogItemID)
 	}
 	world, err := w.World.Load(ctx, repository.WorldQuery{DestinationPostalPrefix: prefix, CatalogItemIDs: items, Now: now})
 	if err != nil {
-		return nil, sourcing.World{}, fmt.Errorf("load read models: %w", err)
+		return searchResult{}, fmt.Errorf("load read models: %w", err)
 	}
-	opt, ok := sourcing.Best(world, sourcing.Request{
+	opts := sourcing.Search(world, sourcing.Request{
 		Now: now, Tier: p.Tier, DeliverByLatest: p.DeliverByLatest, WitnessNodeID: p.WitnessNodeID, Lines: lines, Excluded: excluded,
 	})
-	if !ok {
-		return nil, world, nil
+	if len(opts) == 0 {
+		return searchResult{world: world}, nil
 	}
-	return &opt, world, nil
+	return searchResult{best: &opts[0], world: world, candidates: len(opts)}, nil
 }
 
 // candidateOf returns the candidate and release point of an option, nil and
@@ -44,7 +65,7 @@ func candidateOf(o *sourcing.Option) (*assignment.Candidate, time.Time) {
 }
 
 // search is bestOption for an assignment as it stands, with extra exclusions.
-func (w writer) search(ctx context.Context, a *assignment.Assignment, now time.Time, extra ...assignment.ExcludedNode) (*sourcing.Option, sourcing.World, error) {
+func (w writer) search(ctx context.Context, a *assignment.Assignment, now time.Time, extra ...assignment.ExcludedNode) (searchResult, error) {
 	excluded := append(a.ExcludedNodes(), extra...)
 	return w.bestOption(ctx, now, a.DestinationPostalPrefix(), a.Promise(), a.Lines(), excluded)
 }

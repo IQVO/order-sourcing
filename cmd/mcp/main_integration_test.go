@@ -111,7 +111,7 @@ func seedThroughDomain(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		t.Fatal(err)
 	}
 	if _, err := a.Release(best(),
-		[]assignment.Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2}}, hours(2)); err != nil {
+		[]assignment.Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2}}, assignment.SourcingFacts{NodeRegionID: "r1", DestinationRegionID: "r1", CandidateCount: 1}, hours(2)); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.Save(ctx, a); err != nil {

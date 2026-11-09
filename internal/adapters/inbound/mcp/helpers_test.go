@@ -99,7 +99,7 @@ func (h *harness) saveReleased(t *testing.T, id, order string, group int) {
 	must(t, err)
 	must(t, h.repo.Save(t.Context(), a))
 	lines := []assignment.Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", Quantity: 2}}
-	_, err = a.Release(candidate("node-a"), lines, hours(2))
+	_, err = a.Release(candidate("node-a"), lines, assignment.SourcingFacts{NodeRegionID: "r1", DestinationRegionID: "r1", CandidateCount: 1}, hours(2))
 	must(t, err)
 	must(t, h.repo.Save(t.Context(), a))
 }

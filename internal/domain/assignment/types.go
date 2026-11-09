@@ -171,6 +171,16 @@ type ExcludedNode struct {
 	Reason string
 }
 
+// SourcingFacts is what the candidate search knew when it chose the released
+// candidate (ADR 0013): the regionId of the node and of the destination's
+// service area ("" when the read model does not know it) and the size of the
+// ranked candidate set the release chose from.
+type SourcingFacts struct {
+	NodeRegionID        string
+	DestinationRegionID string
+	CandidateCount      int
+}
+
 // DeliveredPackage is a delivered package of a shipped group.
 type DeliveredPackage struct {
 	TrackingNumber string

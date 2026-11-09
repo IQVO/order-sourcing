@@ -7,8 +7,8 @@ paths:
 
 # Cross-service integration events (Kafka)
 
-order-sourcing PUBLISHES ten events (eight integration events to `retailnetwork.order-sourcing.events`, two
-analytics-only events to `retailnetwork.order-sourcing.analytics`) and CONSUMES 32 event types from nine sibling topics
+order-sourcing PUBLISHES eleven events (eight integration events to `retailnetwork.order-sourcing.events`, three
+analytics-only events to `retailnetwork.order-sourcing.analytics`, ADR 0013 for `FulfillmentSourcingDecided`) and CONSUMES 32 event types from nine sibling topics
 (ADR 0003, ADR 0004). Never produce or consume a `warehouse.*` topic.
 
 ## Events: CloudEvents 1.0 is MANDATORY
@@ -51,6 +51,7 @@ Subject and Kafka key = `assignmentId`; `dataschema` is `urn:retailnetwork:order
 | --- | --- |
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentQueued` | `retailnetwork.order-sourcing.analytics` |
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode` | `retailnetwork.order-sourcing.events` |
+| `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentSourcingDecided` | `retailnetwork.order-sourcing.analytics` |
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReassigned` | `retailnetwork.order-sourcing.events` |
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked` | `retailnetwork.order-sourcing.events` |
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentShipped` | `retailnetwork.order-sourcing.events` |

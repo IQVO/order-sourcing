@@ -9,7 +9,7 @@ Feature: Releasing, refusing and locking an assignment
 
   Scenario: Releasing sends the group to the candidate node
     When I release the assignment of "ord-1" group 1
-    Then the last command published "FulfillmentReleasedToNode"
+    Then the last command published "FulfillmentReleasedToNode, FulfillmentSourcingDecided"
     And the assignment of "ord-1" group 1 is "RELEASED"
     And the assignment of "ord-1" group 1 has a PENDING release number 1 to "fc-a"
 

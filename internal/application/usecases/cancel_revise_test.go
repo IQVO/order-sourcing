@@ -51,7 +51,7 @@ func TestCancelAssignmentAfterTheLockIsRefused(t *testing.T) {
 	if got[0].State != "LOCKED" || got[0].AssignmentVersion != 4 {
 		t.Fatalf("a refused cancel keeps the state and bumps the version: %+v", got[0])
 	}
-	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentLocked", "FulfillmentCancelRefused")
+	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided", "FulfillmentLocked", "FulfillmentCancelRefused")
 }
 
 func TestCancelAssignmentFailures(t *testing.T) {

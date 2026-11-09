@@ -68,6 +68,39 @@ type releasedData struct {
 	EstimatedCostCents *int64 `json:"estimatedCostCents,omitempty"`
 }
 
+// decidedData is the analytics-only sourcing decision (ADR 0013). The regions
+// and inRegion are omitted when unknown; estimatedCostCents is omitted when the
+// estimate is incomplete, exactly when costComplete is false (ADR 0011).
+type decidedData struct {
+	AssignmentID        string    `json:"assignmentId"`
+	OrderID             string    `json:"orderId"`
+	GroupNo             int       `json:"groupNo,omitempty"`
+	ReleaseNo           int       `json:"releaseNo"`
+	NodeID              string    `json:"nodeId"`
+	NodeRegionID        string    `json:"nodeRegionId,omitempty"`
+	DestinationRegionID string    `json:"destinationRegionId,omitempty"`
+	InRegion            *bool     `json:"inRegion,omitempty"`
+	Legs                int       `json:"legs"`
+	EstimatedCostCents  *int64    `json:"estimatedCostCents,omitempty"`
+	CostComplete        bool      `json:"costComplete"`
+	Units               int       `json:"units"`
+	CandidateCount      int       `json:"candidateCount"`
+	DecidedAt           time.Time `json:"decidedAt"`
+}
+
+func decided(e assignment.FulfillmentSourcingDecided) decidedData {
+	var inRegion *bool
+	if in, known := e.InRegion(); known {
+		inRegion = &in
+	}
+	return decidedData{
+		AssignmentID: e.SubjectID(), OrderID: e.OrderID, GroupNo: e.GroupNo, ReleaseNo: e.ReleaseNo, NodeID: e.NodeID,
+		NodeRegionID: e.NodeRegionID, DestinationRegionID: e.DestinationRegionID, InRegion: inRegion, Legs: e.Legs,
+		EstimatedCostCents: e.EstimatedCostCents, CostComplete: e.CostComplete(), Units: e.Units, CandidateCount: e.CandidateCount,
+		DecidedAt: utc(e.DecidedAt),
+	}
+}
+
 type reassignedData struct {
 	AssignmentID      string `json:"assignmentId"`
 	FromNodeID        string `json:"fromNodeId"`
@@ -201,6 +234,8 @@ func payload(ev shared.Event) (any, error) {
 	case assignment.FulfillmentReleasedToNode:
 		return releasedData{id, e.ReleaseNo, e.OrderID, e.GroupNo, e.NodeID, e.PickupDepartureID, utc(e.RequiredShipBy),
 			utc(e.PromisedDeliverByLatest), string(e.Tier), releasedLines(e.Lines), e.EstimatedCostCents}, nil
+	case assignment.FulfillmentSourcingDecided:
+		return decided(e), nil
 	case assignment.FulfillmentReassigned:
 		return reassignedData{id, e.FromNodeID, e.ToNodeID, e.Reason, e.AggregateVersion()}, nil
 	case assignment.FulfillmentLocked:

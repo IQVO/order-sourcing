@@ -9,10 +9,10 @@ import (
 
 func TestReleaseSameNode(t *testing.T) {
 	a := mustQueue(t)
-	events, err := a.Release(cand("node-a"), releaseLines(), at(2))
+	events, err := a.Release(cand("node-a"), releaseLines(), facts(), at(2))
 	wantNoErr(t, err)
 	wantState(t, a, StateReleased, 2)
-	wantEvents(t, events, "FulfillmentReleasedToNode")
+	wantEvents(t, events, "FulfillmentReleasedToNode", "FulfillmentSourcingDecided")
 	wantEventVersions(t, a, events)
 	wantReleaseEvent(t, events[0])
 	wantReleaseRecorded(t, a)
@@ -42,10 +42,10 @@ func wantReleaseRecorded(t *testing.T, a *Assignment) {
 
 func TestReleaseRecheckPicksAnotherNode(t *testing.T) {
 	a := mustQueue(t)
-	events, err := a.Release(cand("node-b"), releaseLines(), at(2))
+	events, err := a.Release(cand("node-b"), releaseLines(), facts(), at(2))
 	wantNoErr(t, err)
 	wantState(t, a, StateReleased, 2)
-	wantEvents(t, events, "FulfillmentReassigned", "FulfillmentReleasedToNode")
+	wantEvents(t, events, "FulfillmentReassigned", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided")
 	wantEventVersions(t, a, events)
 	r := events[0].(FulfillmentReassigned)
 	if r.FromNodeID != "node-a" || r.ToNodeID != "node-b" || r.Reason != ReasonReleaseRecheck {
@@ -55,7 +55,7 @@ func TestReleaseRecheckPicksAnotherNode(t *testing.T) {
 
 func TestReleaseWithoutCandidateIsUnsourceable(t *testing.T) {
 	a := mustQueue(t)
-	events, err := a.Release(nil, nil, at(2))
+	events, err := a.Release(nil, nil, facts(), at(2))
 	wantNoErr(t, err)
 	wantState(t, a, StateUnsourceable, 2)
 	wantEvents(t, events, "FulfillmentUnsourceable")
@@ -68,7 +68,7 @@ func TestReleaseGuards(t *testing.T) {
 	late := cand("node-a")
 	late.ETA = deadline.Add(time.Second)
 	a := mustQueue(t)
-	_, err := a.Release(late, releaseLines(), at(2))
+	_, err := a.Release(late, releaseLines(), facts(), at(2))
 	wantErr(t, err, ErrCandidateBreaksPromise)
 
 	noListing := releaseLines()
@@ -82,7 +82,7 @@ func TestReleaseGuards(t *testing.T) {
 	otherNo[0].LineNo = 5
 	for name, lines := range map[string][]Line{"no listing": noListing, "short": short, "other item": otherItem, "other quantity": otherQty, "other line": otherNo, "none": nil} {
 		t.Run(name, func(t *testing.T) {
-			_, err := a.Release(cand("node-a"), lines, at(2))
+			_, err := a.Release(cand("node-a"), lines, facts(), at(2))
 			wantErr(t, err, shared.ErrValidation)
 			wantState(t, a, StateQueued, 1)
 		})
@@ -91,10 +91,10 @@ func TestReleaseGuards(t *testing.T) {
 
 func TestReleaseStateErrors(t *testing.T) {
 	r := mustRelease(t)
-	_, err := r.Release(cand("node-a"), releaseLines(), at(3))
+	_, err := r.Release(cand("node-a"), releaseLines(), facts(), at(3))
 	wantErr(t, err, ErrReleaseInFlight)
 	l := mustLock(t)
-	_, err = l.Release(cand("node-a"), releaseLines(), at(3))
+	_, err = l.Release(cand("node-a"), releaseLines(), facts(), at(3))
 	wantErr(t, err, ErrAssignmentLocked)
 }
 
@@ -190,7 +190,7 @@ func TestRefuseReleaseStateErrors(t *testing.T) {
 func TestSecondReleaseIsNumberedTwo(t *testing.T) {
 	a := mustRelease(t)
 	_, _ = a.RefuseRelease(1, OutcomeRejected, "", cand("node-b"), at(4), at(3))
-	events, err := a.Release(cand("node-b"), releaseLines(), at(4))
+	events, err := a.Release(cand("node-b"), releaseLines(), facts(), at(4))
 	wantNoErr(t, err)
 	if e := events[0].(FulfillmentReleasedToNode); e.ReleaseNo != 2 || e.NodeID != "node-b" {
 		t.Fatalf("second release = %+v", e)

@@ -83,7 +83,7 @@ func TestReleaseToNode(t *testing.T) {
 	if got.State != "RELEASED" || got.Releases[0].NodeID != "fc-a" || got.Lines[0].ListingID != "lst-1-fc-a" {
 		t.Fatalf("view = %+v", got)
 	}
-	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode")
+	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided")
 	before := e.store.Counts()
 	_, err = usecases.NewReleaseToNode(e.deps).Execute(context.Background(), id)
 	e.must(err)
@@ -99,7 +99,7 @@ func TestReleaseToNodeRechecksAndMayGoUnsourceable(t *testing.T) {
 	if got.Releases[0].NodeID != "fc-b" {
 		t.Fatalf("the re-check releases to the best node now: %+v", got.Releases)
 	}
-	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReassigned", "FulfillmentReleasedToNode")
+	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReassigned", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided")
 
 	e2 := newEnv(t)
 	id2 := e2.queue()
@@ -131,7 +131,7 @@ func TestHandleNodeRefusalRequeuesOnAnotherNode(t *testing.T) {
 	if got.State != "QUEUED" || got.Candidate.NodeID != "fc-b" || len(got.ExcludedNodes) != 1 || got.ExcludedNodes[0].NodeID != "fc-a" {
 		t.Fatalf("view = %+v", got)
 	}
-	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentReassigned")
+	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided", "FulfillmentReassigned")
 	// The same event id is a no-op, a late outcome of release 1 is ErrReleaseNotPending.
 	before := e.store.Counts()
 	_, err = usecases.NewHandleNodeRefusal(e.deps).Execute(context.Background(), refusal(id, 1, assignment.OutcomeRejected))
@@ -152,7 +152,7 @@ func TestHandleNodeRefusalWithNoNodeLeftIsUnsourceable(t *testing.T) {
 	if got.State != "UNSOURCEABLE" {
 		t.Fatalf("state = %s", got.State)
 	}
-	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentUnsourceable")
+	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided", "FulfillmentUnsourceable")
 	unknown := refusal("asg-none", 1, assignment.OutcomeExpired)
 	unknown.EventID = "evt-unknown"
 	_, err = usecases.NewHandleNodeRefusal(e.deps).Execute(context.Background(), unknown)
@@ -206,9 +206,9 @@ func TestLockShipDeliver(t *testing.T) {
 	if state != "DELIVERED" {
 		t.Fatalf("both packages: %s", state)
 	}
-	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentLocked", "FulfillmentShipped", "FulfillmentDelivered")
-	if e.store.Outbox().Events()[4].Stream() != shared.StreamAnalytics {
-		t.Fatal("FulfillmentDelivered is analytics only")
+	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided", "FulfillmentLocked", "FulfillmentShipped", "FulfillmentDelivered")
+	if e.store.Outbox().Events()[5].Stream() != shared.StreamAnalytics || e.store.Outbox().Events()[2].Stream() != shared.StreamAnalytics {
+		t.Fatal("FulfillmentDelivered and FulfillmentSourcingDecided are analytics only")
 	}
 	_, err = usecases.NewMarkShipped(e.deps).Execute(context.Background(), usecases.MarkShippedCommand{AssignmentID: id, TrackingNumbers: []string{"X"}})
 	e.must(err) // a repeat on a DELIVERED assignment is a no-op
@@ -248,7 +248,7 @@ func TestRecordPickupMovedAndProcessed(t *testing.T) {
 	if got.PickupDepartureID != "pk-next" || got.AssignmentVersion != 4 {
 		t.Fatalf("view = %+v", got)
 	}
-	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentLocked") // no event for a moved booking
+	wantNames(t, e.eventNames(), "FulfillmentQueued", "FulfillmentReleasedToNode", "FulfillmentSourcingDecided", "FulfillmentLocked") // no event for a moved booking
 	first, err := usecases.NewRecordProcessed(e.deps).Execute(context.Background(), usecases.Meta{EventID: "evt-f", EventType: "x"})
 	e.must(err)
 	again, err := usecases.NewRecordProcessed(e.deps).Execute(context.Background(), usecases.Meta{EventID: "evt-f", EventType: "x"})

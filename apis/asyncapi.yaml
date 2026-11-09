@@ -19,11 +19,11 @@ info:
     it decides which vendor node and path fulfil each shipment group (ADR 0001, ADR 0002).
 
 
-    **Published.** Ten events of the FulfillmentAssignment aggregate (entity `assignment`): eight on `retailnetwork.order-sourcing.events`
-    and the two analytics-only ones (FulfillmentQueued, FulfillmentDelivered) ONLY on `retailnetwork.order-sourcing.analytics`,
+    **Published.** Eleven events of the FulfillmentAssignment aggregate (entity `assignment`): eight on `retailnetwork.order-sourcing.events`
+    and the three analytics-only ones (FulfillmentQueued, FulfillmentSourcingDecided, FulfillmentDelivered) ONLY on `retailnetwork.order-sourcing.analytics`,
     through a **transactional outbox**: the aggregate row and its already-encoded events are written in ONE database
     transaction and an always-on relay drains them to Kafka (at-least-once; the CloudEvents `id` is stored with
-    the outbox row, so a retry republishes the same `id`). The ten types are catalogued in ADR 0004.
+    the outbox row, so a retry republishes the same `id`). The eleven types are catalogued in ADR 0004.
 
 
     **Consumed.** Thirty-two event types from nine producers (ADR 0003): commands that drive the aggregate (CustomerOrderPlaced,
@@ -83,6 +83,8 @@ channels:
     messages:
       FulfillmentQueued:
         $ref: '#/components/messages/FulfillmentQueued'
+      FulfillmentSourcingDecided:
+        $ref: '#/components/messages/FulfillmentSourcingDecided'
       FulfillmentDelivered:
         $ref: '#/components/messages/FulfillmentDelivered'
   customerOrderingEvents:
@@ -240,14 +242,16 @@ operations:
   publishOrderSourcingAnalytics:
     action: send
     title: Publish order-sourcing analytics events
-    summary: Publish the two analytics-only events through the transactional outbox.
-    description: 'FulfillmentQueued and FulfillmentDelivered are analytics only: they are sent ONLY to `retailnetwork.order-sourcing.analytics`.'
+    summary: Publish the three analytics-only events through the transactional outbox.
+    description: 'FulfillmentQueued, FulfillmentSourcingDecided and FulfillmentDelivered are analytics only: they are
+      sent ONLY to `retailnetwork.order-sourcing.analytics`.'
     tags:
     - name: assignment
     channel:
       $ref: '#/channels/orderSourcingAnalytics'
     messages:
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentQueued'
+    - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentSourcingDecided'
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentDelivered'
   consumeCustomerOrdering:
     action: receive
@@ -471,6 +475,51 @@ components:
               listingId: lst-000456-fc-ws-sor-01-sel-0042
               ownerRef: sel-0042
               quantity: 1
+    FulfillmentSourcingDecided:
+      name: FulfillmentSourcingDecided
+      title: The sourcing decision of one release (analytics only)
+      summary: The sourcing decision of one release (analytics only).
+      description: '`type` = `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentSourcingDecided`; subject
+        and key = the assignmentId; stream `analytics` (topic `retailnetwork.order-sourcing.analytics`). Raised by
+        ReleaseToNode in the SAME transaction as each FulfillmentReleasedToNode (same aggregate version, its own
+        CloudEvents id), ADR 0013. `nodeRegionId` and `destinationRegionId` are the regions of the released node and
+        of the destination''s service area from the local NetworkGraphView, each omitted when unknown; `inRegion`
+        is omitted when either is unknown. `legs` counts the departures after the pickup (0 = straight to the
+        station). `estimatedCostCents` follows ADR 0011 and is present exactly when `costComplete` is true. `units`
+        is the sum of the line quantities; `candidateCount` the size of the ranked candidate set the release chose
+        from. Analytics only: published ONLY to retailnetwork.order-sourcing.analytics.'
+      contentType: application/cloudevents+json
+      tags:
+      - name: assignment
+      payload:
+        $ref: '#/components/schemas/FulfillmentSourcingDecidedEvent'
+      examples:
+      - name: FulfillmentSourcingDecided
+        summary: The sourcing decision of one release (analytics only).
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c67
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentSourcingDecided
+          subject: asg-7f3c2d10
+          time: '2026-10-22T19:01:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:analytics:FulfillmentSourcingDecided:v1
+          data:
+            assignmentId: asg-7f3c2d10
+            orderId: ord-51a0c9
+            groupNo: 1
+            releaseNo: 1
+            nodeId: node-fc-ws-sor-01
+            nodeRegionId: reg-west
+            destinationRegionId: reg-west
+            inRegion: true
+            legs: 1
+            estimatedCostCents: 1065
+            costComplete: true
+            units: 3
+            candidateCount: 4
+            decidedAt: '2026-10-22T19:01:00Z'
     FulfillmentReassigned:
       name: FulfillmentReassigned
       title: The candidate node of a group changed
@@ -1886,6 +1935,68 @@ components:
                       description: The seller (sellerId) whose stock the line takes, chosen by the OwnerChoice rule
                         at this node (ADR 0012). Optional and omitted when the line is operator-owned.
                     quantity: *id003
+    FulfillmentSourcingDecidedEvent:
+      allOf:
+      - $ref: '#/components/schemas/CloudEventEnvelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            required:
+            - assignmentId
+            - orderId
+            - releaseNo
+            - nodeId
+            - legs
+            - costComplete
+            - units
+            - candidateCount
+            - decidedAt
+            properties:
+              assignmentId: *id002
+              orderId: *id002
+              groupNo:
+                type: integer
+                minimum: 1
+                description: The shipment group number. Optional and omitted when unknown.
+              releaseNo:
+                type: integer
+                minimum: 1
+              nodeId: *id002
+              nodeRegionId:
+                type: string
+                description: The released node's regionId in the local NetworkGraphView. Optional and omitted when
+                  unknown.
+              destinationRegionId:
+                type: string
+                description: The region of the destination's service area (RegionAndServiceArea). Optional and omitted
+                  when unknown.
+              inRegion:
+                type: boolean
+                description: nodeRegionId equals destinationRegionId. Optional and omitted when either region is unknown.
+              legs:
+                type: integer
+                minimum: 0
+                description: The departures of the released path after the pickup (ADR 0002 A12); 0 = the pickup
+                  reaches the destination's station directly.
+              estimatedCostCents:
+                type: integer
+                minimum: 0
+                description: The money-denominated estimate of the released path in planner-declared cents (ADR 0011).
+                  Optional and omitted when the estimate is incomplete, i.e. exactly when costComplete is false.
+              costComplete:
+                type: boolean
+                description: Every cost component of the released path was declared (ADR 0011).
+              units:
+                type: integer
+                minimum: 1
+                description: The sum of the group's line quantities.
+              candidateCount:
+                type: integer
+                minimum: 1
+                description: The size of the ranked candidate set (one per node and pickup departure) the release
+                  chose from.
+              decidedAt: *id001
     FulfillmentReassignedEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'

@@ -61,6 +61,36 @@ func writeGolden(t *testing.T, path string, content []byte) {
 	}
 }
 
+// TestGoldenSourcingDecidedWithUnknownFacts pins the omissions of the decision
+// fact (ADR 0013): an unknown region drops the region and inRegion, an
+// incomplete estimate drops estimatedCostCents and sets costComplete false.
+// The fully known form is FulfillmentSourcingDecided.json above.
+func TestGoldenSourcingDecidedWithUnknownFacts(t *testing.T) {
+	enc := kafka.Encoder{NewID: func() string { return "11111111-1111-4111-8111-111111111111" }}
+	ev := assignment.FulfillmentSourcingDecided{Base: base(), OrderID: "ord-1", GroupNo: 2, ReleaseNo: 2, NodeID: "n2",
+		DestinationRegionID: "reg-se", Legs: 0, Units: 1, CandidateCount: 1, DecidedAt: at}
+	got := encodeIndented(t, enc, ev)
+	path := filepath.Join("testdata", "golden", "FulfillmentSourcingDecided.unknown-facts.json")
+	if *update {
+		writeGolden(t, path, got)
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(want, got) {
+		t.Errorf("unknown-facts decision differs from its golden file\n got:\n%s\nwant:\n%s", got, want)
+	}
+	for _, absent := range []string{"nodeRegionId", "inRegion", "estimatedCostCents"} {
+		if bytes.Contains(got, []byte(`"`+absent+`"`)) {
+			t.Errorf("%s must be omitted when unknown:\n%s", absent, got)
+		}
+	}
+	if !bytes.Contains(got, []byte(`"costComplete": false`)) || !bytes.Contains(got, []byte(`"legs": 0`)) {
+		t.Errorf("costComplete false and legs 0 are always present:\n%s", got)
+	}
+}
+
 // TestGoldenReleasedToNodeWithASellerOwnedLine pins lines[].ownerRef: present
 // on the seller-owned line, omitted on the operator-owned one (ADR 0012). The
 // operator-only form is FulfillmentReleasedToNode.json above. FulfillmentQueued
