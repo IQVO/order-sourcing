@@ -157,7 +157,7 @@ func (r *ReadModels) PutRegion(ctx context.Context, g network.Region) error {
 
 // GetListing implements ports.ReadModels.
 func (r *ReadModels) GetListing(ctx context.Context, id string) (network.Listing, error) {
-	l, err := scanListing(queryFor(ctx, r.pool).QueryRow(ctx, `SELECT listing_id, catalog_item_id, node_id, available_qty, as_of, suppressed
+	l, err := scanListing(queryFor(ctx, r.pool).QueryRow(ctx, `SELECT listing_id, catalog_item_id, node_id, owner_ref, available_qty, as_of, suppressed
 		FROM rm_listings WHERE listing_id = $1`, id))
 	return l, miss(err)
 }
@@ -165,16 +165,18 @@ func (r *ReadModels) GetListing(ctx context.Context, id string) (network.Listing
 func scanListing(row pgx.Row) (network.Listing, error) {
 	var l network.Listing
 	var asOf *time.Time
-	err := row.Scan(&l.ID, &l.CatalogItemID, &l.NodeID, &l.AvailableQty, &asOf, &l.Suppressed)
+	err := row.Scan(&l.ID, &l.CatalogItemID, &l.NodeID, &l.OwnerRef, &l.AvailableQty, &asOf, &l.Suppressed)
 	l.AsOf = tp(asOf)
 	return l, err
 }
 
-// PutListing implements ports.ReadModels.
+// PutListing implements ports.ReadModels. A second listing id on a known
+// (item, node, owner) key violates rm_listings_item_node_owner_key (ADR 0012).
 func (r *ReadModels) PutListing(ctx context.Context, l network.Listing) error {
-	_, err := queryFor(ctx, r.pool).Exec(ctx, `INSERT INTO rm_listings (listing_id, catalog_item_id, node_id, available_qty, as_of, suppressed)
-		VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (listing_id) DO UPDATE SET catalog_item_id=$2, node_id=$3, available_qty=$4, as_of=$5, suppressed=$6`,
-		l.ID, l.CatalogItemID, l.NodeID, l.AvailableQty, nullTime(l.AsOf), l.Suppressed)
+	_, err := queryFor(ctx, r.pool).Exec(ctx, `INSERT INTO rm_listings (listing_id, catalog_item_id, node_id, owner_ref, available_qty, as_of, suppressed)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (listing_id) DO UPDATE SET catalog_item_id=$2, node_id=$3, owner_ref=$4, available_qty=$5,
+		as_of=$6, suppressed=$7`,
+		l.ID, l.CatalogItemID, l.NodeID, l.OwnerRef, l.AvailableQty, nullTime(l.AsOf), l.Suppressed)
 	return wrap("put listing", err)
 }
 

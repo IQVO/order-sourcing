@@ -81,6 +81,7 @@ type lineView struct {
 	LineNo        int    `json:"lineNo"`
 	CatalogItemID string `json:"catalogItemId"`
 	ListingID     string `json:"listingId,omitempty"`
+	OwnerRef      string `json:"ownerRef,omitempty"`
 	Quantity      int    `json:"quantity"`
 }
 
@@ -155,7 +156,7 @@ func toPromise(p views.Promise) promiseView {
 func toLines(lines []views.Line) []lineView {
 	out := make([]lineView, 0, len(lines))
 	for _, l := range lines {
-		out = append(out, lineView{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, Quantity: l.Quantity})
+		out = append(out, lineView{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, OwnerRef: l.OwnerRef, Quantity: l.Quantity})
 	}
 	return out
 }

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -89,9 +90,17 @@ func (r *ReadModels) GetListing(ctx context.Context, id string) (network.Listing
 	return get(r.s, ctx, r.s.listings, id)
 }
 
-// PutListing implements ports.ReadModels.
+// PutListing implements ports.ReadModels. Like the Postgres unique index, a
+// second listing id on a known (item, node, owner) key is refused (ADR 0012).
 func (r *ReadModels) PutListing(ctx context.Context, l network.Listing) error {
-	return put(r.s, ctx, r.s.listings, l.ID, l)
+	defer r.s.enter(ctx)()
+	for _, o := range r.s.listings {
+		if l.CatalogItemID != "" && o.ID != l.ID && o.Key() == l.Key() {
+			return fmt.Errorf("put listing %s: availability key %+v is taken by listing %s", l.ID, l.Key(), o.ID)
+		}
+	}
+	r.s.listings[l.ID] = l
+	return nil
 }
 
 // PutDiscontinued implements ports.ReadModels.

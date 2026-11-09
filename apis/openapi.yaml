@@ -406,6 +406,11 @@ components:
         listingId:
           type: string
           description: The listing of the released node; absent while QUEUED.
+        ownerRef:
+          type: string
+          description: >-
+            The seller (sellerId) whose stock the released line takes, chosen by the OwnerChoice rule at the
+            released node (ADR 0012). Absent while QUEUED and when the line is operator-owned.
         quantity:
           type: integer
           minimum: 1

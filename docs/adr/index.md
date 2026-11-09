@@ -25,3 +25,4 @@ The *Status* column is copied from each ADR's own `## Status` section.
 | [0009](./0009-a2a-inbound-adapter.md) | an A2A inbound adapter (read-only) | Accepted (2026-10-29) |
 | [0010](./0010-adopt-the-fleet-rest-api-guideline.md) | adopt the fleet REST API guideline (noun routes, global idempotency key, 409 reuse, keyset paging) | Accepted (2026-11-01) |
 | [0011](./0011-money-denominated-assignment-cost.md) | the money-denominated AssignmentCost (planner-declared cents, ordinal penalties demoted to tie-breakers) | Accepted (2026-11-05) |
+| [0012](./0012-owner-aware-availability-and-sourcing.md) | Owner-aware availability and sourcing | Accepted (2026-11-08) |

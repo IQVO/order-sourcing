@@ -131,16 +131,16 @@ func TestProjectorAvailabilityScorecardsAndPressure(t *testing.T) {
 	p := usecases.NewProjector(e.deps)
 	ctx := context.Background()
 	rm := e.store.ReadModels()
-	e.must(p.ListingAvailabilityChanged(ctx, meta("a1"), "lst-9", "cat-9", "n1", 5, h(2)))
-	e.must(p.ListingAvailabilityChanged(ctx, meta("a2"), "lst-9", "", "", 99, h(1))) // older asOf: ignored
-	e.must(p.ListingCreated(ctx, meta("a3"), "lst-9", "cat-9", "n1"))
+	e.must(p.ListingAvailabilityChanged(ctx, meta("a1"), avail("lst-9", "cat-9", "n1", "", 5, h(2))))
+	e.must(p.ListingAvailabilityChanged(ctx, meta("a2"), avail("lst-9", "", "", "", 99, h(1)))) // older asOf: ignored
+	e.must(p.ListingCreated(ctx, meta("a3"), network.Listing{ID: "lst-9", CatalogItemID: "cat-9", NodeID: "n1"}))
 	e.must(p.ListingSuppressionChanged(ctx, meta("a4"), "lst-9", true))
 	l, _ := rm.GetListing(ctx, "lst-9")
 	if l.AvailableQty != 5 || !l.Suppressed || l.CatalogItemID != "cat-9" || l.NodeID != "n1" {
 		t.Fatalf("listing = %+v", l)
 	}
 	e.must(p.ListingSuppressionChanged(ctx, meta("a5"), "lst-9", false))
-	e.must(p.ListingAvailabilityChanged(ctx, meta("a6"), "lst-9", "", "", 7, h(3)))
+	e.must(p.ListingAvailabilityChanged(ctx, meta("a6"), avail("lst-9", "", "", "", 7, h(3))))
 	if l, _ = rm.GetListing(ctx, "lst-9"); l.Suppressed || l.AvailableQty != 7 || l.NodeID != "n1" {
 		t.Fatalf("listing = %+v", l)
 	}

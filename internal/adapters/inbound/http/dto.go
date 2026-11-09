@@ -21,6 +21,7 @@ type lineDTO struct {
 	LineNo        int    `json:"lineNo"`
 	CatalogItemID string `json:"catalogItemId"`
 	ListingID     string `json:"listingId,omitempty"`
+	OwnerRef      string `json:"ownerRef,omitempty"`
 	Quantity      int    `json:"quantity"`
 }
 
@@ -100,7 +101,7 @@ func toDTO(v views.Assignment) assignmentDTO {
 		CancelReason: v.CancelReason,
 	}
 	for _, l := range v.Lines {
-		d.Lines = append(d.Lines, lineDTO{l.LineNo, l.CatalogItemID, l.ListingID, l.Quantity})
+		d.Lines = append(d.Lines, lineDTO{l.LineNo, l.CatalogItemID, l.ListingID, l.OwnerRef, l.Quantity})
 	}
 	if c := v.Candidate; c != nil {
 		d.Candidate = &candidateDTO{c.NodeID, c.PickupDepartureID, c.PickupCutoffAt.UTC(), append([]string{}, c.Legs...), c.DeliveryWaveID, c.ETA.UTC(), c.Cost,

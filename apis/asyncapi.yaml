@@ -429,8 +429,12 @@ components:
         it is the purchase order''s idempotency key. `lines` is the whole group (fill-or-kill) with this node''s
         listingId. `estimatedCostCents` is the money-denominated AssignmentCost estimate of the released path in
         planner-declared cents (ADR 0011); it is omitted when the estimate is incomplete (a lane or the wave had no
-        declared cost), so consumers must decode it tolerantly — the field is additive and optional. No ship-to data:
-        the release carries no PII. Consumers: vendor-connectivity, linehaul-transportation.'
+        declared cost), so consumers must decode it tolerantly — the field is additive and optional. Each line''s
+        optional `ownerRef` is the seller whose stock the line takes, as the OwnerChoice rule picked it at this node
+        (ADR 0012: operator-owned first if it covers the line, else the covering seller with the highest availableQty,
+        ties to the lowest ownerRef in byte order; a line never spans owners); it is omitted when the line is
+        operator-owned. No ship-to data: the release carries no PII. Consumers: vendor-connectivity,
+        linehaul-transportation. Consumers: vendor-connectivity (lines[].ownerRef).'
       contentType: application/cloudevents+json
       tags:
       - name: assignment
@@ -463,6 +467,10 @@ components:
             - catalogItemId: cat-000123
               listingId: lst-000123-fc-ws-sor-01
               quantity: 2
+            - catalogItemId: cat-000456
+              listingId: lst-000456-fc-ws-sor-01-sel-0042
+              ownerRef: sel-0042
+              quantity: 1
     FulfillmentReassigned:
       name: FulfillmentReassigned
       title: The candidate node of a group changed
@@ -1437,7 +1445,8 @@ components:
       summary: A listing was created.
       description: '`type` = `com.retailnetwork.commerce.offer-availability.listing.ListingCreated`, from offer-availability.
         Fields relied on are required; every other field is ignored. Use: AvailabilityView: a listing of an item
-        at a node.'
+        at a node for one owner, keyed by (catalogItemId, nodeId, ownerRef), an absent ownerRef meaning operator-owned
+        (ADR 0012).'
       contentType: application/cloudevents+json
       tags:
       - name: consumed
@@ -1465,7 +1474,8 @@ components:
       summary: The available quantity of a listing changed.
       description: '`type` = `com.retailnetwork.commerce.offer-availability.listing.ListingAvailabilityChanged`,
         from offer-availability. Fields relied on are required; every other field is ignored. Use: AvailabilityView:
-        an availability with an older asOf is ignored.'
+        an availability with an older asOf is ignored; the optional ownerRef sets the owner of the row''s key, absent
+        meaning operator-owned (ADR 0012).'
       contentType: application/cloudevents+json
       tags:
       - name: consumed
@@ -1871,6 +1881,10 @@ components:
                   properties:
                     catalogItemId: *id002
                     listingId: *id002
+                    ownerRef:
+                      type: string
+                      description: The seller (sellerId) whose stock the line takes, chosen by the OwnerChoice rule
+                        at this node (ADR 0012). Optional and omitted when the line is operator-owned.
                     quantity: *id003
     FulfillmentReassignedEvent:
       allOf:
@@ -2519,6 +2533,10 @@ components:
               listingId: *id002
               catalogItemId: *id002
               nodeId: *id002
+              ownerRef:
+                type: string
+                description: The owning seller (sellerId); omitted for an operator-owned listing, stored as the
+                  empty owner of the AvailabilityView key (ADR 0012).
     ListingAvailabilityChangedEvent:
       allOf:
       - $ref: '#/components/schemas/ConsumedCloudEvent'
@@ -2534,6 +2552,10 @@ components:
               listingId: *id002
               catalogItemId: *id002
               nodeId: *id002
+              ownerRef:
+                type: string
+                description: The owning seller (sellerId); omitted for an operator-owned listing, stored as the
+                  empty owner of the AvailabilityView key (ADR 0012).
               availableQty: *id003
               basis: *id002
               asOf: *id001

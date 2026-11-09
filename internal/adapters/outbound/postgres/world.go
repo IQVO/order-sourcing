@@ -115,7 +115,7 @@ func loadWaves(ctx context.Context, db querier, station string, now time.Time) (
 }
 
 func loadListings(ctx context.Context, db querier, items []string) ([]network.Listing, error) {
-	return collect(ctx, db, `SELECT listing_id, catalog_item_id, node_id, available_qty, as_of, suppressed FROM rm_listings
+	return collect(ctx, db, `SELECT listing_id, catalog_item_id, node_id, owner_ref, available_qty, as_of, suppressed FROM rm_listings
 		WHERE catalog_item_id = ANY($1) ORDER BY listing_id`, func(r pgx.Rows) (network.Listing, error) { return scanListing(r) }, items)
 }
 

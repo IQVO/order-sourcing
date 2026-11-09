@@ -94,21 +94,33 @@ func Best(w World, r Request) (Option, bool) {
 	return opts[0], true
 }
 
-// ResolveLines returns the lines with the listingId of the node, or false when
-// the node cannot ship every line in full.
+// ResolveLines returns the lines with the listingId and ownerRef the
+// OwnerChoice rule picks at the node, or false when the node cannot ship every
+// line in full from ONE owner per line (ADR 0012).
 func ResolveLines(w World, nodeID string, lines []assignment.Line) ([]assignment.Line, bool) {
 	out := slices.Clone(lines)
 	for i, l := range out {
 		if w.Discontinued[l.CatalogItemID] {
 			return nil, false
 		}
-		idx := slices.IndexFunc(w.Listings, func(x network.Listing) bool { return x.NodeID == nodeID && x.CatalogItemID == l.CatalogItemID })
-		if idx < 0 || !w.Listings[idx].CanShip(l.Quantity) {
+		chosen, ok := OwnerChoice(l.Quantity, listingsAt(w.Listings, nodeID, l.CatalogItemID))
+		if !ok {
 			return nil, false
 		}
-		out[i].ListingID = w.Listings[idx].ID
+		out[i].ListingID, out[i].OwnerRef = chosen.ID, chosen.OwnerRef
 	}
 	return out, true
+}
+
+// listingsAt returns the listings of one catalogue item at one node, every owner.
+func listingsAt(all []network.Listing, nodeID, catalogItemID string) []network.Listing {
+	var out []network.Listing
+	for _, x := range all {
+		if x.NodeID == nodeID && x.CatalogItemID == catalogItemID {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 func boolRank(a, b bool) int { // true sorts first

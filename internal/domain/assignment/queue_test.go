@@ -85,6 +85,7 @@ func TestQueueRejectsInvalidInput(t *testing.T) {
 		}),
 		"bad item":     mut(func(n *New) { n.Lines[0].CatalogItemID = "" }),
 		"bad listing":  mut(func(n *New) { n.Lines[0].ListingID = "-l" }),
+		"bad owner":    mut(func(n *New) { n.Lines[0].OwnerRef = "-s" }),
 		"zero qty":     mut(func(n *New) { n.Lines[0].Quantity = 0 }),
 		"qty too big":  mut(func(n *New) { n.Lines[0].Quantity = MaxInt32 + 1 }),
 		"line no neg":  mut(func(n *New) { n.Lines[0].LineNo = -1 }),

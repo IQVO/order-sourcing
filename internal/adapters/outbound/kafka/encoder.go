@@ -33,7 +33,10 @@ type queuedLine struct {
 type releasedLine struct {
 	CatalogItemID string `json:"catalogItemId"`
 	ListingID     string `json:"listingId"`
-	Quantity      int    `json:"quantity"`
+	// OwnerRef is the seller whose stock the line takes, omitted when
+	// operator-owned (ADR 0012).
+	OwnerRef string `json:"ownerRef,omitempty"`
+	Quantity int    `json:"quantity"`
 }
 
 type excludedNode struct {
@@ -174,7 +177,7 @@ func queuedLines(in []assignment.Line) []queuedLine {
 func releasedLines(in []assignment.Line) []releasedLine {
 	out := make([]releasedLine, 0, len(in))
 	for _, l := range in {
-		out = append(out, releasedLine{CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, Quantity: l.Quantity})
+		out = append(out, releasedLine{CatalogItemID: l.CatalogItemID, ListingID: l.ListingID, OwnerRef: l.OwnerRef, Quantity: l.Quantity})
 	}
 	return out
 }
