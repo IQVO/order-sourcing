@@ -32,14 +32,17 @@ are always present. A breaking payload change would be a new `.v2` type; every s
 
 ## Published
 
-Ten events, written through the transactional outbox in the same transaction as the aggregate and drained by the always-on
-relay in `cmd/api` (at least once). Eight go to `retailnetwork.order-sourcing.events`; the two analytics-only events go **only**
-to `retailnetwork.order-sourcing.analytics`.
+Eleven events, written through the transactional outbox in the same transaction as the aggregate and drained by the always-on
+relay in `cmd/api` (at least once). Eight go to `retailnetwork.order-sourcing.events`; the three analytics-only events go **only**
+to `retailnetwork.order-sourcing.analytics`. `FulfillmentSourcingDecided` is written in the same transaction as every
+`FulfillmentReleasedToNode`, with its own `id` (ADR 0013); its optional fields are omitted when unknown (`inRegion` when either
+region is unknown, `estimatedCostCents` when the estimate is incomplete, so `costComplete` is `false`).
 
 | Event (`type` suffix after `assignment.`) | Topic | Raised by | `data` |
 | --- | --- | --- | --- |
 | `FulfillmentQueued` | analytics | `QueueAssignment` | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `deliverByLatest`, `lines[{lineNo, catalogItemId, quantity}]` |
 | `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` (`SAME_DAY`) | `assignmentId`, `releaseNo`, `orderId`, `groupNo`, `nodeId`, `pickupDepartureId`, `requiredShipBy`, `promisedDeliverByLatest`, `tier`, `lines[{catalogItemId, listingId, quantity}]` |
+| `FulfillmentSourcingDecided` | analytics | with every `FulfillmentReleasedToNode` | `assignmentId`, `orderId`, `groupNo` (optional), `releaseNo`, `nodeId`, `nodeRegionId` (optional), `destinationRegionId` (optional), `inRegion` (optional), `legs`, `estimatedCostCents` (optional), `costComplete`, `units`, `candidateCount`, `decidedAt` |
 | `FulfillmentReassigned` | events | `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` (node changed) | `assignmentId`, `fromNodeId`, `toNodeId`, `reason`, `assignmentVersion` |
 | `FulfillmentLocked` | events | `LockAssignment` | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `nodeId`, `pickupDepartureId`, `lockedAt`, `lockReason` |
 | `FulfillmentShipped` | events | `MarkShipped` | `assignmentId`, `orderId`, `groupNo`, `nodeId`, `trackingNumbers`, `shippedAt` |

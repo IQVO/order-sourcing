@@ -213,6 +213,21 @@ classDiagram
         +TrackingNumbers
         +ShippedAt
     }
+    class FulfillmentSourcingDecided {
+        <<DomainEvent analytics>>
+        +OrderID
+        +GroupNo
+        +ReleaseNo
+        +NodeID
+        +NodeRegionID
+        +DestinationRegionID
+        +Legs
+        +EstimatedCostCents
+        +Units
+        +CandidateCount
+        +DecidedAt
+        +CostComplete()
+    }
     class FulfillmentDelivered {
         <<DomainEvent analytics>>
         +OrderID
@@ -249,6 +264,7 @@ classDiagram
     Event <|.. FulfillmentReassigned
     Event <|.. FulfillmentLocked
     Event <|.. FulfillmentShipped
+    Event <|.. FulfillmentSourcingDecided
     Event <|.. FulfillmentDelivered
     Event <|.. FulfillmentUnsourceable
     Event <|.. FulfillmentCancelled
@@ -258,7 +274,7 @@ classDiagram
 
 Source: `internal/domain/shared/shared.go` (`Event`), `internal/domain/assignment/events.go`. Every event embeds `Base`
 (`assignmentId`, the aggregate version after the change and the instant); `SubjectID()` returns the `assignmentId`, which becomes
-the CloudEvents `subject` and the Kafka key. Only `FulfillmentQueued` and `FulfillmentDelivered` override `Stream()` to the
+the CloudEvents `subject` and the Kafka key. Only `FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentDelivered` override `Stream()` to the
 analytics stream. Wire field names are on the [event catalogue](/docs/api-reference/events).
 
 ## 3. The search, the read-model types and the use cases

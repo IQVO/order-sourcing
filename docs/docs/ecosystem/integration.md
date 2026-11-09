@@ -84,8 +84,9 @@ All of them are CloudEvents 1.0 in structured mode, decoded only by `internal/ad
 
 ## Downstream: what Order Sourcing publishes
 
-Ten events through the transactional outbox, at least once, key = `assignmentId`: eight to `retailnetwork.order-sourcing.events`,
-`FulfillmentQueued` and `FulfillmentDelivered` to `retailnetwork.order-sourcing.analytics` only.
+Eleven events through the transactional outbox, at least once, key = `assignmentId`: eight to `retailnetwork.order-sourcing.events`,
+`FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentDelivered` to `retailnetwork.order-sourcing.analytics` only. This
+context's own `cmd/os-projector` (ADR 0013) consumes both topics into its analytical database.
 
 | Consumer | Protocol and topic | Contract | Status |
 | --- | --- | --- | --- |

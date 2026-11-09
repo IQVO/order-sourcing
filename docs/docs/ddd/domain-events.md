@@ -27,7 +27,7 @@ Every Kafka message is a CloudEvents 1.0 event in structured JSON mode.
 | `time` | when the transition happened, UTC |
 | `datacontenttype` | `application/json` |
 | `dataschema` | `urn:retailnetwork:order-sourcing:<events\|analytics>:<EventName>:v1` |
-| Kafka topic | `retailnetwork.order-sourcing.events`, or `retailnetwork.order-sourcing.analytics` for the two analytics-only events |
+| Kafka topic | `retailnetwork.order-sourcing.events`, or `retailnetwork.order-sourcing.analytics` for the three analytics-only events |
 | Kafka key | the `assignmentId`, so one assignment's events stay in order on one partition |
 
 Every event leaves through the transactional outbox, written in the same transaction as the aggregate.
@@ -38,6 +38,7 @@ Every event leaves through the transactional outbox, written in the same transac
 | --- | --- | --- | --- |
 | `FulfillmentQueued` | analytics | `QueueAssignment` | none known |
 | `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` for `SAME_DAY` | `vendor-connectivity`, `linehaul-transportation` |
+| `FulfillmentSourcingDecided` | analytics | `ReleaseToNode`, `QueueAssignment` for `SAME_DAY` (with every `FulfillmentReleasedToNode`) | this context's `cmd/os-projector` (ADR 0013) |
 | `FulfillmentReassigned` | events | `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` (node changed) | `linehaul-transportation` |
 | `FulfillmentLocked` | events | `LockAssignment` | `delivery-promise`, `customer-ordering`, `linehaul-transportation` |
 | `FulfillmentShipped` | events | `MarkShipped` | `delivery-promise`, `customer-ordering` |
@@ -104,6 +105,23 @@ No ship-to data: the release carries no PII.
 | `nodeId` | string | The shipping node |
 | `trackingNumbers` | array of string | One per package, 1 to 100 |
 | `shippedAt` | date-time | From `VendorShipmentConfirmed` |
+
+### FulfillmentSourcingDecided
+
+The analytics-only fact of one release (ADR 0013): written in the same transaction as the `FulfillmentReleasedToNode` it
+explains, same aggregate version, its own event id.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `assignmentId`, `orderId`, `groupNo` | string, string, integer (optional) | The group |
+| `releaseNo`, `nodeId` | integer, string | The release this decision made |
+| `nodeRegionId`, `destinationRegionId` | string (optional) | From the NetworkGraphView node and the RegionAndServiceArea of the destination; omitted when unknown |
+| `inRegion` | boolean (optional) | Both regions equal; omitted when either is unknown |
+| `legs` | integer | Departures after the pickup on the chosen route |
+| `estimatedCostCents`, `costComplete` | integer (optional), boolean | The ADR 0011 estimate; omitted and `false` when any leg lacks a cost |
+| `units` | integer | Sum of the line quantities |
+| `candidateCount` | integer | Candidates the search evaluated |
+| `decidedAt` | date-time | The release instant |
 
 ### FulfillmentDelivered
 
