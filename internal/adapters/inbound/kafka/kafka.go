@@ -67,6 +67,17 @@ func readerConfig(brokers []string, topic, groupID string) kafkago.ReaderConfig 
 	}
 }
 
+// groupReaderConfig is readerConfig for one group member subscribed to
+// several topics (the analytics projector's own two topics, ADR 0013): the
+// same explicit-commit semantics, GroupTopics instead of Topic.
+func groupReaderConfig(brokers, topics []string, groupID string) kafkago.ReaderConfig {
+	return kafkago.ReaderConfig{
+		Brokers:     brokers,
+		GroupTopics: topics,
+		GroupID:     groupID,
+	}
+}
+
 func defaultLogger(logger *slog.Logger) *slog.Logger {
 	if logger == nil {
 		return slog.Default()

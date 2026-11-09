@@ -191,9 +191,12 @@ jobs:
           go-version-file: go.mod
       - name: Install gremlins
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
-      - name: Mutation testing (fast subset — every domain package)
+      # Every domain package and the pure analytics read model
+      # internal/analytics/report (ADR 0013), one package at a time, exactly
+      # as `make mutation` does.
+      - name: Mutation testing (fast subset — every domain package and the analytics read model)
         run: |
-          for p in internal/domain/*/; do
+          for p in internal/domain/*/ internal/analytics/report/; do
             echo "== gremlins unleash ./$p"
             gremlins unleash "./$p"
           done

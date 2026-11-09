@@ -53,9 +53,15 @@ func (c headerCarrier) Keys() []string {
 // carries that span, so the use case's logs get its trace_id and any event the
 // handler enqueues continues the same trace. A returned error marks the span.
 func (c *Consumer) handleTraced(ctx context.Context, msg kafkago.Message) error {
+	return processTraced(ctx, c.Topic, msg, func(ctx context.Context) error { return c.HandleMessage(ctx, msg.Value) })
+}
+
+// processTraced runs handle inside the consumer span of msg (see handleTraced);
+// fallbackTopic names the span when the message carries no topic.
+func processTraced(ctx context.Context, fallbackTopic string, msg kafkago.Message, handle func(ctx context.Context) error) error {
 	topic := msg.Topic
 	if topic == "" {
-		topic = c.Topic
+		topic = fallbackTopic
 	}
 	ctx = otel.GetTextMapPropagator().Extract(ctx, headerCarrier{headers: msg.Headers})
 	ctx, span := otel.Tracer(consumerTracerName).Start(ctx, topic+" process",
@@ -68,7 +74,7 @@ func (c *Consumer) handleTraced(ctx context.Context, msg kafkago.Message) error 
 	)
 	defer span.End()
 
-	err := c.HandleMessage(ctx, msg.Value)
+	err := handle(ctx)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
