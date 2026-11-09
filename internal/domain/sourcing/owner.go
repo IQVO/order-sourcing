@@ -1,6 +1,10 @@
 package sourcing
 
 import (
+	"cmp"
+	"slices"
+	"strings"
+
 	"github.com/claudioed/order-sourcing/internal/domain/network"
 )
 
@@ -16,30 +20,21 @@ import (
 //
 // A line never spans owners: quantities of different owners are never summed.
 func OwnerChoice(quantity int, listings []network.Listing) (network.Listing, bool) {
-	var best network.Listing
-	found := false
-	for _, l := range listings {
-		if !l.CanShip(quantity) {
-			continue
-		}
-		if !found || ownerBefore(l, best) {
-			best, found = l, true
-		}
+	covering := slices.DeleteFunc(slices.Clone(listings), func(l network.Listing) bool { return !l.CanShip(quantity) })
+	if len(covering) == 0 {
+		return network.Listing{}, false
 	}
-	return best, found
+	return slices.MinFunc(covering, compareOwners), true
 }
 
-// ownerBefore reports whether covering listing a wins over covering listing b.
-func ownerBefore(a, b network.Listing) bool {
-	aOp, bOp := a.OwnerRef == network.OperatorOwned, b.OwnerRef == network.OperatorOwned
-	if aOp != bOp {
-		return aOp
-	}
-	if a.AvailableQty != b.AvailableQty {
-		return a.AvailableQty > b.AvailableQty
-	}
-	if a.OwnerRef != b.OwnerRef {
-		return a.OwnerRef < b.OwnerRef
-	}
-	return a.ID < b.ID
+// compareOwners orders two covering listings by the OwnerChoice rule: the
+// operator first, then the higher availableQty, then the lower ownerRef in
+// byte order; the listing id only separates malformed duplicates of one owner.
+func compareOwners(a, b network.Listing) int {
+	return cmp.Or(
+		boolRank(a.OwnerRef == network.OperatorOwned, b.OwnerRef == network.OperatorOwned),
+		cmp.Compare(b.AvailableQty, a.AvailableQty),
+		strings.Compare(a.OwnerRef, b.OwnerRef),
+		strings.Compare(a.ID, b.ID),
+	)
 }
