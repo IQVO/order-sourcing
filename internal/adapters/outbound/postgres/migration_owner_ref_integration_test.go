@@ -6,8 +6,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/postgres"
 	"github.com/claudioed/order-sourcing/internal/domain/network"
 	"github.com/claudioed/order-sourcing/internal/testing/pgtest"
@@ -29,20 +27,22 @@ func TestMigrationsReachTheLatestVersion(t *testing.T) {
 	}
 }
 
-func poolAt(t *testing.T, url string) *pgxpool.Pool {
+// sqlExec runs one statement on a database of the shared pgtest container.
+type sqlExec func(sql string, args ...any) error
+
+// openAt opens a pool on url (the pgtest container) and returns a statement
+// runner, the read models on it and the close func.
+func openAt(t *testing.T, url string) (sqlExec, *postgres.ReadModels, func()) {
 	t.Helper()
 	pool, err := postgres.NewPool(context.Background(), url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(pool.Close)
-	return pool
-}
-
-func exec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) error {
-	t.Helper()
-	_, err := pool.Exec(context.Background(), sql, args...)
-	return err
+	run := func(sql string, args ...any) error {
+		_, err := pool.Exec(context.Background(), sql, args...)
+		return err
+	}
+	return run, postgres.NewReadModels(pool), pool.Close
 }
 
 // TestMigration0004BackfillsOperatorOwnedListings: rows written before 0004
@@ -53,40 +53,39 @@ func TestMigration0004BackfillsOperatorOwnedListings(t *testing.T) {
 	if err := postgres.MigrateTo(url, latestMigration-1); err != nil {
 		t.Fatalf("down to %d: %v", latestMigration-1, err)
 	}
-	old := poolAt(t, url)
+	run, _, closeOld := openAt(t, url)
 	for _, row := range [][]any{{"lst-op", "cat-1", "n1", 5}, {"lst-stub", "", "n1", 0}} {
-		if err := exec(t, old, `INSERT INTO rm_listings (listing_id, catalog_item_id, node_id, available_qty) VALUES ($1,$2,$3,$4)`, row...); err != nil {
+		if err := run(`INSERT INTO rm_listings (listing_id, catalog_item_id, node_id, available_qty) VALUES ($1,$2,$3,$4)`, row...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	old.Close()
+	closeOld()
 	if err := postgres.MigrateTo(url, latestMigration); err != nil {
 		t.Fatalf("up to %d: %v", latestMigration, err)
 	}
-	pool := poolAt(t, url)
-	rm := postgres.NewReadModels(pool)
+	run, rm, closeNew := openAt(t, url)
 	for _, id := range []string{"lst-op", "lst-stub"} {
 		if l, err := rm.GetListing(context.Background(), id); err != nil || l.OwnerRef != network.OperatorOwned {
-			t.Fatalf("backfilled %s = %+v %v, want ownerRef ''", id, l, err)
+			t.Fatalf("backfilled %s = %+v %v, want the empty ownerRef", id, l, err)
 		}
 	}
-	wantMigratedKey(t, pool)
-	pool.Close()
+	wantMigratedKey(t, run)
+	closeNew()
 	if err := postgres.MigrateTo(url, latestMigration-1); err != nil {
 		t.Fatalf("0004 down: %v", err)
 	}
 }
 
-func wantMigratedKey(t *testing.T, pool *pgxpool.Pool) {
+func wantMigratedKey(t *testing.T, run sqlExec) {
 	t.Helper()
 	ins := `INSERT INTO rm_listings (listing_id, catalog_item_id, node_id, owner_ref, available_qty) VALUES ($1,$2,$3,$4,1)`
-	if err := exec(t, pool, ins, "lst-dup", "cat-1", "n1", ""); err == nil {
+	if err := run(ins, "lst-dup", "cat-1", "n1", ""); err == nil {
 		t.Fatal("a second listing on the operator key must violate the unique index")
 	}
-	if err := exec(t, pool, ins, "lst-s1", "cat-1", "n1", "sel-1"); err != nil {
+	if err := run(ins, "lst-s1", "cat-1", "n1", "sel-1"); err != nil {
 		t.Fatalf("a seller's listing of the same item at the same node: %v", err)
 	}
-	if err := exec(t, pool, ins, "lst-stub2", "", "n1", ""); err != nil {
+	if err := run(ins, "lst-stub2", "", "n1", ""); err != nil {
 		t.Fatalf("a second stub with no item is not a key: %v", err)
 	}
 }
