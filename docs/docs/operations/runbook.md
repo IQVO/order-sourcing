@@ -23,7 +23,7 @@ Everything it knows about the network is a local read model fed by sibling event
 | `mcp` Deployment | `cmd/mcp` | `mcp.enabled` (default off, on in the fleet) | 8090 | Kong route `/api/mcp/order-sourcing`, rewritten to `/mcp` |
 | `a2a` Deployment | `cmd/a2a` | `a2a.enabled` (default off, on in the fleet) | 8093 | Kong route `/api/a2a/order-sourcing`, rewritten to `/`; the Agent Card stays under the same prefix |
 | `analytics-projector` Deployment | `cmd/os-projector` | `analytics.enabled` (default off) | 8091 (admin probes only, no Service) | none |
-| `analytics-reports` Deployment | `cmd/os-reports` | `analytics.enabled` (default off) | 8092 (Service port 80) | `analytics.reports.route.enabled`: Kong `/api/order-sourcing/reports`, rewritten to `/reports` |
+| `analytics-reports` Deployment | `cmd/os-reports` | `analytics.enabled` (default off) | 8092 (Service port 80) | `analytics.reports.route.enabled`: Kong `/api/order-sourcing/reports`, rewritten to `/reports`; `konghq.com/regex-priority: "10"` so it outranks the API prefix |
 | `frontend` Deployment | nginx serving `web/` | `frontend.enabled` (default off, on in the fleet) | 8080 | the web gateway, `/mfes/order-sourcing/` (never the API route) |
 
 The three Go binaries are in one image (`ghcr.io/iqvo/order-sourcing`). `cmd/api` is the only one that writes: one process runs
