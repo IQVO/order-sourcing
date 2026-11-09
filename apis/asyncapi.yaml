@@ -33,6 +33,14 @@ info:
     on the full `type`; unknown types and fields are ignored. Messages that are not CloudEvents and unrouted types are skipped; undecodable or invalid payloads and handlers that exhaust 5 attempts go to `<topic>.dlq`.
 
 
+    **Own events, read back for analytics (ADR 0013).** The analytics projector (`cmd/os-projector`) reads this
+    context''s OWN two topics in the fixed group `order-sourcing-analytics` and projects FulfillmentQueued,
+    FulfillmentSourcingDecided and FulfillmentUnsourceable into a separate analytical database. It dedupes on the
+    CloudEvents `id` in the same transaction as the projection, dead-letters only deterministic poison to
+    `retailnetwork.order-sourcing.analytics.dlq` and retries transient failures without a bound. It reads no
+    sibling topic.
+
+
     **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka header `content-type: application/cloudevents+json;
     charset=UTF-8`. `specversion`, `id`, `source` (`/retailnetwork/order-sourcing`), `type`, `subject` (the assignmentId),
     `time`, `datacontenttype` (`application/json`) and `dataschema` (`urn:retailnetwork:order-sourcing:<stream>:<EventName>:v1`)
@@ -253,6 +261,34 @@ operations:
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentQueued'
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentSourcingDecided'
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentDelivered'
+  projectOwnAnalyticsForAnalytics:
+    action: receive
+    title: Project this context's own analytics events into the analytical database
+    summary: The analytics projector reads back FulfillmentQueued and FulfillmentSourcingDecided (ADR 0013).
+    description: Inbound adapter internal/adapters/inbound/kafka/analytics_consumer.go, run by cmd/os-projector in
+      the consumer group ANALYTICS_CONSUMER_GROUP (default order-sourcing-analytics), one reader over both own topics.
+      Dispatches on the full `type`; FulfillmentDelivered is acknowledged without projection; any other type or a
+      non-CloudEvents message is skipped with a sampled warning. Poison only goes to
+      `retailnetwork.order-sourcing.analytics.dlq`.
+    tags:
+    - name: assignment
+    channel:
+      $ref: '#/channels/orderSourcingAnalytics'
+    messages:
+    - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentQueued'
+    - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentSourcingDecided'
+  projectOwnEventsForAnalytics:
+    action: receive
+    title: Project this context's own integration events into the analytical database
+    summary: The analytics projector reads back FulfillmentUnsourceable (ADR 0013).
+    description: Same adapter, binary and consumer group as projectOwnAnalyticsForAnalytics. The other seven
+      integration events are acknowledged without projection.
+    tags:
+    - name: assignment
+    channel:
+      $ref: '#/channels/orderSourcingEvents'
+    messages:
+    - $ref: '#/channels/orderSourcingEvents/messages/FulfillmentUnsourceable'
   consumeCustomerOrdering:
     action: receive
     title: Consume customer-ordering events
