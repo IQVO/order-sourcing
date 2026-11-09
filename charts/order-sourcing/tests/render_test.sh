@@ -406,6 +406,7 @@ reports_route="$(render_one analytics-reports-route.yaml "${base[@]}" "${an[@]}"
   --set analytics.reports.route.parentRefs[0].name=gw --set analytics.reports.route.parentRefs[0].namespace=kong)"
 grep -q 'replacePrefixMatch: /reports' <<<"$reports_route" || fail "the reports HTTPRoute must rewrite its prefix to /reports"
 grep -q 'value: /api/order-sourcing/reports' <<<"$reports_route" || fail "the reports HTTPRoute must listen on /api/order-sourcing/reports"
+grep -q 'konghq.com/regex-priority: "10"$' <<<"$reports_route" || fail "the reports HTTPRoute must carry konghq.com/regex-priority \"10\" so it outranks the API prefix under Kong's traditional router"
 grep -q "name: ${release}-reports" <<<"$reports_route" || fail "the reports HTTPRoute must target the reports Service"
 if grep -qiE 'konghq.com/plugins|auth' <<<"$reports_route"; then fail "the reports route must carry no plugin or auth (unauthenticated by fleet decision)"; fi
 an_off="$(helm template "$release" "$chart_dir" "${base[@]}" --set analytics.reports.route.enabled=true --set analytics.database.projectorUrl=postgres://p@h/a)"
