@@ -45,7 +45,7 @@ and speed protector*, evolution *custom-built* ([Subdomain classification](/docs
   becomes `UNSOURCEABLE` and is handed back for a re-promise instead of breaking the promise silently.
 - The highest slice, **VirtualQueue and AssignmentCost**, is where the differentiating knowledge lives: when to release
   (`releaseAt` = pickup cutoff minus the node's handling time minus a 30 minute vendor ack budget, never before now) and how to
-  rank candidates (100 per leg, 10 per hour of wait, 1000 cross-region, a scorecard penalty, 500 for book pressure; ties go to the
+  rank candidates (declared cents first, plus the sourcing policy's cross-region surcharge and cost-deviation budget; then the tie-break score of 100 per leg, 10 per hour of wait, 1000 cross-region, a scorecard penalty and 500 for book pressure; ties go to the
   witness node). See [Use cases](/docs/ddd/use-cases#how-a-candidate-is-chosen).
 
 ### Why complexity is high

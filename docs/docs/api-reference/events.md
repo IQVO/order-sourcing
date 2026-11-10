@@ -32,17 +32,24 @@ are always present. A breaking payload change would be a new `.v2` type; every s
 
 ## Published
 
-Eleven events, written through the transactional outbox in the same transaction as the aggregate and drained by the always-on
-relay in `cmd/api` (at least once). Eight go to `retailnetwork.order-sourcing.events`; the three analytics-only events go **only**
+Twelve events, written through the transactional outbox in the same transaction as the aggregate and drained by the always-on
+relay in `cmd/api` (at least once). Eight go to `retailnetwork.order-sourcing.events`; the four analytics-only events go **only**
 to `retailnetwork.order-sourcing.analytics`. `FulfillmentSourcingDecided` is written in the same transaction as every
 `FulfillmentReleasedToNode`, with its own `id` (ADR 0013); its optional fields are omitted when unknown (`inRegion` when either
 region is unknown, `estimatedCostCents` when the estimate is incomplete, so `costComplete` is `false`).
 
+`FulfillmentReleasedToNode` and `FulfillmentSourcingDecided` also carry two optional policy fields (ADR 0014): `policyVersion`, the
+sourcing policy version the search read (omitted when no version was published), and `effectiveCostCents`, the estimate plus the
+cross-region surcharge (omitted unless a surcharge changed the cost; present even when the estimate is incomplete). Consumers
+(vendor-connectivity, delivery-promise) decode them tolerantly. `SourcingPolicyPublished` is the one event of the `policy` entity:
+its `type` is `com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished`, its subject and Kafka key are the constant
+`policy`, and it is raised by `PUT /sourcing-policy`.
+
 | Event (`type` suffix after `assignment.`) | Topic | Raised by | `data` |
 | --- | --- | --- | --- |
 | `FulfillmentQueued` | analytics | `QueueAssignment` | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `deliverByLatest`, `lines[{lineNo, catalogItemId, quantity}]` |
-| `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` (`SAME_DAY`) | `assignmentId`, `releaseNo`, `orderId`, `groupNo`, `nodeId`, `pickupDepartureId`, `requiredShipBy`, `promisedDeliverByLatest`, `tier`, `lines[{catalogItemId, listingId, quantity}]` |
-| `FulfillmentSourcingDecided` | analytics | with every `FulfillmentReleasedToNode` | `assignmentId`, `orderId`, `groupNo` (optional), `releaseNo`, `nodeId`, `nodeRegionId` (optional), `destinationRegionId` (optional), `inRegion` (optional), `legs`, `estimatedCostCents` (optional), `costComplete`, `units`, `candidateCount`, `decidedAt` |
+| `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` (`SAME_DAY`) | `assignmentId`, `releaseNo`, `orderId`, `groupNo`, `nodeId`, `pickupDepartureId`, `requiredShipBy`, `promisedDeliverByLatest`, `tier`, `lines[{catalogItemId, listingId, ownerRef (optional), quantity}]`, `estimatedCostCents` (optional), `policyVersion` (optional), `effectiveCostCents` (optional) |
+| `FulfillmentSourcingDecided` | analytics | with every `FulfillmentReleasedToNode` | `assignmentId`, `orderId`, `groupNo` (optional), `releaseNo`, `nodeId`, `nodeRegionId` (optional), `destinationRegionId` (optional), `inRegion` (optional), `legs`, `estimatedCostCents` (optional), `costComplete`, `units`, `candidateCount`, `decidedAt`, `policyVersion` (optional), `effectiveCostCents` (optional) |
 | `FulfillmentReassigned` | events | `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` (node changed) | `assignmentId`, `fromNodeId`, `toNodeId`, `reason`, `assignmentVersion` |
 | `FulfillmentLocked` | events | `LockAssignment` | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `nodeId`, `pickupDepartureId`, `lockedAt`, `lockReason` |
 | `FulfillmentShipped` | events | `MarkShipped` | `assignmentId`, `orderId`, `groupNo`, `nodeId`, `trackingNumbers`, `shippedAt` |
@@ -51,6 +58,7 @@ region is unknown, `estimatedCostCents` when the estimate is incomplete, so `cos
 | `FulfillmentCancelled` | events | `CancelAssignment` | `assignmentId`, `orderId`, `groupNo`, `reason` |
 | `FulfillmentCancelRefused` | events | `CancelAssignment` (after the lock) | `assignmentId`, `orderId`, `groupNo`, `reason` (`CANCEL_AFTER_LOCK`) |
 | `FulfillmentConstraintRevised` | events | `ApplyRevisedPromise` | `assignmentId`, `revisionNo`, `deliverByLatest` |
+| `SourcingPolicyPublished` (type `...order-sourcing.policy.SourcingPolicyPublished`, subject `policy`) | analytics | `SourcingPolicies.Publish` (`PUT /sourcing-policy`) | `version`, `crossRegionSurchargeCents`, `maxCostDeviationPercent`, `publishedAt` |
 
 Reason vocabularies in the code (`internal/domain/assignment/types.go`): `FulfillmentReassigned.reason` is `REOPTIMISED`,
 `RELEASE_RECHECK`, `PURCHASE_ORDER_REJECTED`, `PURCHASE_ORDER_EXPIRED` or `PROMISE_REVISED`; `FulfillmentUnsourceable.reason` is

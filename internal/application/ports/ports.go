@@ -16,6 +16,7 @@ import (
 	"github.com/claudioed/order-sourcing/internal/application/repository"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
 	"github.com/claudioed/order-sourcing/internal/domain/network"
+	"github.com/claudioed/order-sourcing/internal/domain/policy"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 	"github.com/claudioed/order-sourcing/internal/domain/sourcing"
 )
@@ -70,6 +71,17 @@ type ReadModels interface {
 // for one search.
 type WorldReader interface {
 	Load(ctx context.Context, q repository.WorldQuery) (sourcing.World, error)
+}
+
+// PolicyRepository persists SourcingPolicy versions (ADR 0014); every version
+// is kept.
+type PolicyRepository interface {
+	// Current returns the highest published version, or ErrNotFound when none
+	// was published (the caller then uses policy.Default()).
+	Current(ctx context.Context) (*policy.Policy, error)
+	// Save stores a new version; a version that already exists is
+	// ErrConcurrentUpdate.
+	Save(ctx context.Context, p *policy.Policy) error
 }
 
 // EventOutbox is the write side of the transactional outbox. Called with the
@@ -131,4 +143,16 @@ type SourcingMetrics interface {
 	// SourcingFailed counts a QueueAssignment that stored nothing; reason is a
 	// stable, low-cardinality slug.
 	SourcingFailed(ctx context.Context, reason string)
+}
+
+// PolicyMetrics records what the sourcing policy did (ADR 0014); the
+// implementation lives in internal/adapters/outbound/telemetry and a nil
+// Deps.PolicyMetrics records nothing.
+type PolicyMetrics interface {
+	// PolicyVersionRead records the policy version a search read (0 = the
+	// default policy): the gauge of the current policy version.
+	PolicyVersionRead(ctx context.Context, version int)
+	// BudgetPreferred counts one release whose winner the budget rule changed
+	// relative to the pure cheapest ordering; kind is "region".
+	BudgetPreferred(ctx context.Context, kind string)
 }

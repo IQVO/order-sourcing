@@ -31,6 +31,12 @@ type Deps struct {
 	// Metrics records the business outcome of each queued shipment group; nil
 	// records nothing, so unit tests need no wiring.
 	Metrics ports.SourcingMetrics
+	// Policies is the SourcingPolicy repository (ADR 0014); nil means the
+	// default policy always applies and nothing can be published, so unit tests
+	// need no wiring. PolicyMetrics records what the policy did; nil records
+	// nothing.
+	Policies      ports.PolicyRepository
+	PolicyMetrics ports.PolicyMetrics
 }
 
 // Meta identifies the Kafka message that triggered a command. A zero Meta (a
@@ -53,6 +59,20 @@ type noMetrics struct{}
 
 func (noMetrics) GroupSourced(context.Context, string)   {}
 func (noMetrics) SourcingFailed(context.Context, string) {}
+
+// policyMetrics returns the configured PolicyMetrics or a no-op.
+func (d Deps) policyMetrics() ports.PolicyMetrics {
+	if d.PolicyMetrics != nil {
+		return d.PolicyMetrics
+	}
+	return noPolicyMetrics{}
+}
+
+// noPolicyMetrics is the PolicyMetrics of a Deps without one.
+type noPolicyMetrics struct{}
+
+func (noPolicyMetrics) PolicyVersionRead(context.Context, int)  {}
+func (noPolicyMetrics) BudgetPreferred(context.Context, string) {}
 
 // writer is what every command embeds.
 type writer struct{ Deps }

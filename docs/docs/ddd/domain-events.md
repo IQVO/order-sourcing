@@ -27,7 +27,7 @@ Every Kafka message is a CloudEvents 1.0 event in structured JSON mode.
 | `time` | when the transition happened, UTC |
 | `datacontenttype` | `application/json` |
 | `dataschema` | `urn:retailnetwork:order-sourcing:<events\|analytics>:<EventName>:v1` |
-| Kafka topic | `retailnetwork.order-sourcing.events`, or `retailnetwork.order-sourcing.analytics` for the three analytics-only events |
+| Kafka topic | `retailnetwork.order-sourcing.events`, or `retailnetwork.order-sourcing.analytics` for the analytics-only events (`SourcingPolicyPublished` has entity `policy` and subject `policy`) |
 | Kafka key | the `assignmentId`, so one assignment's events stay in order on one partition |
 
 Every event leaves through the transactional outbox, written in the same transaction as the aggregate.

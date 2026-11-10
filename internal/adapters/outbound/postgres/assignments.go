@@ -50,6 +50,12 @@ type candidateJSON struct {
 	DeliveryWaveID    string    `json:"deliveryWaveId"`
 	ETA               time.Time `json:"eta"`
 	Cost              int64     `json:"cost"`
+	// The money fields and the sourcing policy stamp (ADR 0011, ADR 0014) are
+	// optional: a row written before them decodes with zeros.
+	EstimatedCostCents int64 `json:"estimatedCostCents,omitempty"`
+	CostComplete       bool  `json:"costComplete,omitempty"`
+	SurchargeCents     int64 `json:"surchargeCents,omitempty"`
+	PolicyVersion      int   `json:"policyVersion,omitempty"`
 }
 
 type releaseJSON struct {
@@ -104,7 +110,11 @@ func encode(s assignment.Snapshot) (encoded, error) {
 	}
 	if s.Candidate != nil {
 		c := s.Candidate
-		if e.candidate, err = toJSON(candidateJSON{c.NodeID, c.PickupDepartureID, c.PickupCutoffAt.UTC(), append([]string{}, c.Legs...), c.DeliveryWaveID, c.ETA.UTC(), c.Cost}); err != nil {
+		if e.candidate, err = toJSON(candidateJSON{
+			NodeID: c.NodeID, PickupDepartureID: c.PickupDepartureID, PickupCutoffAt: c.PickupCutoffAt.UTC(), Legs: append([]string{}, c.Legs...),
+			DeliveryWaveID: c.DeliveryWaveID, ETA: c.ETA.UTC(), Cost: c.Cost, EstimatedCostCents: c.EstimatedCostCents, CostComplete: c.CostComplete,
+			SurchargeCents: c.SurchargeCents, PolicyVersion: c.PolicyVersion,
+		}); err != nil {
 			return e, err
 		}
 	}
@@ -252,7 +262,8 @@ func decode(s *assignment.Snapshot, lines, candidate, releases, excluded, tracki
 		return err
 	}
 	s.Candidate = &assignment.Candidate{NodeID: c.NodeID, PickupDepartureID: c.PickupDepartureID, PickupCutoffAt: c.PickupCutoffAt.UTC(),
-		Legs: c.Legs, DeliveryWaveID: c.DeliveryWaveID, ETA: c.ETA.UTC(), Cost: c.Cost}
+		Legs: c.Legs, DeliveryWaveID: c.DeliveryWaveID, ETA: c.ETA.UTC(), Cost: c.Cost, EstimatedCostCents: c.EstimatedCostCents,
+		CostComplete: c.CostComplete, SurchargeCents: c.SurchargeCents, PolicyVersion: c.PolicyVersion}
 	return nil
 }
 

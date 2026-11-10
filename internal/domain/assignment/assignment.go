@@ -160,6 +160,9 @@ func (a *Assignment) checkCandidate(c *Candidate) error {
 	if c.EstimatedCostCents < 0 {
 		return shared.Invalid("estimatedCostCents must not be negative")
 	}
+	if c.SurchargeCents < 0 || c.PolicyVersion < 0 || c.PolicyVersion > MaxInt32 {
+		return shared.Invalid("surchargeCents must not be negative and policyVersion must be between 0 and %d", MaxInt32)
+	}
 	if a.isExcluded(c.NodeID) {
 		return fmt.Errorf("%w: %s", ErrNodeExcluded, c.NodeID)
 	}

@@ -20,6 +20,7 @@ type Fixture struct {
 	Assignments ports.AssignmentRepository
 	ReadModels  ports.ReadModels
 	World       ports.WorldReader
+	Policies    ports.PolicyRepository
 	Inbox       ports.Inbox
 	Outbox      ports.EventOutbox
 	UoW         ports.UnitOfWork
@@ -41,6 +42,7 @@ func Run(t *testing.T, f Factory) {
 	t.Run("read models", func(t *testing.T) { runReadModels(t, f) })
 	t.Run("world", func(t *testing.T) { runWorld(t, f) })
 	t.Run("unit of work", func(t *testing.T) { runUnitOfWork(t, f) })
+	t.Run("sourcing policies", func(t *testing.T) { runPolicies(t, f) })
 }
 
 func ctx() context.Context { return context.Background() }

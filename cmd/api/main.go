@@ -116,17 +116,19 @@ type services struct {
 }
 
 // buildServices wires the adapters and use cases; metrics (nil = none) is the
-// business-counter port the queueing use case reports to.
-func buildServices(pool *pgxpool.Pool, readiness *inboundhttp.Readiness, metrics ports.SourcingMetrics) services {
+// business-counter port the queueing use case reports to and policyMetrics
+// (nil = none) the one of the sourcing policy (ADR 0014).
+func buildServices(pool *pgxpool.Pool, readiness *inboundhttp.Readiness, metrics ports.SourcingMetrics, policyMetrics ports.PolicyMetrics) services {
 	outbox := postgres.NewOutbox(pool, outboundkafka.Encoder{})
 	assignments := postgres.NewAssignmentRepository(pool)
 	deps := usecases.Deps{
 		Assignments: assignments, ReadModels: postgres.NewReadModels(pool), World: postgres.NewWorldReader(pool), Outbox: outbox,
 		Inbox: postgres.NewInbox(pool), UoW: postgres.NewUnitOfWork(pool), Clock: clock.System{}, IDs: ids.UUID{},
-		Metrics: metrics,
+		Metrics: metrics, Policies: postgres.NewPolicyRepository(pool), PolicyMetrics: policyMetrics,
 	}
 	reoptimise := usecases.NewReoptimiseAssignment(deps)
 	queries := usecases.NewQueries(assignments)
+	policies := usecases.NewSourcingPolicies(deps)
 	return services{
 		pool: pool, outbox: outbox, deps: deps,
 		handlers: inboundkafka.Handlers{UC: inboundkafka.UseCases{
@@ -136,7 +138,7 @@ func buildServices(pool *pgxpool.Pool, readiness *inboundhttp.Readiness, metrics
 			Project: usecases.NewProjector(deps),
 		}},
 		server: &inboundhttp.Server{
-			List: queries, Get: queries, Reoptimise: reoptimise, Readiness: readiness,
+			List: queries, Get: queries, Reoptimise: reoptimise, PolicyGet: policies, PolicyPut: policies, Readiness: readiness,
 			Idempotency: inboundhttp.RequireIdempotencyKey(pool, postgres.BindTx),
 		},
 		sweep: usecases.NewSweepQueue(deps, usecases.NewReleaseToNode(deps), reoptimise),
@@ -187,7 +189,11 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	svc := buildServices(pool, readiness, sourcingMetrics)
+	policyMetrics, err := telemetry.NewPolicyMetrics()
+	if err != nil {
+		return err
+	}
+	svc := buildServices(pool, readiness, sourcingMetrics, policyMetrics)
 	svc.server.Logger, svc.server.ServiceName = logger, tel.serviceName
 	httpServer := &http.Server{
 		Addr: getenv("HTTP_ADDR", ":8080"), Handler: svc.server.Handler(), ReadHeaderTimeout: serviceReadHeaderTimeout,

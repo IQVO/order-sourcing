@@ -17,6 +17,9 @@ type searchResult struct {
 	best       *sourcing.Option
 	world      sourcing.World
 	candidates int
+	// budgetPreferred is true when the sourcing policy's budget rule put the
+	// best option ahead of the pure cheapest one (ADR 0014).
+	budgetPreferred bool
 }
 
 // facts is what the search knew about its best option (ADR 0013): the regions
@@ -45,13 +48,18 @@ func (w writer) bestOption(ctx context.Context, now time.Time, prefix string, p 
 	if err != nil {
 		return searchResult{}, fmt.Errorf("load read models: %w", err)
 	}
-	opts := sourcing.Search(world, sourcing.Request{
+	pol, err := w.currentPolicy(ctx)
+	if err != nil {
+		return searchResult{}, err
+	}
+	ranking := sourcing.Rank(world, sourcing.Request{
 		Now: now, Tier: p.Tier, DeliverByLatest: p.DeliverByLatest, WitnessNodeID: p.WitnessNodeID, Lines: lines, Excluded: excluded,
+		Policy: pol,
 	})
-	if len(opts) == 0 {
+	if len(ranking.Options) == 0 {
 		return searchResult{world: world}, nil
 	}
-	return searchResult{best: &opts[0], world: world, candidates: len(opts)}, nil
+	return searchResult{best: &ranking.Options[0], world: world, candidates: len(ranking.Options), budgetPreferred: ranking.BudgetPreferred}, nil
 }
 
 // candidateOf returns the candidate and release point of an option, nil and

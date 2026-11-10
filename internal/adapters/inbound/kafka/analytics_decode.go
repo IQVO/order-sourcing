@@ -10,9 +10,12 @@ import (
 	"github.com/claudioed/order-sourcing/internal/analytics/report"
 )
 
-// entityAssignment is the CloudEvents entity segment of this context's one
-// aggregate.
-const entityAssignment = "assignment"
+// entityAssignment is the CloudEvents entity segment of the assignment
+// aggregate; entityPolicy that of the SourcingPolicy (ADR 0014).
+const (
+	entityAssignment = "assignment"
+	entityPolicy     = "policy"
+)
 
 // projectedKinds maps the FULL CloudEvents type of each projected event
 // (ADR 0013) to its report.Kind.
@@ -34,6 +37,8 @@ func acknowledgedTypes() map[string]bool {
 	} {
 		out[cloudevents.Type(entityAssignment, name)] = true
 	}
+	// The analytics-only policy fact (ADR 0014): no report needs it yet.
+	out[cloudevents.Type(entityPolicy, "SourcingPolicyPublished")] = true
 	return out
 }
 
