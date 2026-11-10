@@ -14,8 +14,9 @@ info:
     per group in a virtual queue, re-optimises it until its release point,
     releases it to one node (a purchase order through vendor-connectivity),
     reassigns on rejection or expiry, and locks it when the node accepts. This
-    surface is the network-ops planner's: list and inspect assignments, and ask
-    for an immediate re-optimisation of a QUEUED one. Every other change
+    surface is the network-ops planner's: list and inspect assignments, ask
+    for an immediate re-optimisation of a QUEUED one, and read and publish the
+    versioned sourcing policy (ADR 0014). Every other change
     arrives as a Kafka event (see apis/asyncapi.yaml). No PII is held or
     returned by this context. No authentication, consistent with the rest of
     the network. Errors are RFC 9457 problem details whose type is the URI
@@ -37,6 +38,11 @@ servers:
 tags:
   - name: Assignments
     description: FulfillmentAssignment, one per shipment group of a customer order.
+  - name: Sourcing policy
+    description: >-
+      The versioned SourcingPolicy (ADR 0014): a cross-region surcharge and a
+      regional cost-deviation budget the candidate search reads once per search.
+      Everything defaults to 0 (off) until an operator publishes a version.
   - name: reports
     description: >-
       Read-only analytics reports (ADR 0013), served by cmd/os-reports from the
@@ -231,6 +237,118 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sourcing-policy:
+    get:
+      tags: [Sourcing policy]
+      operationId: getSourcingPolicy
+      summary: Get the current sourcing policy (GetSourcingPolicy)
+      description: >-
+        The current version of the sourcing policy, or the defaults with
+        version 0 (both levers 0, no publishedAt) when nothing was published.
+        Every published version is kept; only the highest one is read.
+      responses:
+        '200':
+          description: The current sourcing policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcingPolicy'
+              examples:
+                published:
+                  value:
+                    version: 2
+                    crossRegionSurchargeCents: 250
+                    maxCostDeviationPercent: 20
+                    publishedAt: '2026-11-09T12:00:00Z'
+                defaults:
+                  value:
+                    version: 0
+                    crossRegionSurchargeCents: 0
+                    maxCostDeviationPercent: 0
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Sourcing policy]
+      operationId: putSourcingPolicy
+      summary: Publish the next sourcing policy version (PublishSourcingPolicy)
+      description: >-
+        Replaces the whole policy document: validates both ranges, stores
+        version n+1 (n is the highest stored version, 0 when none) and raises
+        the analytics-only SourcingPolicyPublished event in the same
+        transaction. An omitted field takes its default, 0 (the lever is off);
+        an empty body is 400. Every call publishes a NEW version, so it takes
+        an Idempotency-Key like a POST: the same key with the same body replays
+        the first answer for 24 hours instead of publishing twice; the same key
+        with another request is 409 idempotency-key-reused. Searches that
+        started before the publish keep the version they read.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourcingPolicyRequest'
+            example:
+              crossRegionSurchargeCents: 250
+              maxCostDeviationPercent: 20
+      responses:
+        '200':
+          description: >-
+            The published version. A replay of the first answer carries
+            Idempotency-Replayed: true.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcingPolicy'
+        '400':
+          description: >-
+            idempotency-key-required (no Idempotency-Key header) or
+            idempotency-key-invalid (not 1 to 128 printable ASCII characters),
+            or malformed-request (no body, not valid JSON, a field that is not
+            an integer, an unknown field, trailing data, or a NUL character).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '409':
+          description: >-
+            concurrent-update (another publish took the same version number;
+            retry with a new Idempotency-Key) or idempotency-key-reused (the
+            key was already used with a different request).
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: >-
+            validation-failed (ErrValidation), crossRegionSurchargeCents outside
+            0..100000 or maxCostDeviationPercent outside 0..200.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://errors.order-sourcing.retail-network.example/validation-failed
+                title: Validation failed
+                status: 422
+                detail: 'validation failed: maxCostDeviationPercent must be between 0 and 200'
+                instance: /sourcing-policy
         '500':
           $ref: '#/components/responses/InternalError'
   /reports/sourcing-mix:
@@ -647,6 +765,20 @@ components:
           description: 'The money-denominated AssignmentCost estimate of the path in planner-declared cents: the
             per-unit lane costs of every leg plus the final wave''s per-stop cost (ADR 0011). Optional: absent
             when the estimate is incomplete (a lane or the wave had no declared cost).'
+        policyVersion:
+          type: integer
+          minimum: 1
+          description: >-
+            The sourcing policy version the search read (ADR 0014). Optional,
+            absent when no policy version was published.
+        effectiveCostCents:
+          type: integer
+          minimum: 0
+          description: >-
+            The estimate's cents plus the policy's cross-region surcharge (ADR 0014).
+            Optional, absent unless a surcharge changed the cost, that is when it
+            differs from the estimate's cents; present even when the estimate is
+            incomplete (a surcharge applies to an incomplete estimate too).
     Release:
       type: object
       required: [releaseNo, nodeId, releasedAt, requiredShipBy, outcome]
@@ -779,3 +911,40 @@ components:
             stale-assignment-version. Absent or 0 skips the check; a negative
             value is 422 validation-failed. Unknown fields are 400
             malformed-request. The whole body may be omitted.
+    SourcingPolicy:
+      type: object
+      required: [version, crossRegionSurchargeCents, maxCostDeviationPercent]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+          description: The policy version; 0 is the built-in default (nothing published).
+        crossRegionSurchargeCents:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Added to the effective cost of a candidate whose node region differs from the delivery
+            area region (both known). 0 = off.
+        maxCostDeviationPercent:
+          type: integer
+          minimum: 0
+          maximum: 200
+          description: 'The regional budget: among candidates whose effective cost is within cheapest +
+            floor(cheapest * percent / 100), an in-region candidate beats a cross-region one. 0 = off.'
+        publishedAt:
+          type: string
+          format: date-time
+          description: When the version was published. Absent on version 0.
+    SourcingPolicyRequest:
+      type: object
+      properties:
+        crossRegionSurchargeCents:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 0
+        maxCostDeviationPercent:
+          type: integer
+          minimum: 0
+          maximum: 200
+          default: 0

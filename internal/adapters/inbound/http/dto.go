@@ -34,6 +34,10 @@ type candidateDTO struct {
 	ETA                time.Time `json:"eta"`
 	Cost               int64     `json:"cost"`
 	EstimatedCostCents *int64    `json:"estimatedCostCents,omitempty"`
+	// PolicyVersion is omitted when no sourcing policy was published and
+	// EffectiveCostCents unless a surcharge changed the cost (ADR 0014).
+	PolicyVersion      int    `json:"policyVersion,omitempty"`
+	EffectiveCostCents *int64 `json:"effectiveCostCents,omitempty"`
 }
 
 type releaseDTO struct {
@@ -90,6 +94,16 @@ func estimateCentsOf(c *views.Candidate) *int64 {
 	return &cents
 }
 
+// effectiveCentsOf is the wire value of a candidate's effective cost: present
+// only when a surcharge changed the cost (ADR 0014).
+func effectiveCentsOf(c *views.Candidate) *int64 {
+	if c.SurchargeCents == 0 {
+		return nil
+	}
+	cents := c.EffectiveCostCents()
+	return &cents
+}
+
 func toDTO(v views.Assignment) assignmentDTO {
 	d := assignmentDTO{
 		AssignmentID: v.AssignmentID, OrderID: v.OrderID, GroupNo: v.GroupNo, DestinationPostalPrefix: v.DestinationPostalPrefix,
@@ -105,7 +119,7 @@ func toDTO(v views.Assignment) assignmentDTO {
 	}
 	if c := v.Candidate; c != nil {
 		d.Candidate = &candidateDTO{c.NodeID, c.PickupDepartureID, c.PickupCutoffAt.UTC(), append([]string{}, c.Legs...), c.DeliveryWaveID, c.ETA.UTC(), c.Cost,
-			estimateCentsOf(c)}
+			estimateCentsOf(c), c.PolicyVersion, effectiveCentsOf(c)}
 	}
 	for _, r := range v.Releases {
 		d.Releases = append(d.Releases, releaseDTO{r.ReleaseNo, r.NodeID, r.ReleasedAt.UTC(), r.RequiredShipBy.UTC(), r.Outcome, r.ReasonCode})

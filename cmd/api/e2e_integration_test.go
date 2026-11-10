@@ -435,6 +435,9 @@ func TestRealWiringEndToEnd(t *testing.T) {
 		t.Fatalf("the redelivered PackageDelivered published %d FulfillmentDelivered", count(an, "FulfillmentDelivered"))
 	}
 
+	// --- the operator publishes a sourcing policy (ADR 0014) ---
+	exerciseSourcingPolicy(t, a, brokers)
+
 	// --- Kafka goes away: /readyz follows, /healthz stays ---
 	stop := 20 * time.Second
 	if err := kafkaC.Stop(context.Background(), &stop); err != nil {
