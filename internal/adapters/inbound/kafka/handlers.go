@@ -66,22 +66,26 @@ func (h Handlers) CustomerOrdering() map[string]HandlerFunc {
 		Quantity      int    `json:"quantity"`
 	}
 	type group struct {
-		GroupNo         int       `json:"groupNo"`
-		PromiseID       string    `json:"promiseId"`
-		Tier            string    `json:"tier"`
-		WitnessNodeID   string    `json:"witnessNodeId"`
-		DeliverByLatest time.Time `json:"deliverByLatest"`
-		Lines           []line    `json:"lines"`
+		GroupNo           int       `json:"groupNo"`
+		PromiseID         string    `json:"promiseId"`
+		Tier              string    `json:"tier"`
+		WitnessNodeID     string    `json:"witnessNodeId"`
+		DeliverByEarliest time.Time `json:"deliverByEarliest"`
+		DeliverByLatest   time.Time `json:"deliverByLatest"`
+		Lines             []line    `json:"lines"`
 	}
 	type placed struct {
-		OrderID                 string  `json:"orderId"`
-		DestinationPostalPrefix string  `json:"destinationPostalPrefix"`
-		Groups                  []group `json:"groups"`
+		OrderID                 string `json:"orderId"`
+		DestinationPostalPrefix string `json:"destinationPostalPrefix"`
+		// ConsolidationKey is optional: absent means the order never merges (ADR 0015).
+		ConsolidationKey string  `json:"consolidationKey"`
+		Groups           []group `json:"groups"`
 	}
 	typed(m, p+"CustomerOrderPlaced", func(ctx context.Context, e ce.Event, d placed) error {
-		cmd := usecases.QueueAssignmentCommand{Meta: meta(e), OrderID: d.OrderID, DestinationPostalPrefix: d.DestinationPostalPrefix}
+		cmd := usecases.QueueAssignmentCommand{Meta: meta(e), OrderID: d.OrderID, DestinationPostalPrefix: d.DestinationPostalPrefix, ConsolidationKey: d.ConsolidationKey}
 		for _, g := range d.Groups {
-			gc := usecases.GroupCommand{GroupNo: g.GroupNo, PromiseID: g.PromiseID, Tier: assignment.Tier(g.Tier), WitnessNodeID: g.WitnessNodeID, DeliverByLatest: g.DeliverByLatest}
+			gc := usecases.GroupCommand{GroupNo: g.GroupNo, PromiseID: g.PromiseID, Tier: assignment.Tier(g.Tier), WitnessNodeID: g.WitnessNodeID,
+				DeliverByEarliest: g.DeliverByEarliest, DeliverByLatest: g.DeliverByLatest}
 			for _, l := range g.Lines {
 				gc.Lines = append(gc.Lines, assignment.Line{LineNo: l.LineNo, CatalogItemID: l.CatalogItemID, Quantity: l.Quantity})
 			}
@@ -107,9 +111,11 @@ func (h Handlers) DeliveryPromise() map[string]HandlerFunc {
 		RevisionNo      int       `json:"revisionNo"`
 		DeliverByLatest time.Time `json:"deliverByLatest"`
 		NodeID          string    `json:"nodeId"`
+		// DeliverByEarliest is optional: absent means the window start is unknown (ADR 0015).
+		DeliverByEarliest time.Time `json:"deliverByEarliest"`
 	}) error {
 		return discard(h.UC.Revise.Execute(ctx, usecases.ApplyRevisedPromiseCommand{Meta: meta(e), PromiseID: d.PromiseID, RevisionNo: d.RevisionNo,
-			DeliverByLatest: d.DeliverByLatest, WitnessNodeID: d.NodeID}))
+			DeliverByEarliest: d.DeliverByEarliest, DeliverByLatest: d.DeliverByLatest, WitnessNodeID: d.NodeID}))
 	})
 	typed(m, "com.retailnetwork.commerce.delivery-promise.promisebook.PromiseBookExhausted", func(ctx context.Context, e ce.Event, d struct {
 		BookID            string `json:"bookId"`

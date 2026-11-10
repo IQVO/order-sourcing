@@ -13,17 +13,19 @@ export const STATES = [
 export type AssignmentState = (typeof STATES)[number];
 
 /** The promise tiers a constraint can carry. */
-export const TIERS = ["SAME_DAY", "NEXT_DAY", "TWO_DAY", "STANDARD"] as const;
+export const TIERS = ["SAME_DAY", "NEXT_DAY", "TWO_DAY", "STANDARD", "CONSOLIDATED"] as const;
 export type Tier = (typeof TIERS)[number];
 
 /** The outcome of one release to a node. */
-export const OUTCOMES = ["PENDING", "ACCEPTED", "REJECTED", "EXPIRED"] as const;
+export const OUTCOMES = ["PENDING", "ACCEPTED", "REJECTED", "EXPIRED", "WITHDRAWN"] as const;
 export type Outcome = (typeof OUTCOMES)[number];
 
 /** The promise constraint the assignment must keep (the OpenAPI Promise schema). */
 export interface PromiseConstraint {
   promiseId: string;
   tier: Tier;
+  /** The start of the promised window; absent when unknown. */
+  deliverByEarliest?: string;
   deliverByLatest: string;
   witnessNodeId: string;
   revisionNo: number;
@@ -86,6 +88,10 @@ export interface Assignment {
   shippedAt?: string;
   deliveredAt?: string;
   cancelReason?: string;
+  /** The carrier of a merged release this assignment follows (ADR 0015). */
+  consolidatedInto?: string;
+  /** The followers of a carrier (ADR 0015). */
+  consolidatedWith?: string[];
 }
 
 /** The wire answer of GET /assignments: one keyset page, ordered by assignmentId ascending. */

@@ -21,7 +21,13 @@ func runPolicies(t *testing.T, f Factory) {
 // published builds version current+1 with the given levers.
 func published(t *testing.T, current, surcharge, percent int) *policy.Policy {
 	t.Helper()
-	p, _, err := policy.Publish(current, policy.Input{CrossRegionSurchargeCents: surcharge, MaxCostDeviationPercent: percent}, hours(current+1))
+	return publishedMerge(t, current, surcharge, percent, 0)
+}
+
+// publishedMerge is published with the consolidation cap of ADR 0015.
+func publishedMerge(t *testing.T, current, surcharge, percent, merge int) *policy.Policy {
+	t.Helper()
+	p, _, err := policy.Publish(current, policy.Input{CrossRegionSurchargeCents: surcharge, MaxCostDeviationPercent: percent, ConsolidationMaxAssignments: merge}, hours(current+1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +48,7 @@ func policyMiss(t *testing.T, fx Fixture) {
 }
 
 func policyRoundTrip(t *testing.T, fx Fixture) {
-	p := published(t, 0, 250, 20)
+	p := publishedMerge(t, 0, 250, 20, 4)
 	savePolicy(t, fx, p)
 	got, err := fx.Policies.Current(ctx())
 	if err != nil {
@@ -51,7 +57,7 @@ func policyRoundTrip(t *testing.T, fx Fixture) {
 	if !reflect.DeepEqual(got.Snapshot(), p.Snapshot()) {
 		t.Fatalf("round trip differs:\n got %+v\nwant %+v", got.Snapshot(), p.Snapshot())
 	}
-	if s := got.Snapshot(); s.Version != 1 || s.CrossRegionSurchargeCents != 250 || s.MaxCostDeviationPercent != 20 || !s.PublishedAt.Equal(hours(1)) {
+	if s := got.Snapshot(); s.Version != 1 || s.CrossRegionSurchargeCents != 250 || s.MaxCostDeviationPercent != 20 || s.ConsolidationMaxAssignments != 4 || !s.PublishedAt.Equal(hours(1)) {
 		t.Fatalf("snapshot = %+v", s)
 	}
 }

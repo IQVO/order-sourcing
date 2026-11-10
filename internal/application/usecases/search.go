@@ -20,6 +20,10 @@ type searchResult struct {
 	// budgetPreferred is true when the sourcing policy's budget rule put the
 	// best option ahead of the pure cheapest one (ADR 0014).
 	budgetPreferred bool
+	// policy is the sourcing policy this search read (ADR 0014); a release reads
+	// the consolidation cap from it, so the merge uses the version the carrier's
+	// own search stamped (ADR 0015).
+	policy sourcing.Policy
 }
 
 // facts is what the search knew about its best option (ADR 0013): the regions
@@ -57,9 +61,9 @@ func (w writer) bestOption(ctx context.Context, now time.Time, prefix string, p 
 		Policy: pol,
 	})
 	if len(ranking.Options) == 0 {
-		return searchResult{world: world}, nil
+		return searchResult{world: world, policy: pol}, nil
 	}
-	return searchResult{best: &ranking.Options[0], world: world, candidates: len(ranking.Options), budgetPreferred: ranking.BudgetPreferred}, nil
+	return searchResult{best: &ranking.Options[0], world: world, candidates: len(ranking.Options), budgetPreferred: ranking.BudgetPreferred, policy: pol}, nil
 }
 
 // candidateOf returns the candidate and release point of an option, nil and

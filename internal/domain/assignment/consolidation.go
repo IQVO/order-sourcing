@@ -17,6 +17,11 @@ var keyPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func validKey(k string) bool { return k == "" || keyPattern.MatchString(k) }
 
+// ValidConsolidationKey reports whether k is empty (never merges) or a key in the
+// form customer-ordering derives; a consumer drops a malformed one instead of
+// failing the order (ADR 0015).
+func ValidConsolidationKey(k string) bool { return validKey(k) }
+
 // ConsolidationKey returns the optional customer-ordering key; "" never merges.
 func (a *Assignment) ConsolidationKey() string { return a.consolidationKey }
 

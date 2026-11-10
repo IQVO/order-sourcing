@@ -28,23 +28,26 @@ type (
 // sourcingPolicyDTO is the wire shape of the SourcingPolicy (apis/openapi.yaml).
 // publishedAt is absent on version 0, the built-in default.
 type sourcingPolicyDTO struct {
-	Version                   int        `json:"version"`
-	CrossRegionSurchargeCents int        `json:"crossRegionSurchargeCents"`
-	MaxCostDeviationPercent   int        `json:"maxCostDeviationPercent"`
-	PublishedAt               *time.Time `json:"publishedAt,omitempty"`
+	Version                   int `json:"version"`
+	CrossRegionSurchargeCents int `json:"crossRegionSurchargeCents"`
+	MaxCostDeviationPercent   int `json:"maxCostDeviationPercent"`
+	// ConsolidationMaxAssignments caps the assignments of one merged release (ADR 0015).
+	ConsolidationMaxAssignments int        `json:"consolidationMaxAssignments"`
+	PublishedAt                 *time.Time `json:"publishedAt,omitempty"`
 }
 
 // putPolicyRequest is the body of PUT /sourcing-policy: the whole document. An
 // omitted lever takes its default, 0 (switched off).
 type putPolicyRequest struct {
-	CrossRegionSurchargeCents int `json:"crossRegionSurchargeCents"`
-	MaxCostDeviationPercent   int `json:"maxCostDeviationPercent"`
+	CrossRegionSurchargeCents   int `json:"crossRegionSurchargeCents"`
+	MaxCostDeviationPercent     int `json:"maxCostDeviationPercent"`
+	ConsolidationMaxAssignments int `json:"consolidationMaxAssignments"`
 }
 
 func toPolicyDTO(v views.SourcingPolicy) sourcingPolicyDTO {
 	return sourcingPolicyDTO{
 		Version: v.Version, CrossRegionSurchargeCents: v.CrossRegionSurchargeCents, MaxCostDeviationPercent: v.MaxCostDeviationPercent,
-		PublishedAt: optTime(v.PublishedAt),
+		ConsolidationMaxAssignments: v.ConsolidationMaxAssignments, PublishedAt: optTime(v.PublishedAt),
 	}
 }
 
@@ -65,6 +68,7 @@ func (s *Server) handlePutPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := s.PolicyPut.Publish(r.Context(), policy.Input{
 		CrossRegionSurchargeCents: body.CrossRegionSurchargeCents, MaxCostDeviationPercent: body.MaxCostDeviationPercent,
+		ConsolidationMaxAssignments: body.ConsolidationMaxAssignments,
 	})
 	if err != nil {
 		writeError(w, r, err)

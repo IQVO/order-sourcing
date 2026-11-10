@@ -1,0 +1,21 @@
+{
+  "specversion": "1.0",
+  "id": "11111111-1111-4111-8111-111111111111",
+  "source": "/retailnetwork/order-sourcing",
+  "type": "com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsDeconsolidated",
+  "subject": "asg-7f3c2d10",
+  "datacontenttype": "application/json",
+  "dataschema": "urn:retailnetwork:order-sourcing:analytics:AssignmentsDeconsolidated:v1",
+  "time": "2026-10-22T14:10:00Z",
+  "data": {
+    "carrierAssignmentId": "asg-7f3c2d10",
+    "releaseNo": 1,
+    "reason": "PROMISE_REVISED",
+    "triggerAssignmentId": "asg-2c9d41aa",
+    "memberAssignmentIds": [
+      "asg-7f3c2d10",
+      "asg-2c9d41aa"
+    ],
+    "deconsolidatedAt": "2026-10-22T14:10:00Z"
+  }
+}

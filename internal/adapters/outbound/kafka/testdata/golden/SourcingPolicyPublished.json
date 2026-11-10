@@ -11,6 +11,7 @@
     "version": 2,
     "crossRegionSurchargeCents": 250,
     "maxCostDeviationPercent": 20,
+    "consolidationMaxAssignments": 4,
     "publishedAt": "2026-10-22T14:10:00Z"
   }
 }

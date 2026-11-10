@@ -11,12 +11,14 @@ import (
 
 // GroupCommand is one shipment group of a placed order.
 type GroupCommand struct {
-	GroupNo         int
-	PromiseID       string
-	Tier            assignment.Tier
-	WitnessNodeID   string
-	DeliverByLatest time.Time
-	Lines           []assignment.Line
+	GroupNo       int
+	PromiseID     string
+	Tier          assignment.Tier
+	WitnessNodeID string
+	// DeliverByEarliest is the start of the promised window; zero when unknown.
+	DeliverByEarliest time.Time
+	DeliverByLatest   time.Time
+	Lines             []assignment.Line
 }
 
 // QueueAssignmentCommand is the input of QueueAssignment (CustomerOrderPlaced).
@@ -24,7 +26,9 @@ type QueueAssignmentCommand struct {
 	Meta
 	OrderID                 string
 	DestinationPostalPrefix string
-	Groups                  []GroupCommand
+	// ConsolidationKey is the optional customer-ordering key; "" never merges (ADR 0015).
+	ConsolidationKey string
+	Groups           []GroupCommand
 }
 
 // QueueAssignment creates one assignment per group.
@@ -68,7 +72,15 @@ func (uc *QueueAssignment) queueGroup(ctx context.Context, cmd QueueAssignmentCo
 		return nil, err
 	}
 	now := uc.now()
-	promise := assignment.PromiseConstraint{PromiseID: g.PromiseID, Tier: g.Tier, DeliverByLatest: g.DeliverByLatest, WitnessNodeID: g.WitnessNodeID}
+	promise := assignment.PromiseConstraint{PromiseID: g.PromiseID, Tier: g.Tier, DeliverByEarliest: g.DeliverByEarliest, DeliverByLatest: g.DeliverByLatest,
+		WitnessNodeID: g.WitnessNodeID}
+	if promise.DeliverByEarliest.After(promise.DeliverByLatest) {
+		promise.DeliverByEarliest = time.Time{} // a window start after its end is unknown, not a reason to refuse the order
+	}
+	key := cmd.ConsolidationKey
+	if !assignment.ValidConsolidationKey(key) {
+		key = "" // tolerant decoding: a malformed key means the order never merges
+	}
 	found, err := uc.bestOption(ctx, now, cmd.DestinationPostalPrefix, promise, g.Lines, nil)
 	if err != nil {
 		return nil, err
@@ -76,7 +88,7 @@ func (uc *QueueAssignment) queueGroup(ctx context.Context, cmd QueueAssignmentCo
 	cand, releaseAt := candidateOf(found.best)
 	a, events, err := assignment.Queue(assignment.New{
 		ID: uc.IDs.NewAssignmentID(), OrderID: cmd.OrderID, GroupNo: g.GroupNo, DestinationPostalPrefix: cmd.DestinationPostalPrefix,
-		Promise: promise, Lines: g.Lines,
+		Promise: promise, Lines: g.Lines, ConsolidationKey: key,
 	}, cand, releaseAt, now)
 	if err != nil {
 		return nil, err

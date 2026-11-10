@@ -42,7 +42,12 @@ func allEvents() []shared.Event {
 		assignment.FulfillmentCancelled{Base: base(), OrderID: "ord-1", GroupNo: 1, Reason: "CUSTOMER_REQUEST"},
 		assignment.FulfillmentCancelRefused{Base: base(), OrderID: "ord-1", GroupNo: 1, Reason: "LOCKED"},
 		assignment.FulfillmentConstraintRevised{Base: base(), RevisionNo: 1, DeliverByLatest: at},
-		policy.SourcingPolicyPublished{Header: shared.Header{Version: 2, At: at}, Number: 2, CrossRegionSurchargeCents: 250, MaxCostDeviationPercent: 20, PublishedAt: at},
+		policy.SourcingPolicyPublished{Header: shared.Header{Version: 2, At: at}, Number: 2, CrossRegionSurchargeCents: 250, MaxCostDeviationPercent: 20,
+			ConsolidationMaxAssignments: 4, PublishedAt: at},
+		assignment.AssignmentsConsolidated{Base: base(), ReleaseNo: 1, NodeID: "n1", Members: mergedMembers(), ConsolidatedAt: at},
+		assignment.AssignmentsDeconsolidated{Base: base(), ReleaseNo: 1, Reason: assignment.ReasonPromiseRevised, TriggerAssignmentID: "asg-2c9d41aa",
+			MemberAssignmentIDs: []assignment.ID{"asg-7f3c2d10", "asg-2c9d41aa"}, DeconsolidatedAt: at},
+		assignment.FulfillmentReleaseWithdrawn{Base: base(), ReleaseNo: 1, OrderID: "ord-1", GroupNo: 1, Reason: assignment.ReasonPromiseRevised, WithdrawnAt: at},
 	}
 }
 
@@ -84,8 +89,8 @@ var effective = int64(1315)
 
 func TestEncoderMatchesThePublishedContract(t *testing.T) {
 	want := publishedKeys(t)
-	if len(want) != 12 {
-		t.Fatalf("the contract publishes %d messages, want 12", len(want))
+	if len(want) != 15 {
+		t.Fatalf("the contract publishes %d messages, want 15", len(want))
 	}
 	enc := kafka.Encoder{NewID: func() string { return "11111111-1111-4111-8111-111111111111" }}
 	for _, ev := range allEvents() {

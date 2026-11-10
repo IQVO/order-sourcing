@@ -13,13 +13,16 @@ type SourcingPolicy struct {
 	Version                   int
 	CrossRegionSurchargeCents int
 	MaxCostDeviationPercent   int
-	PublishedAt               time.Time
+	// ConsolidationMaxAssignments is the consolidation cap; 0 and 1 mean off (ADR 0015).
+	ConsolidationMaxAssignments int
+	PublishedAt                 time.Time
 }
 
 // SourcingPolicyFrom builds the view of a policy.
 func SourcingPolicyFrom(p *policy.Policy) SourcingPolicy {
 	return SourcingPolicy{
 		Version: p.Version(), CrossRegionSurchargeCents: p.CrossRegionSurchargeCents(),
-		MaxCostDeviationPercent: p.MaxCostDeviationPercent(), PublishedAt: p.PublishedAt(),
+		MaxCostDeviationPercent: p.MaxCostDeviationPercent(), ConsolidationMaxAssignments: p.ConsolidationMaxAssignments(),
+		PublishedAt: p.PublishedAt(),
 	}
 }
