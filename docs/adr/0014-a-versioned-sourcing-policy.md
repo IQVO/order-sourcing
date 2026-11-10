@@ -55,7 +55,12 @@ copies that model.
 5. **REST.** `GET /sourcing-policy` returns the current version, or the defaults
    with `version: 0` when nothing was published. `PUT /sourcing-policy`
    validates the ranges (422 `validation-failed`, problem+json), publishes
-   version n+1 and returns it. No MCP change.
+   version n+1 and returns it. The body is the whole document (an omitted field
+   is 0, an empty body is 400). Because every call publishes a new version, the
+   route sits behind the `Idempotency-Key` middleware like a POST, so a retried
+   publish replays instead of publishing twice; a publish that loses a race for
+   the same version number is retried once, then 409 `concurrent-update`. No
+   MCP change.
 6. **The analytics-only event `SourcingPolicyPublished`.** Type
    `com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished`,
    topic `retailnetwork.order-sourcing.analytics`, dataschema
