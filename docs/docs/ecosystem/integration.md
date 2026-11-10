@@ -84,8 +84,8 @@ All of them are CloudEvents 1.0 in structured mode, decoded only by `internal/ad
 
 ## Downstream: what Order Sourcing publishes
 
-Eleven events through the transactional outbox, at least once, key = `assignmentId`: eight to `retailnetwork.order-sourcing.events`,
-`FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentDelivered` to `retailnetwork.order-sourcing.analytics` only. This
+Twelve events through the transactional outbox, at least once, key = `assignmentId` (`policy` for `SourcingPolicyPublished`): eight to `retailnetwork.order-sourcing.events`,
+`FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered` and `SourcingPolicyPublished` to `retailnetwork.order-sourcing.analytics` only. `FulfillmentReleasedToNode` carries the optional `policyVersion` and `effectiveCostCents` (ADR 0014); consumers decode them tolerantly. This
 context's own `cmd/os-projector` (ADR 0013) consumes both topics into its analytical database.
 
 | Consumer | Protocol and topic | Contract | Status |

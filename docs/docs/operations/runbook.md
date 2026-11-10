@@ -113,10 +113,10 @@ python3 charts/order-sourcing/tests/test_service_selectors.py
 
 ## Migrations
 
-Four migrations are embedded in the binary (`internal/adapters/outbound/postgres/migrations/`): `0001_order_sourcing_schema`
+Five migrations are embedded in the binary (`internal/adapters/outbound/postgres/migrations/`): `0001_order_sourcing_schema`
 creates the 14 tables, `0002_idempotency_global_key` re-keys `idempotency_keys` by `key` alone (adding `fingerprint`),
-`0003_rm_lane_wave_cost` adds the declared cost columns to `rm_lanes` and `rm_waves`, and `0004_rm_listings_owner_ref` adds
-`rm_listings.owner_ref`. They run at boot in all three binaries through golang-migrate over `MIGRATIONS_DATABASE_URL`, so a config change or a new image is a
+`0003_rm_lane_wave_cost` adds the declared cost columns to `rm_lanes` and `rm_waves`, `0004_rm_listings_owner_ref` adds
+`rm_listings.owner_ref`, and `0005_sourcing_policies` adds `sourcing_policies` (one jsonb snapshot per published policy version). They run at boot in all three binaries through golang-migrate over `MIGRATIONS_DATABASE_URL`, so a config change or a new image is a
 rollout that migrates before serving. State lives in `schema_migrations`; a failed partial migration leaves `dirty = true` and
 every later boot fails until the schema is repaired by hand and the version forced with the golang-migrate tooling (take a
 backup first).
@@ -203,5 +203,26 @@ Symptom-by-symptom tables are in [Troubleshooting](/docs/operations/troubleshoot
 | Read logs | Grafana Loki `{app="order-sourcing"}`; JSON fields include `consumer`, `topic`, `error`, `outbox_id`, `trace_id`, `request_id` |
 | Change configuration | change the Helm values (a config change is a rollout); consumer group changes re-read the topic from the start |
 | Inspect an assignment | `GET /assignments/{id}` or the MCP tool `get_assignment` ([MCP tools](/docs/mcp/tools)) |
+| Publish a sourcing policy | `PUT /sourcing-policy` with an `Idempotency-Key` and the whole document, for example `{"crossRegionSurchargeCents": 250, "maxCostDeviationPercent": 20}` (ranges 0..100000 and 0..200, an omitted field is 0 = off; see "Publishing a sourcing policy" below). `GET /sourcing-policy` shows the current version (version 0 = defaults) |
 | Re-optimise one queued assignment | `POST /assignments/{id}/reoptimisations` with `Idempotency-Key` and optionally `{"assignmentVersion": N}` |
 | Prune bookkeeping tables | nothing prunes `idempotency_keys`, `processed_events` or published `outbox_events`; plan retention in SQL yourself (keep `processed_events` as long as a topic can be re-read) |
+
+## Publishing a sourcing policy
+
+The sourcing policy (ADR 0014) trades a bounded cost deviation for in-region fulfilment. Until a version is published nothing
+changes: version 0 is the default (both levers 0, off).
+
+1. Read the current one: `GET /sourcing-policy` (`version: 0` when nothing was published).
+2. Publish the whole document: `PUT /sourcing-policy` with `Idempotency-Key: <one per logical publish>` and a body such as
+   `{"crossRegionSurchargeCents": 250, "maxCostDeviationPercent": 20}`. `crossRegionSurchargeCents` (0..100000) is added to the
+   effective cost of a candidate whose node region differs from the delivery area region; `maxCostDeviationPercent` (0..200) is
+   the budget: an in-region candidate within `cheapest + floor(cheapest * percent / 100)` beats a cheaper cross-region one.
+   The answer is the new version (n+1). A range error is `422 validation-failed`; a lost race with another publisher is
+   `409 concurrent-update` (retry with a new key).
+3. The next search of every queued assignment (the sweep re-optimises each one every `SWEEP_INTERVAL`) uses it; releases and
+   `FulfillmentSourcingDecided` carry `policyVersion`, and `effectiveCostCents` when a surcharge changed the cost.
+4. Watch `ordersourcing_sourcing_policy_version` (the version last read) and `ordersourcing_budget_preferred_total{kind="region"}`
+   (releases the budget decided) in Grafana, and the cost-to-serve report of `cmd/os-reports`.
+5. To switch it off publish `{}` (both levers 0): that creates a new version, versions are never deleted.
+
+No environment variable, topic or chart value is involved; the analytics topic already exists.

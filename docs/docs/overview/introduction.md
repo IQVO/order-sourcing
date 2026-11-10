@@ -39,13 +39,14 @@ pick, so the acceptance is the first moment the vendor commits.
 | Capability | Where it lives |
 | --- | --- |
 | Queue one assignment per shipment group of a placed order; an unservable group is `UNSOURCEABLE` at once | `QueueAssignment`, [use cases](/docs/ddd/use-cases) |
-| Search the cheapest candidate that still meets `deliverByLatest`: `cost = 100 per leg + 10 per hour of wait + 1000 cross-region + scorecard penalty (A 0, B 50, C 200, D 500) + 500 book pressure`, ties to the witness node | `internal/domain/sourcing` |
+| Search the cheapest candidate that still meets `deliverByLatest`: lowest effective cents (declared lane and wave cents plus the sourcing policy's cross-region surcharge), an in-region candidate inside the policy's cost-deviation budget first when one is published, then the tie-break score `100 per leg + 10 per hour of wait + 1000 cross-region + scorecard penalty (A 0, B 50, C 200, D 500) + 500 book pressure`, ties to the witness node | `internal/domain/sourcing` |
+| Hold the versioned sourcing policy (cross-region surcharge, cost-deviation budget), read once per search | `SourcingPolicies`, `GET`/`PUT /sourcing-policy` |
 | Hold the virtual queue, re-optimise on every sweep and on demand, release at `releaseAt` | `SweepQueue`, `ReoptimiseAssignment`, `ReleaseToNode` |
 | Reassign on refusal or expiry (the refusing node is excluded for that promise revision) and lock on acceptance | `HandleNodeRefusal`, `LockAssignment` |
 | Follow the group through `SHIPPED` and `DELIVERED`, record a moved pickup departure | `MarkShipped`, `MarkDelivered`, `RecordPickupMoved` |
 | Decide cancels (`FulfillmentCancelled` before the lock, `FulfillmentCancelRefused` after it) and apply revised promises in every non-terminal state | `CancelAssignment`, `ApplyRevisedPromise` |
 | Maintain local read models of the network (five views stored in ten `rm_*` tables: nodes, lanes, departures, waves, service areas, regions, listings, discontinued items, scorecards, book pressure) from nine sibling topics | `Projector`, [Integration](/docs/ecosystem/integration) |
-| Publish eight integration events and three analytics-only events through a transactional outbox | [Events](/docs/api-reference/events) |
+| Publish eight integration events and four analytics-only events through a transactional outbox | [Events](/docs/api-reference/events) |
 | Serve a read-only REST, MCP and A2A surface plus one planner action | [API overview](/docs/api-reference), [MCP tools](/docs/mcp/tools) |
 | A small read-only operator remote (`web/`, `order_sourcing_mfe`) mounted by the warehouse console | `web/`, [ADR 0007](/docs/adr/0007-console-remote) |
 

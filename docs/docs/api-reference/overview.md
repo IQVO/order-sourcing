@@ -8,14 +8,15 @@ description: "Order Sourcing interfaces: REST, Kafka events, MCP and A2A, with t
 
 # API overview
 
-`order-sourcing` has four interfaces. Three are read-only. The only REST write is the planner's "re-optimise now"; everything
+`order-sourcing` has four interfaces. Three are read-only. The REST writes are the planner's "re-optimise now" and the operator's
+`PUT /sourcing-policy` (ADR 0014); everything
 else that changes an assignment arrives as a Kafka event. All of REST, MCP and A2A are **unauthenticated** by fleet decision
 (`TestNoAuthMiddlewareReintroduced` fails CI if auth middleware returns under `internal/adapters/inbound`).
 
 | Interface | Source of truth | Binary and port | Notes |
 | --- | --- | --- | --- |
-| REST | `apis/openapi.yaml` (OpenAPI 3.0.3, version 0.1.0) | `cmd/api`, `HTTP_ADDR` default `:8080`; through Kong `/api/order-sourcing` (prefix stripped) | Three operations plus `/healthz` and `/readyz`. The pages under *REST* in the sidebar are generated from the spec with `npm run gen-api-docs`; do not edit them by hand. The spec names one server, `http://localhost:8080`. |
-| Events | `apis/asyncapi.yaml` (AsyncAPI 3.0.0, version 1.0.0) | `cmd/api` consumers and relay | Eleven published events, 32 consumed types: the [event catalogue](/docs/api-reference/events); every producing command on [Domain events](/docs/ddd/domain-events). |
+| REST | `apis/openapi.yaml` (OpenAPI 3.0.3, version 0.1.0) | `cmd/api`, `HTTP_ADDR` default `:8080`; through Kong `/api/order-sourcing` (prefix stripped) | Five operations plus `/healthz` and `/readyz`. The pages under *REST* in the sidebar are generated from the spec with `npm run gen-api-docs`; do not edit them by hand. The spec names one server, `http://localhost:8080`. |
+| Events | `apis/asyncapi.yaml` (AsyncAPI 3.0.0, version 1.0.0) | `cmd/api` consumers and relay | Twelve published events, 32 consumed types: the [event catalogue](/docs/api-reference/events); every producing command on [Domain events](/docs/ddd/domain-events). |
 | MCP | [ADR 0006](/docs/adr/0006-mcp-server-adoption), `internal/adapters/inbound/mcp` | `cmd/mcp`, `MCP_ADDR` default `:8090`; Kong `/api/mcp/order-sourcing` | Streamable HTTP on `/mcp` (and `/`). Two read-only tools, no write tool: `list_assignments`, `get_assignment`. See [MCP tools](/docs/mcp/tools). |
 | Reports | `apis/openapi.yaml` tag `reports`, [ADR 0013](/docs/adr/0013-analytics-read-side-and-the-sourcing-decision-fact) | `cmd/os-reports`, `HTTP_ADDR` default `:8092`; Kong `/api/order-sourcing/reports`, rewritten to `/reports` | Four read-only GETs over the separate analytical database that `cmd/os-projector` (admin `:8091`) feeds from this context's own two topics. |
 | A2A | [ADR 0009](/docs/adr/0009-a2a-inbound-adapter), `internal/adapters/inbound/a2a` | `cmd/a2a`, `A2A_ADDR` default `:8093`; Kong `/api/a2a/order-sourcing` | JSON-RPC 2.0 on `/` and `/a2a`, Agent Card at `/.well-known/agent-card.json`. Two read-only skills, no write skill. Details below. |
@@ -29,6 +30,8 @@ The binaries and their ports are on [Architecture](/docs/overview/architecture);
 | --- | --- | --- | --- | --- |
 | Assignments | `GET /assignments` | `listAssignments` | `200 {items: [...], nextCursor}`, ordered by `assignmentId` ascending; filters `state`, `nodeId`, `orderId` combine with AND; `limit` (1 to 500, default 100) and `cursor` page it; an empty match is `200` with an empty `items` array | `400 invalid-limit`, `400 invalid-cursor`, `400 unknown-query-parameter`; `422 validation-failed` for an unknown `state` |
 | Assignments | `GET /assignments/{assignmentId}` | `getAssignment` | `200`, the assignment with its release history, excluded nodes and current candidate | `404 not-found` |
+| Sourcing policy | `GET /sourcing-policy` | `getSourcingPolicy` | `200`, the current policy `{version, crossRegionSurchargeCents, maxCostDeviationPercent, publishedAt}`; `version: 0` with both levers 0 and no `publishedAt` when nothing was published | none beyond `405`, `500` |
+| Sourcing policy | `PUT /sourcing-policy` | `putSourcingPolicy` | `200`, the published version n+1; body `{crossRegionSurchargeCents, maxCostDeviationPercent}` (whole document, an omitted field is 0), header `Idempotency-Key` required because every call publishes a new version | `400 idempotency-key-required` / `idempotency-key-invalid` / `malformed-request`, `409` (`idempotency-key-reused`, `concurrent-update`), `422 validation-failed` outside 0..100000 / 0..200 |
 | Assignments | `POST /assignments/{assignmentId}/reoptimisations` | `reoptimiseAssignment` | `200`, the assignment after re-optimisation (unchanged when the best candidate is the current one); optional body `{"assignmentVersion": n}`; header `Idempotency-Key` required | `400 idempotency-key-required` / `idempotency-key-invalid`, `404 not-found`, `409` (`idempotency-key-reused`, `assignment-locked`, `release-in-flight`, `node-excluded`, `stale-assignment-version`, `illegal-transition`, `concurrent-update`), `422` (`candidate-breaks-promise`, `validation-failed`) |
 | reports | `GET /reports/sourcing-mix?from=&to=` | `getSourcingMixReport` | `200`, per UTC day of release: `groupsReleased`, `inRegionShare` (+ `unknownRegionCount`), `meanLegs`, `reassignmentRate`, `unsourceableCount`. Served by `cmd/os-reports` on `:8092` (ADR 0013) | `400 invalid-report-range` |
 | reports | `GET /reports/order-splits?from=&to=` | `getOrderSplitsReport` | `200`, per UTC day of `FulfillmentQueued`: `ordersQueued`, `groupsPerOrder`, `splitOrderShare` | `400 invalid-report-range` |
@@ -37,7 +40,7 @@ The binaries and their ports are on [Architecture](/docs/overview/architecture);
 | Health | `GET /healthz`, `GET /readyz` | none in the spec | `200 {"status":"ok"}` / `200 {"status":"ready"}`; `/readyz` is `503` while draining or when Postgres or the Kafka broker is unreachable | see [Troubleshooting](/docs/operations/troubleshooting) |
 
 Source: `internal/adapters/inbound/http/server.go` registers exactly these routes: `/healthz`, `/readyz`, `GET /assignments`,
-`GET /assignments/{id}` and `POST /assignments/{id}/reoptimisations`. `/healthz` and `/readyz` are not in `apis/openapi.yaml`.
+`GET /assignments/{id}`, `POST /assignments/{id}/reoptimisations`, `GET /sourcing-policy` and `PUT /sourcing-policy`. `/healthz` and `/readyz` are not in `apis/openapi.yaml`.
 Assignments are never created through REST: a `CustomerOrderPlaced` event creates them.
 
 ## Conventions in the contract

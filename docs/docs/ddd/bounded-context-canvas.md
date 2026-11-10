@@ -167,7 +167,7 @@ Full glossary: [Ubiquitous language](/docs/ddd/ubiquitous-language). Top terms: 
 3. **Fill-or-kill.** A group goes to one node in full; at most one release is pending (`ErrReleaseInFlight`).
 4. **Never break a promise silently.** No node left means `UNSOURCEABLE` and `FulfillmentUnsourceable`; a revised promise
    re-searches (`ApplyRevisedPromise`).
-5. **In-region first.** Cross-region costs 1000 points; it is a penalty, not a filter.
+5. **In-region first, when the operator says so.** Money ranks candidates (ADR 0011), so a cheaper cross-region lane wins by default; cross-region still costs 1000 legacy points as a tie-break. The sourcing policy (ADR 0014) lets the operator add a cross-region surcharge and a cost-deviation budget inside which an in-region candidate wins. It is a lever, not a filter, and it is off until a policy is published.
 6. **A refusing node is excluded** for the current promise revision (`ErrNodeExcluded`); a higher `revisionNo` resets the list.
 7. **Release late, but in time to be acknowledged:** best pickup cutoff minus handling time minus 30 minutes; `SAME_DAY` at once.
 8. **Cancel only before the lock;** later requests are refused with `FulfillmentCancelRefused`.
@@ -213,4 +213,4 @@ Still open:
 - **Book pressure only rises.** No event says a book has room again; the penalty applies until the departure passes.
 - **A cancelled pickup departure after the lock.** `BookingMoved` repoints a locked assignment; nothing handles a cancelled
   departure for a locked one.
-- **Soft versus hard cross-region rule.** Business decision 5 reads as a filter; the code applies a penalty.
+- **Soft versus hard cross-region rule.** Business decision 5 reads as a filter; the code applies a tie-break penalty and, with a published sourcing policy, a surcharge and a budget.
