@@ -24,6 +24,8 @@
         "quantity": 2
       }
     ],
-    "estimatedCostCents": 1065
+    "estimatedCostCents": 1065,
+    "policyVersion": 2,
+    "effectiveCostCents": 1315
   }
 }

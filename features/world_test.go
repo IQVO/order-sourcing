@@ -40,7 +40,7 @@ func (w *world) reset() {
 	w.store = s
 	w.deps = usecases.Deps{
 		Assignments: s.Assignments(), ReadModels: s.ReadModels(), World: s.World(), Outbox: s.Outbox(),
-		Inbox: s.Inbox(), UoW: s.UnitOfWork(), Clock: memory.NewClock(t0), IDs: &memory.SequentialIDs{},
+		Inbox: s.Inbox(), UoW: s.UnitOfWork(), Clock: memory.NewClock(t0), IDs: &memory.SequentialIDs{}, Policies: s.Policies(),
 	}
 	w.lastPlaced, w.lastErr, w.outboxMark = usecases.QueueAssignmentCommand{}, nil, 0
 }

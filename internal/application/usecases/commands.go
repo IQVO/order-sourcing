@@ -70,7 +70,9 @@ func NewReleaseToNode(d Deps) *ReleaseToNode { return &ReleaseToNode{writer{d}} 
 // the best node, or declares the group UNSOURCEABLE when none is left. An
 // assignment that is no longer QUEUED is left alone (a second timer firing).
 func (uc *ReleaseToNode) Execute(ctx context.Context, id assignment.ID) (views.Assignment, error) {
-	return uc.mutate(ctx, Meta{}, id, func(ctx context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+	preferred := false
+	v, err := uc.mutate(ctx, Meta{}, id, func(ctx context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+		preferred = false
 		if a.State() != assignment.StateQueued {
 			return nil, nil
 		}
@@ -84,8 +86,14 @@ func (uc *ReleaseToNode) Execute(ctx context.Context, id assignment.ID) (views.A
 		// The search only returns nodes that ship every line, so the listings resolve; a missing
 		// listing would fail the aggregate's own check.
 		lines, _ := sourcing.ResolveLines(found.world, found.best.Candidate.NodeID, a.Lines())
+		preferred = found.budgetPreferred
 		return a.Release(&found.best.Candidate, lines, found.facts(), now)
 	})
+	if err == nil && preferred {
+		// After the commit, so a rolled-back attempt is not counted (ADR 0014).
+		uc.policyMetrics().BudgetPreferred(ctx, budgetKindRegion)
+	}
+	return v, err
 }
 
 // HandleNodeRefusalCommand is the input of HandleNodeRefusal.

@@ -21,6 +21,8 @@
     "costComplete": true,
     "units": 2,
     "candidateCount": 3,
-    "decidedAt": "2026-10-22T14:10:00Z"
+    "decidedAt": "2026-10-22T14:10:00Z",
+    "policyVersion": 2,
+    "effectiveCostCents": 1315
   }
 }

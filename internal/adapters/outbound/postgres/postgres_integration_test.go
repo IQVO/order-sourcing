@@ -27,7 +27,7 @@ func TestPostgresKeepsThePersistenceContract(t *testing.T) {
 	repocontract.Run(t, func(t *testing.T) repocontract.Fixture {
 		pool := pgtest.NewPool(t)
 		return repocontract.Fixture{
-			Assignments: postgres.NewAssignmentRepository(pool), ReadModels: postgres.NewReadModels(pool), World: postgres.NewWorldReader(pool),
+			Assignments: postgres.NewAssignmentRepository(pool), ReadModels: postgres.NewReadModels(pool), World: postgres.NewWorldReader(pool), Policies: postgres.NewPolicyRepository(pool),
 			Inbox: postgres.NewInbox(pool), Outbox: postgres.NewOutbox(pool, kafka.Encoder{}), UoW: postgres.NewUnitOfWork(pool),
 			OutboxCount: func(t *testing.T) int { return pgtest.CountRows(t, pool, "outbox_events") },
 		}

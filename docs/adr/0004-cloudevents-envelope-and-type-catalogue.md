@@ -29,7 +29,8 @@ against `apis/asyncapi.yaml`. The consumed types are listed in ADR 0003.
   present; timestamps are RFC 3339 UTC.
 - Built and decoded only through `internal/adapters/kafka/cloudevents`.
 - `<entity>` is the raising aggregate, lowercase, no separators: `assignment`
-  for every event. Tier is `commerce`.
+  for every event but one; `policy` for `SourcingPolicyPublished` (ADR 0014),
+  whose subject and Kafka key are the constant `policy`. Tier is `commerce`.
 
 ### Published types
 
@@ -39,7 +40,8 @@ only), so by `conventions.analytics_rule` they go ONLY to
 `retailnetwork.order-sourcing.analytics` (assumption A2 of ADR 0002) and never to
 the events topic. `FulfillmentSourcingDecided` (ADR 0013) is analytics only too:
 raised with every `FulfillmentReleasedToNode`, in the same transaction, with its
-own id, ONLY on the analytics topic.
+own id, ONLY on the analytics topic. `SourcingPolicyPublished` (ADR 0014) is
+analytics only as well, raised by `PUT /sourcing-policy`.
 
 ```text
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentQueued stream: analytics
@@ -53,13 +55,14 @@ type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentUnsourceab
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelled stream: events
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelRefused stream: events
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentConstraintRevised stream: events
+type: com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished stream: analytics
 ```
 
 | Event | Raised when | `data` |
 |---|---|---|
 | `FulfillmentQueued` | QueueAssignment is saved | `{assignmentId, orderId, groupNo, promiseId, deliverByLatest, lines[{lineNo, catalogItemId, quantity}]}` |
-| `FulfillmentReleasedToNode` | ReleaseToNode: QUEUED to RELEASED | `{assignmentId, releaseNo, orderId, groupNo, nodeId, pickupDepartureId, requiredShipBy, promisedDeliverByLatest, tier, lines[{catalogItemId, listingId, ownerRef?, quantity}], estimatedCostCents?}` (`?` = optional and omitted: `ownerRef` when operator-owned, ADR 0012; `estimatedCostCents` when incomplete, ADR 0011) |
-| `FulfillmentSourcingDecided` | ReleaseToNode, with every `FulfillmentReleasedToNode` (analytics only, ADR 0013) | `{assignmentId, orderId, groupNo?, releaseNo, nodeId, nodeRegionId?, destinationRegionId?, inRegion?, legs, estimatedCostCents?, costComplete, units, candidateCount, decidedAt}` (regions omitted when unknown, `inRegion` when either is; `estimatedCostCents` present exactly when `costComplete`, ADR 0011) |
+| `FulfillmentReleasedToNode` | ReleaseToNode: QUEUED to RELEASED | `{assignmentId, releaseNo, orderId, groupNo, nodeId, pickupDepartureId, requiredShipBy, promisedDeliverByLatest, tier, lines[{catalogItemId, listingId, ownerRef?, quantity}], estimatedCostCents?, policyVersion?, effectiveCostCents?}` (`?` = optional and omitted: `ownerRef` when operator-owned, ADR 0012; `estimatedCostCents` when incomplete, ADR 0011; `policyVersion` when no sourcing policy version was published and `effectiveCostCents` unless a surcharge changed the cost, ADR 0014) |
+| `FulfillmentSourcingDecided` | ReleaseToNode, with every `FulfillmentReleasedToNode` (analytics only, ADR 0013) | `{assignmentId, orderId, groupNo?, releaseNo, nodeId, nodeRegionId?, destinationRegionId?, inRegion?, legs, estimatedCostCents?, costComplete, units, candidateCount, decidedAt, policyVersion?, effectiveCostCents?}` (regions omitted when unknown, `inRegion` when either is; `estimatedCostCents` present exactly when `costComplete`, ADR 0011; `policyVersion` and `effectiveCostCents` as on the release, ADR 0014) |
 | `FulfillmentReassigned` | the candidate node changes | `{assignmentId, fromNodeId, toNodeId, reason, assignmentVersion}` |
 | `FulfillmentLocked` | LockAssignment: RELEASED to LOCKED | `{assignmentId, orderId, groupNo, promiseId, nodeId, pickupDepartureId, lockedAt, lockReason}` (promiseId, groupNo, orderId: contracts-delta E1) |
 | `FulfillmentShipped` | MarkShipped: LOCKED to SHIPPED | `{assignmentId, orderId, groupNo, nodeId, trackingNumbers[], shippedAt}` |
@@ -68,6 +71,7 @@ type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentConstraint
 | `FulfillmentCancelled` | CancelAssignment before the lock | `{assignmentId, orderId, groupNo, reason}` |
 | `FulfillmentCancelRefused` | a cancel request after the lock (E11) | `{assignmentId, orderId, groupNo, reason}` |
 | `FulfillmentConstraintRevised` | ApplyRevisedPromise (E12) | `{assignmentId, revisionNo, deliverByLatest}` |
+| `SourcingPolicyPublished` | `PUT /sourcing-policy` stores version n+1 (analytics only, ADR 0014) | `{version, crossRegionSurchargeCents, maxCostDeviationPercent, publishedAt}` (subject and key = `policy`) |
 
 Payload rules:
 

@@ -13,6 +13,8 @@ info:
     description: The order-sourcing bounded context (retail network, commerce tier, Core).
   - name: assignment
     description: Events raised by the FulfillmentAssignment aggregate.
+  - name: policy
+    description: Events raised by the SourcingPolicy aggregate (analytics only, ADR 0014).
   - name: consumed
     description: Events of sibling contexts this service consumes into its local read models or as commands.
   description: 'Event catalog for the **order-sourcing** bounded context of the retail network (commerce tier):
@@ -21,9 +23,10 @@ info:
 
     **Published.** Eleven events of the FulfillmentAssignment aggregate (entity `assignment`): eight on `retailnetwork.order-sourcing.events`
     and the three analytics-only ones (FulfillmentQueued, FulfillmentSourcingDecided, FulfillmentDelivered) ONLY on `retailnetwork.order-sourcing.analytics`,
+    plus a twelfth, analytics-only event of the SourcingPolicy aggregate (entity `policy`, subject `policy`): SourcingPolicyPublished (ADR 0014),
     through a **transactional outbox**: the aggregate row and its already-encoded events are written in ONE database
     transaction and an always-on relay drains them to Kafka (at-least-once; the CloudEvents `id` is stored with
-    the outbox row, so a retry republishes the same `id`). The eleven types are catalogued in ADR 0004.
+    the outbox row, so a retry republishes the same `id`). The twelve types are catalogued in ADR 0004 and ADR 0014.
 
 
     **Consumed.** Thirty-two event types from nine producers (ADR 0003): commands that drive the aggregate (CustomerOrderPlaced,
@@ -44,7 +47,8 @@ info:
     **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka header `content-type: application/cloudevents+json;
     charset=UTF-8`. `specversion`, `id`, `source` (`/retailnetwork/order-sourcing`), `type`, `subject` (the assignmentId),
     `time`, `datacontenttype` (`application/json`) and `dataschema` (`urn:retailnetwork:order-sourcing:<stream>:<EventName>:v1`)
-    are all required. Kafka key = the subject. Type = `com.retailnetwork.commerce.order-sourcing.assignment.<EventName>`.
+    are all required. Kafka key = the subject. Type = `com.retailnetwork.commerce.order-sourcing.assignment.<EventName>`
+    (SourcingPolicyPublished: `com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished`, subject `policy`).
     A breaking payload change is a new `.v2` type, never a mutation.
 
 
@@ -95,6 +99,8 @@ channels:
         $ref: '#/components/messages/FulfillmentSourcingDecided'
       FulfillmentDelivered:
         $ref: '#/components/messages/FulfillmentDelivered'
+      SourcingPolicyPublished:
+        $ref: '#/components/messages/SourcingPolicyPublished'
   customerOrderingEvents:
     address: retailnetwork.customer-ordering.events
     title: customer-ordering integration topic
@@ -250,9 +256,9 @@ operations:
   publishOrderSourcingAnalytics:
     action: send
     title: Publish order-sourcing analytics events
-    summary: Publish the three analytics-only events through the transactional outbox.
-    description: 'FulfillmentQueued, FulfillmentSourcingDecided and FulfillmentDelivered are analytics only: they are
-      sent ONLY to `retailnetwork.order-sourcing.analytics`.'
+    summary: Publish the four analytics-only events through the transactional outbox.
+    description: 'FulfillmentQueued, FulfillmentSourcingDecided, FulfillmentDelivered and SourcingPolicyPublished are
+      analytics only: they are sent ONLY to `retailnetwork.order-sourcing.analytics`.'
     tags:
     - name: assignment
     channel:
@@ -261,13 +267,14 @@ operations:
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentQueued'
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentSourcingDecided'
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentDelivered'
+    - $ref: '#/channels/orderSourcingAnalytics/messages/SourcingPolicyPublished'
   projectOwnAnalyticsForAnalytics:
     action: receive
     title: Project this context's own analytics events into the analytical database
     summary: The analytics projector reads back FulfillmentQueued and FulfillmentSourcingDecided (ADR 0013).
     description: Inbound adapter internal/adapters/inbound/kafka/analytics_consumer.go, run by cmd/os-projector in
       the consumer group ANALYTICS_CONSUMER_GROUP (default order-sourcing-analytics), one reader over both own topics.
-      Dispatches on the full `type`; FulfillmentDelivered is acknowledged without projection; any other type or a
+      Dispatches on the full `type`; FulfillmentDelivered and SourcingPolicyPublished are acknowledged without projection; any other type or a
       non-CloudEvents message is skipped with a sampled warning. Poison only goes to
       `retailnetwork.order-sourcing.analytics.dlq`.
     tags:
@@ -469,7 +476,10 @@ components:
         it is the purchase order''s idempotency key. `lines` is the whole group (fill-or-kill) with this node''s
         listingId. `estimatedCostCents` is the money-denominated AssignmentCost estimate of the released path in
         planner-declared cents (ADR 0011); it is omitted when the estimate is incomplete (a lane or the wave had no
-        declared cost), so consumers must decode it tolerantly — the field is additive and optional. Each line''s
+        declared cost), so consumers must decode it tolerantly — the field is additive and optional. `policyVersion`
+        is the sourcing policy version the search read (ADR 0014); it is omitted when no policy was published.
+        `effectiveCostCents` is the estimate plus the policy''s cross-region surcharge; it is omitted unless a
+        surcharge changed the cost (both fields additive and optional, decoded tolerantly). Each line''s
         optional `ownerRef` is the seller whose stock the line takes, as the OwnerChoice rule picked it at this node
         (ADR 0012: operator-owned first if it covers the line, else the covering seller with the highest availableQty,
         ties to the lowest ownerRef in byte order; a line never spans owners); it is omitted when the line is
@@ -503,6 +513,8 @@ components:
             promisedDeliverByLatest: '2026-10-24T23:00:00Z'
             tier: TWO_DAY
             estimatedCostCents: 1065
+            policyVersion: 2
+            effectiveCostCents: 1315
             lines:
             - catalogItemId: cat-000123
               listingId: lst-000123-fc-ws-sor-01
@@ -523,7 +535,9 @@ components:
         is omitted when either is unknown. `legs` counts the departures after the pickup (0 = straight to the
         station). `estimatedCostCents` follows ADR 0011 and is present exactly when `costComplete` is true. `units`
         is the sum of the line quantities; `candidateCount` the size of the ranked candidate set the release chose
-        from. Analytics only: published ONLY to retailnetwork.order-sourcing.analytics.'
+        from. `policyVersion` and `effectiveCostCents` are those of the FulfillmentReleasedToNode of the same release
+        (ADR 0014; omitted when no policy was published / no surcharge applied). Analytics only: published ONLY to
+        retailnetwork.order-sourcing.analytics.'
       contentType: application/cloudevents+json
       tags:
       - name: assignment
@@ -556,6 +570,8 @@ components:
             units: 3
             candidateCount: 4
             decidedAt: '2026-10-22T19:01:00Z'
+            policyVersion: 2
+            effectiveCostCents: 1315
     FulfillmentReassigned:
       name: FulfillmentReassigned
       title: The candidate node of a group changed
@@ -687,6 +703,39 @@ components:
             orderId: ord-51a0c9
             groupNo: 1
             deliveredAt: '2026-10-23T14:42:00Z'
+    SourcingPolicyPublished:
+      name: SourcingPolicyPublished
+      title: A new version of the sourcing policy was published (analytics only)
+      summary: A new version of the sourcing policy was published (analytics only).
+      description: '`type` = `com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished`; subject and
+        key = `policy` (the policy is one versioned document); stream `analytics` (topic
+        `retailnetwork.order-sourcing.analytics`). Raised by `PUT /sourcing-policy` in the SAME transaction as the new
+        version row (ADR 0014). `version` is the new version number (1 for the first publish, then +1);
+        `crossRegionSurchargeCents` (0..100000) is added to the effective cost of a candidate whose node region differs
+        from the delivery area region; `maxCostDeviationPercent` (0..200) is the regional budget over the cheapest
+        effective cost, 0 = off. Analytics only: published ONLY to retailnetwork.order-sourcing.analytics.'
+      contentType: application/cloudevents+json
+      tags:
+      - name: policy
+      payload:
+        $ref: '#/components/schemas/SourcingPolicyPublishedEvent'
+      examples:
+      - name: SourcingPolicyPublished
+        summary: A new version of the sourcing policy was published (analytics only).
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c70
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished
+          subject: policy
+          time: '2026-11-09T12:00:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:analytics:SourcingPolicyPublished:v1
+          data:
+            version: 2
+            crossRegionSurchargeCents: 250
+            maxCostDeviationPercent: 20
+            publishedAt: '2026-11-09T12:00:00Z'
     FulfillmentUnsourceable:
       name: FulfillmentUnsourceable
       title: No node can still meet the promise; the group goes back to delivery-promise
@@ -1843,7 +1892,7 @@ components:
           type: string
         subject:
           type: string
-          description: The aggregate root id (assignmentId for published events).
+          description: The aggregate root id (assignmentId for the assignment events, `policy` for SourcingPolicyPublished).
         time: &id001
           type: string
           format: date-time
@@ -1955,6 +2004,16 @@ components:
                 description: The money-denominated AssignmentCost estimate of the released path in planner-declared
                   cents — the per-unit lane costs of every leg plus the final wave's per-stop cost (ADR 0011).
                   Optional and omitted when the estimate is incomplete (a component had no declared cost).
+              policyVersion:
+                type: integer
+                minimum: 1
+                description: The sourcing policy version the search read (ADR 0014). Optional and omitted when no
+                  policy version was published.
+              effectiveCostCents:
+                type: integer
+                minimum: 0
+                description: The estimate plus the policy's cross-region surcharge (ADR 0014). Optional and omitted
+                  unless a surcharge changed the cost, that is when it differs from the estimate's cents.
               lines:
                 type: array
                 items:
@@ -2033,6 +2092,16 @@ components:
                 description: The size of the ranked candidate set (one per node and pickup departure) the release
                   chose from.
               decidedAt: *id001
+              policyVersion:
+                type: integer
+                minimum: 1
+                description: The sourcing policy version the search read (ADR 0014). Optional and omitted when no
+                  policy version was published.
+              effectiveCostCents:
+                type: integer
+                minimum: 0
+                description: The estimate plus the policy's cross-region surcharge (ADR 0014). Optional and omitted
+                  unless a surcharge changed the cost.
     FulfillmentReassignedEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'
@@ -2127,6 +2196,33 @@ components:
               orderId: *id002
               groupNo: *id003
               deliveredAt: *id001
+    SourcingPolicyPublishedEvent:
+      allOf:
+      - $ref: '#/components/schemas/CloudEventEnvelope'
+      - type: object
+        properties:
+          subject:
+            const: policy
+          data:
+            type: object
+            required:
+            - version
+            - crossRegionSurchargeCents
+            - maxCostDeviationPercent
+            - publishedAt
+            properties:
+              version:
+                type: integer
+                minimum: 1
+              crossRegionSurchargeCents:
+                type: integer
+                minimum: 0
+                maximum: 100000
+              maxCostDeviationPercent:
+                type: integer
+                minimum: 0
+                maximum: 200
+              publishedAt: *id001
     FulfillmentUnsourceableEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'

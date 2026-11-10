@@ -48,4 +48,5 @@ func initializeScenario(sc *godog.ScenarioContext) {
 	registerCommandSteps(sc, w)
 	registerOutcomeSteps(sc, w)
 	registerRestSteps(sc, w)
+	registerPolicySteps(sc, w)
 }

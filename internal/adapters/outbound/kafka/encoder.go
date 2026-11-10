@@ -9,6 +9,7 @@ import (
 	"github.com/claudioed/order-sourcing/internal/adapters/kafka/cloudevents"
 	"github.com/claudioed/order-sourcing/internal/application/outbox"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
+	"github.com/claudioed/order-sourcing/internal/domain/policy"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
@@ -66,6 +67,10 @@ type releasedData struct {
 	Lines                   []releasedLine `json:"lines"`
 	// EstimatedCostCents is omitted when the estimate is incomplete (ADR 0011).
 	EstimatedCostCents *int64 `json:"estimatedCostCents,omitempty"`
+	// PolicyVersion is omitted when no sourcing policy was published, and
+	// EffectiveCostCents unless a surcharge changed the cost (ADR 0014).
+	PolicyVersion      int    `json:"policyVersion,omitempty"`
+	EffectiveCostCents *int64 `json:"effectiveCostCents,omitempty"`
 }
 
 // decidedData is the analytics-only sourcing decision (ADR 0013). The regions
@@ -86,6 +91,8 @@ type decidedData struct {
 	Units               int       `json:"units"`
 	CandidateCount      int       `json:"candidateCount"`
 	DecidedAt           time.Time `json:"decidedAt"`
+	PolicyVersion       int       `json:"policyVersion,omitempty"`
+	EffectiveCostCents  *int64    `json:"effectiveCostCents,omitempty"`
 }
 
 func decided(e assignment.FulfillmentSourcingDecided) decidedData {
@@ -97,7 +104,7 @@ func decided(e assignment.FulfillmentSourcingDecided) decidedData {
 		AssignmentID: e.SubjectID(), OrderID: e.OrderID, GroupNo: e.GroupNo, ReleaseNo: e.ReleaseNo, NodeID: e.NodeID,
 		NodeRegionID: e.NodeRegionID, DestinationRegionID: e.DestinationRegionID, InRegion: inRegion, Legs: e.Legs,
 		EstimatedCostCents: e.EstimatedCostCents, CostComplete: e.CostComplete(), Units: e.Units, CandidateCount: e.CandidateCount,
-		DecidedAt: utc(e.DecidedAt),
+		DecidedAt: utc(e.DecidedAt), PolicyVersion: e.PolicyVersion, EffectiveCostCents: e.EffectiveCostCents,
 	}
 }
 
@@ -156,6 +163,15 @@ type revisedData struct {
 	AssignmentID    string    `json:"assignmentId"`
 	RevisionNo      int       `json:"revisionNo"`
 	DeliverByLatest time.Time `json:"deliverByLatest"`
+}
+
+// policyPublishedData is the analytics-only SourcingPolicyPublished payload
+// (ADR 0014): subject and Kafka key are the constant "policy".
+type policyPublishedData struct {
+	Version                   int       `json:"version"`
+	CrossRegionSurchargeCents int       `json:"crossRegionSurchargeCents"`
+	MaxCostDeviationPercent   int       `json:"maxCostDeviationPercent"`
+	PublishedAt               time.Time `json:"publishedAt"`
 }
 
 // Encoder turns a domain event into one outbox.Message holding the CloudEvents
@@ -233,7 +249,7 @@ func payload(ev shared.Event) (any, error) {
 		return queuedData{id, e.OrderID, e.GroupNo, e.PromiseID, utc(e.DeliverByLatest), queuedLines(e.Lines)}, nil
 	case assignment.FulfillmentReleasedToNode:
 		return releasedData{id, e.ReleaseNo, e.OrderID, e.GroupNo, e.NodeID, e.PickupDepartureID, utc(e.RequiredShipBy),
-			utc(e.PromisedDeliverByLatest), string(e.Tier), releasedLines(e.Lines), e.EstimatedCostCents}, nil
+			utc(e.PromisedDeliverByLatest), string(e.Tier), releasedLines(e.Lines), e.EstimatedCostCents, e.PolicyVersion, e.EffectiveCostCents}, nil
 	case assignment.FulfillmentSourcingDecided:
 		return decided(e), nil
 	case assignment.FulfillmentReassigned:
@@ -252,6 +268,8 @@ func payload(ev shared.Event) (any, error) {
 		return cancelledData{id, e.OrderID, e.GroupNo, e.Reason}, nil
 	case assignment.FulfillmentConstraintRevised:
 		return revisedData{id, e.RevisionNo, utc(e.DeliverByLatest)}, nil
+	case policy.SourcingPolicyPublished:
+		return policyPublishedData{e.Number, e.CrossRegionSurchargeCents, e.MaxCostDeviationPercent, utc(e.PublishedAt)}, nil
 	default:
 		return nil, fmt.Errorf("kafka encoder: no wire form for %T", ev)
 	}
