@@ -43,12 +43,15 @@ three regulation categories: **maintainability**, **architecture fitness**,
 | `mutation` (gremlins, full domain) | maintainability | computational | weekly schedule | no (advisory report) | tens of minutes |
 | `vuln` (govulncheck) | maintainability | computational | PR | yes | seconds |
 | `api-lint` (Spectral) | maintainability | computational | PR | yes | seconds |
+| `guide-lint` (guide_lint, hook tests) | maintainability | computational | push, PR | no — advisory (`continue-on-error`) | seconds |
+| `complexity` (gocyclo, gocognit, cyclop, funlen, nestif) | maintainability | computational | push, PR | yes | seconds |
+| `file-length` (revive, 300 LOC per Go file) | maintainability | computational | push, PR | yes for files a PR into develop touches; else report | seconds |
+| `chart-tests` (chart render/selector tests) | behaviour | computational | push, PR | yes | seconds |
 | `docs-api-drift` | maintainability | computational | PR | yes | seconds |
 | `web` (vitest/tsc/eslint) | maintainability | computational | PR | yes | minutes |
-| `helm-lint` | maintainability | computational | PR (targeting main) | yes | seconds |
-| `trivy-scan` | maintainability | computational | PR (targeting main) | yes (CRITICAL/HIGH w/ fix) | minutes |
+| `helm-lint` | maintainability | computational | PR | yes | seconds |
+| `trivy-scan` | maintainability | computational | PR (into develop and main) | yes (CRITICAL/HIGH w/ fix) | minutes |
 | `CodeQL` | maintainability | computational | PR, schedule | yes (conversation-resolution) | minutes |
-| `Scorecard` | maintainability | computational | schedule | no | minutes |
 | `drift` (deadcode, `go mod tidy -diff`, knip, coverage-quality) | maintainability | computational | weekly schedule | **no — advisory** | minutes |
 | `/code-review`, `/architecture-review`, `/domain-review` | architecture fitness / behaviour | **inferential** | invoked by hand (local-only, per user decision 2026-09-13) | no | LLM cost per invocation |
 
