@@ -137,7 +137,7 @@ func (a *Assignment) Release(best *Candidate, lines []Line, facts SourcingFacts,
 		Base: a.base(), ReleaseNo: rel.No, OrderID: a.orderID, GroupNo: a.groupNo, NodeID: rel.NodeID,
 		PickupDepartureID: best.PickupDepartureID, RequiredShipBy: rel.RequiredShipBy,
 		PromisedDeliverByLatest: a.promise.DeliverByLatest, Tier: a.promise.Tier, Lines: cloneLines(a.lines),
-		EstimatedCostCents: estimateOf(*best),
+		EstimatedCostCents: estimateOf(*best), PolicyVersion: best.PolicyVersion, EffectiveCostCents: best.EffectiveCostOnWire(),
 	}, a.sourcingDecided(rel, *best, facts)), nil
 }
 
@@ -147,7 +147,7 @@ func (a *Assignment) sourcingDecided(rel Release, best Candidate, facts Sourcing
 		Base: a.base(), OrderID: a.orderID, GroupNo: a.groupNo, ReleaseNo: rel.No, NodeID: rel.NodeID,
 		NodeRegionID: facts.NodeRegionID, DestinationRegionID: facts.DestinationRegionID, Legs: len(best.Legs),
 		EstimatedCostCents: estimateOf(best), Units: unitsOf(a.lines), CandidateCount: facts.CandidateCount,
-		DecidedAt: rel.ReleasedAt,
+		DecidedAt: rel.ReleasedAt, PolicyVersion: best.PolicyVersion, EffectiveCostCents: best.EffectiveCostOnWire(),
 	}
 }
 

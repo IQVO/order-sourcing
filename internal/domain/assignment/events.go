@@ -47,7 +47,10 @@ func (FulfillmentQueued) Stream() string { return shared.StreamAnalytics }
 // FulfillmentReleasedToNode is raised by Release. EstimatedCostCents carries
 // the money-denominated estimate of the released path in planner-declared
 // cents and is nil when the estimate is incomplete (a component had no
-// declared cost); consumers decode it tolerantly (ADR 0011).
+// declared cost); consumers decode it tolerantly (ADR 0011). PolicyVersion is
+// the sourcing policy version the search read, 0 (omitted on the wire) when
+// none was published; EffectiveCostCents is the estimate plus the policy
+// surcharges, nil (omitted) unless a surcharge changed the cost (ADR 0014).
 type FulfillmentReleasedToNode struct {
 	Base
 	ReleaseNo               int
@@ -60,6 +63,8 @@ type FulfillmentReleasedToNode struct {
 	Tier                    Tier
 	Lines                   []Line
 	EstimatedCostCents      *int64
+	PolicyVersion           int
+	EffectiveCostCents      *int64
 }
 
 // EventName returns "FulfillmentReleasedToNode".
@@ -71,6 +76,7 @@ func (FulfillmentReleasedToNode) EventName() string { return "FulfillmentRelease
 // are the departures after the pickup; EstimatedCostCents follows ADR 0011
 // (nil when incomplete); Units is the sum of the line quantities and
 // CandidateCount the size of the candidate set the release chose from.
+// PolicyVersion and EffectiveCostCents follow FulfillmentReleasedToNode (ADR 0014).
 type FulfillmentSourcingDecided struct {
 	Base
 	OrderID             string
@@ -84,6 +90,8 @@ type FulfillmentSourcingDecided struct {
 	Units               int
 	CandidateCount      int
 	DecidedAt           time.Time
+	PolicyVersion       int
+	EffectiveCostCents  *int64
 }
 
 // EventName returns "FulfillmentSourcingDecided".

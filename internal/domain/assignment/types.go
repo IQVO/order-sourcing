@@ -129,7 +129,9 @@ type PromiseConstraint struct {
 // pickup cutoff, which is the requiredShipBy of a release). Cost is the legacy
 // ordinal score (ADR 0002, A12); EstimatedCostCents is the money-denominated
 // estimate in planner-declared cents, complete only when every lane and wave
-// component of the path had a declared cost (ADR 0011).
+// component of the path had a declared cost (ADR 0011). SurchargeCents is what
+// the sourcing policy added to the estimate (ADR 0014; 0 when none) and
+// PolicyVersion the policy version the search read (0 when none was published).
 type Candidate struct {
 	NodeID             string
 	PickupDepartureID  string
@@ -140,6 +142,22 @@ type Candidate struct {
 	Cost               int64
 	EstimatedCostCents int64
 	CostComplete       bool
+	SurchargeCents     int64
+	PolicyVersion      int
+}
+
+// EffectiveCostCents is the estimate plus the surcharges (ADR 0014); the sum
+// of the estimate's cents even when the estimate is incomplete.
+func (c Candidate) EffectiveCostCents() int64 { return c.EstimatedCostCents + c.SurchargeCents }
+
+// EffectiveCostOnWire is the effective cost where it is published: set only
+// when a surcharge changed the cost, nil otherwise (ADR 0014).
+func (c Candidate) EffectiveCostOnWire() *int64 {
+	if c.SurchargeCents == 0 {
+		return nil
+	}
+	cents := c.EffectiveCostCents()
+	return &cents
 }
 
 func (c Candidate) clone() Candidate {
@@ -152,7 +170,8 @@ func (c Candidate) clone() Candidate {
 func (c Candidate) Same(o Candidate) bool {
 	return c.NodeID == o.NodeID && c.PickupDepartureID == o.PickupDepartureID && c.PickupCutoffAt.Equal(o.PickupCutoffAt) &&
 		slices.Equal(c.Legs, o.Legs) && c.DeliveryWaveID == o.DeliveryWaveID && c.ETA.Equal(o.ETA) && c.Cost == o.Cost &&
-		c.EstimatedCostCents == o.EstimatedCostCents && c.CostComplete == o.CostComplete
+		c.EstimatedCostCents == o.EstimatedCostCents && c.CostComplete == o.CostComplete &&
+		c.SurchargeCents == o.SurchargeCents && c.PolicyVersion == o.PolicyVersion
 }
 
 // Release is one release of the group to a node.
