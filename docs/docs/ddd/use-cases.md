@@ -101,6 +101,9 @@ Nine consumed topics carry 32 handled event types: 10 reach a command use case (
   come first, in-region before cross-region, then the ones over the budget; inside each group, lowest effective cents, then
   the lowest tie-break score, then the witness node, then the lower node id, then the lower pickup departure id. With the
   default policy (version 0, or every lever 0) the order is exactly that of ADR 0011: no budget tier.
+- A CONSOLIDATED promise (ADR 0016) bounds the search with its window start (`deliverByEarliest`: a delivery wave that ends before it
+  is skipped, so the group lands on the wave of the chosen day; unknown = no bound) and, after the money and before the legacy score,
+  prefers the LATER pickup cutoff, which holds the release until the latest pickup that still reaches that day. Other tiers are untouched.
 - The policy is an input: the use case reads the current version once per search (`writer.currentPolicy`) and passes it in
   `sourcing.Request.Policy`; the version is stamped on every candidate and on the release (`policyVersion`). The budget
   counter `ordersourcing_budget_preferred_total{kind="region"}` counts a release the budget rule decided. Order-level split

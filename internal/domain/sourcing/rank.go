@@ -78,19 +78,30 @@ func (p Policy) tier(cheapest int64) func(Option) int {
 	}
 }
 
-// orderBy is the comparator: the budget tier, then the money, then the ADR 0011
+// orderBy is the comparator: the budget tier, then the money, then (only for a
+// CONSOLIDATED group, ADR 0016) the later pickup cutoff, then the ADR 0011
 // tie-breaks.
 func orderBy(r Request, tier func(Option) int) func(a, b Option) int {
 	return func(a, b Option) int {
 		return cmp.Or(
 			cmp.Compare(tier(a), tier(b)),
 			cmp.Compare(a.Candidate.EffectiveCostCents(), b.Candidate.EffectiveCostCents()),
+			holdOrder(r, a, b),
 			cmp.Compare(a.Candidate.Cost, b.Candidate.Cost),
 			boolRank(a.Candidate.NodeID == r.WitnessNodeID, b.Candidate.NodeID == r.WitnessNodeID),
 			strings.Compare(a.Candidate.NodeID, b.Candidate.NodeID),
 			strings.Compare(a.Candidate.PickupDepartureID, b.Candidate.PickupDepartureID),
 		)
 	}
+}
+
+// holdOrder prefers the later pickup cutoff when the request holds the latest
+// pickup; with it off every pair compares equal, so the ordering is unchanged.
+func holdOrder(r Request, a, b Option) int {
+	if !r.HoldLatestPickup {
+		return 0
+	}
+	return b.Candidate.PickupCutoffAt.Compare(a.Candidate.PickupCutoffAt)
 }
 
 // sameOption reports whether two options are the same node and pickup (the

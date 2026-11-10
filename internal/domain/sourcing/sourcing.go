@@ -53,11 +53,17 @@ type Request struct {
 	// NotBefore is the earliest delivery wave end the search accepts (the
 	// delivery window start of a promise); zero means no lower bound, which
 	// leaves every search exactly as it was (ADR 0015).
-	NotBefore     time.Time
-	WitnessNodeID string
-	Lines         []assignment.Line
-	Excluded      []assignment.ExcludedNode
-	Policy        Policy
+	NotBefore time.Time
+	// HoldLatestPickup makes the ranking prefer the LATER pickup cutoff among
+	// options of equal effective cost: the group is then released at the latest
+	// pickup that still reaches the chosen delivery wave, which is the hold of a
+	// CONSOLIDATED group (ADR 0016). False leaves the ordering as ADR 0011 and
+	// ADR 0014 define it.
+	HoldLatestPickup bool
+	WitnessNodeID    string
+	Lines            []assignment.Line
+	Excluded         []assignment.ExcludedNode
+	Policy           Policy
 }
 
 // Option is one ranked candidate with its release point. CrossRegion is true

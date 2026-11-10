@@ -99,7 +99,8 @@ func (in MergeInput) mergedOption(trial []*assignment.Assignment) (Option, int, 
 	carrier := in.Carrier.Promise()
 	req := Request{
 		Now: in.Now, Tier: carrier.Tier, DeliverByLatest: carrier.DeliverByLatest, NotBefore: carrier.DeliverByEarliest,
-		WitnessNodeID: carrier.WitnessNodeID, Lines: SumLines(trial), Policy: in.Policy,
+		HoldLatestPickup: true, // a carrier is CONSOLIDATED (rule c1), so the merged search holds like its own (ADR 0016)
+		WitnessNodeID:    carrier.WitnessNodeID, Lines: SumLines(trial), Policy: in.Policy,
 	}
 	for _, m := range trial[1:] {
 		p := m.Promise()

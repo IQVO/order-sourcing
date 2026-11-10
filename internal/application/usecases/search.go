@@ -56,14 +56,25 @@ func (w writer) bestOption(ctx context.Context, now time.Time, prefix string, p 
 	if err != nil {
 		return searchResult{}, err
 	}
-	ranking := sourcing.Rank(world, sourcing.Request{
-		Now: now, Tier: p.Tier, DeliverByLatest: p.DeliverByLatest, WitnessNodeID: p.WitnessNodeID, Lines: lines, Excluded: excluded,
-		Policy: pol,
-	})
+	ranking := sourcing.Rank(world, searchRequest(now, p, lines, excluded, pol))
 	if len(ranking.Options) == 0 {
 		return searchResult{world: world, policy: pol}, nil
 	}
 	return searchResult{best: &ranking.Options[0], world: world, candidates: len(ranking.Options), budgetPreferred: ranking.BudgetPreferred, policy: pol}, nil
+}
+
+// searchRequest is the search constraint of a promise. A CONSOLIDATED group
+// asks for a delivery wave that ends no earlier than the start of its promised
+// window (the day the customer chose) and holds the latest pickup that still
+// reaches it (ADR 0016); every other tier is searched exactly as before.
+func searchRequest(now time.Time, p assignment.PromiseConstraint, lines []assignment.Line, excluded []assignment.ExcludedNode, pol sourcing.Policy) sourcing.Request {
+	r := sourcing.Request{
+		Now: now, Tier: p.Tier, DeliverByLatest: p.DeliverByLatest, WitnessNodeID: p.WitnessNodeID, Lines: lines, Excluded: excluded, Policy: pol,
+	}
+	if p.Tier == assignment.TierConsolidated {
+		r.NotBefore, r.HoldLatestPickup = p.DeliverByEarliest, true
+	}
+	return r
 }
 
 // candidateOf returns the candidate and release point of an option, nil and
