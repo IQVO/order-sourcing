@@ -261,12 +261,14 @@ paths:
                     version: 2
                     crossRegionSurchargeCents: 250
                     maxCostDeviationPercent: 20
+                    consolidationMaxAssignments: 4
                     publishedAt: '2026-11-09T12:00:00Z'
                 defaults:
                   value:
                     version: 0
                     crossRegionSurchargeCents: 0
                     maxCostDeviationPercent: 0
+                    consolidationMaxAssignments: 0
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -276,7 +278,7 @@ paths:
       operationId: putSourcingPolicy
       summary: Publish the next sourcing policy version (PublishSourcingPolicy)
       description: >-
-        Replaces the whole policy document: validates both ranges, stores
+        Replaces the whole policy document: validates every range, stores
         version n+1 (n is the highest stored version, 0 when none) and raises
         the analytics-only SourcingPolicyPublished event in the same
         transaction. An omitted field takes its default, 0 (the lever is off);
@@ -296,6 +298,7 @@ paths:
             example:
               crossRegionSurchargeCents: 250
               maxCostDeviationPercent: 20
+              consolidationMaxAssignments: 4
       responses:
         '200':
           description: >-
@@ -335,7 +338,7 @@ paths:
         '422':
           description: >-
             validation-failed (ErrValidation), crossRegionSurchargeCents outside
-            0..100000 or maxCostDeviationPercent outside 0..200.
+            0..100000, maxCostDeviationPercent outside 0..200 or consolidationMaxAssignments outside 0..10.
           headers:
             Idempotency-Replayed:
               $ref: '#/components/headers/IdempotencyReplayed'
@@ -711,10 +714,10 @@ components:
       enum: [QUEUED, RELEASED, LOCKED, SHIPPED, DELIVERED, UNSOURCEABLE, CANCELLED]
     Tier:
       type: string
-      enum: [SAME_DAY, NEXT_DAY, TWO_DAY, STANDARD]
+      enum: [SAME_DAY, NEXT_DAY, TWO_DAY, STANDARD, CONSOLIDATED]
     ReleaseOutcome:
       type: string
-      enum: [ACCEPTED, REJECTED, EXPIRED, PENDING]
+      enum: [ACCEPTED, REJECTED, EXPIRED, WITHDRAWN, PENDING]
     PromiseConstraint:
       type: object
       required: [promiseId, tier, deliverByLatest, witnessNodeId, revisionNo]
@@ -723,6 +726,10 @@ components:
           type: string
         tier:
           $ref: '#/components/schemas/Tier'
+        deliverByEarliest:
+          type: string
+          format: date-time
+          description: The start of the promised delivery window (a CONSOLIDATED day starts it). Absent when unknown.
         deliverByLatest:
           type: string
           format: date-time
@@ -888,6 +895,14 @@ components:
           format: date-time
         cancelReason:
           type: string
+        consolidatedInto:
+          type: string
+          description: The carrier of the merged release this assignment follows (ADR 0015). Absent unless the assignment is a follower.
+        consolidatedWith:
+          type: array
+          description: The followers of the merged release this assignment carries (ADR 0015). Absent unless the assignment is a carrier.
+          items:
+            type: string
     AssignmentPage:
       type: object
       required: [items]
@@ -931,6 +946,11 @@ components:
           maximum: 200
           description: 'The regional budget: among candidates whose effective cost is within cheapest +
             floor(cheapest * percent / 100), an in-region candidate beats a cross-region one. 0 = off.'
+        consolidationMaxAssignments:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: The most shipment groups of one shopper released as one merged package (ADR 0015). 0 and 1 = off. Absent reads as 0.
         publishedAt:
           type: string
           format: date-time
@@ -947,4 +967,9 @@ components:
           type: integer
           minimum: 0
           maximum: 200
+          default: 0
+        consolidationMaxAssignments:
+          type: integer
+          minimum: 0
+          maximum: 10
           default: 0

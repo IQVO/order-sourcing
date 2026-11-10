@@ -41,7 +41,9 @@ only), so by `conventions.analytics_rule` they go ONLY to
 the events topic. `FulfillmentSourcingDecided` (ADR 0013) is analytics only too:
 raised with every `FulfillmentReleasedToNode`, in the same transaction, with its
 own id, ONLY on the analytics topic. `SourcingPolicyPublished` (ADR 0014) is
-analytics only as well, raised by `PUT /sourcing-policy`.
+analytics only as well, raised by `PUT /sourcing-policy`. ADR 0015 adds three
+types: `FulfillmentReleaseWithdrawn` on the events topic and the analytics-only
+`AssignmentsConsolidated` and `AssignmentsDeconsolidated`.
 
 ```text
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentQueued stream: analytics
@@ -56,22 +58,28 @@ type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelled 
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelRefused stream: events
 type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentConstraintRevised stream: events
 type: com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished stream: analytics
+type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleaseWithdrawn stream: events
+type: com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsConsolidated stream: analytics
+type: com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsDeconsolidated stream: analytics
 ```
 
 | Event | Raised when | `data` |
 |---|---|---|
 | `FulfillmentQueued` | QueueAssignment is saved | `{assignmentId, orderId, groupNo, promiseId, deliverByLatest, lines[{lineNo, catalogItemId, quantity}]}` |
-| `FulfillmentReleasedToNode` | ReleaseToNode: QUEUED to RELEASED | `{assignmentId, releaseNo, orderId, groupNo, nodeId, pickupDepartureId, requiredShipBy, promisedDeliverByLatest, tier, lines[{catalogItemId, listingId, ownerRef?, quantity}], estimatedCostCents?, policyVersion?, effectiveCostCents?}` (`?` = optional and omitted: `ownerRef` when operator-owned, ADR 0012; `estimatedCostCents` when incomplete, ADR 0011; `policyVersion` when no sourcing policy version was published and `effectiveCostCents` unless a surcharge changed the cost, ADR 0014) |
-| `FulfillmentSourcingDecided` | ReleaseToNode, with every `FulfillmentReleasedToNode` (analytics only, ADR 0013) | `{assignmentId, orderId, groupNo?, releaseNo, nodeId, nodeRegionId?, destinationRegionId?, inRegion?, legs, estimatedCostCents?, costComplete, units, candidateCount, decidedAt, policyVersion?, effectiveCostCents?}` (regions omitted when unknown, `inRegion` when either is; `estimatedCostCents` present exactly when `costComplete`, ADR 0011; `policyVersion` and `effectiveCostCents` as on the release, ADR 0014) |
+| `FulfillmentReleasedToNode` | ReleaseToNode: QUEUED to RELEASED | `{assignmentId, releaseNo, orderId, groupNo, nodeId, pickupDepartureId, requiredShipBy, promisedDeliverByLatest, tier, lines[{catalogItemId, listingId, ownerRef?, quantity}], estimatedCostCents?, policyVersion?, effectiveCostCents?}` (`?` = optional and omitted: `ownerRef` when operator-owned, ADR 0012; `estimatedCostCents` when incomplete, ADR 0011; `policyVersion` when no sourcing policy version was published and `effectiveCostCents` unless a surcharge changed the cost, ADR 0014; `members[{assignmentId, orderId, groupNo, promiseId}]` and the per-line `assignmentId` only on a merged release, ADR 0015) |
+| `FulfillmentSourcingDecided` | ReleaseToNode, with every `FulfillmentReleasedToNode` (analytics only, ADR 0013) | `{assignmentId, orderId, groupNo?, releaseNo, nodeId, nodeRegionId?, destinationRegionId?, inRegion?, legs, estimatedCostCents?, costComplete, units, candidateCount, decidedAt, policyVersion?, effectiveCostCents?}` (regions omitted when unknown, `inRegion` when either is; `estimatedCostCents` present exactly when `costComplete`, ADR 0011; `policyVersion` and `effectiveCostCents` as on the release, ADR 0014; `carrierAssignmentId` on a follower and `consolidatedCount` on every merged member, ADR 0015) |
 | `FulfillmentReassigned` | the candidate node changes | `{assignmentId, fromNodeId, toNodeId, reason, assignmentVersion}` |
-| `FulfillmentLocked` | LockAssignment: RELEASED to LOCKED | `{assignmentId, orderId, groupNo, promiseId, nodeId, pickupDepartureId, lockedAt, lockReason}` (promiseId, groupNo, orderId: contracts-delta E1) |
+| `FulfillmentLocked` | LockAssignment: RELEASED to LOCKED | `{assignmentId, orderId, groupNo, promiseId, nodeId, pickupDepartureId, lockedAt, lockReason, consolidatedInto?, mergedAssignmentIds?[]}` (promiseId, groupNo, orderId: contracts-delta E1; the two optional fields only on a merged member, ADR 0015) |
 | `FulfillmentShipped` | MarkShipped: LOCKED to SHIPPED | `{assignmentId, orderId, groupNo, nodeId, trackingNumbers[], shippedAt}` |
 | `FulfillmentDelivered` | MarkDelivered: the last package is delivered | `{assignmentId, orderId, groupNo, deliveredAt}` |
 | `FulfillmentUnsourceable` | the candidate set is empty | `{assignmentId, orderId, groupNo, promiseId, excludedNodes[{nodeId, reason}], reason}` |
 | `FulfillmentCancelled` | CancelAssignment before the lock | `{assignmentId, orderId, groupNo, reason}` |
 | `FulfillmentCancelRefused` | a cancel request after the lock (E11) | `{assignmentId, orderId, groupNo, reason}` |
 | `FulfillmentConstraintRevised` | ApplyRevisedPromise (E12) | `{assignmentId, revisionNo, deliverByLatest}` |
-| `SourcingPolicyPublished` | `PUT /sourcing-policy` stores version n+1 (analytics only, ADR 0014) | `{version, crossRegionSurchargeCents, maxCostDeviationPercent, publishedAt}` (subject and key = `policy`) |
+| `SourcingPolicyPublished` | `PUT /sourcing-policy` stores version n+1 (analytics only, ADR 0014) | `{version, crossRegionSurchargeCents, maxCostDeviationPercent, consolidationMaxAssignments, publishedAt}` (subject and key = `policy`; `consolidationMaxAssignments` 0..10, ADR 0015) |
+| `FulfillmentReleaseWithdrawn` | a promise revision dissolves a merged release (ADR 0015) | `{assignmentId, releaseNo, orderId, groupNo, reason, withdrawnAt}` (subject = the carrier; `reason` is `PROMISE_REVISED`) |
+| `AssignmentsConsolidated` | ReleaseToNode releases a merged package (analytics only, ADR 0015) | `{carrierAssignmentId, releaseNo, nodeId, memberCount, units, members[{assignmentId, orderId, groupNo, promiseId, units}], consolidatedAt}` (subject = the carrier) |
+| `AssignmentsDeconsolidated` | a merged release is dissolved (analytics only, ADR 0015) | `{carrierAssignmentId, releaseNo, reason, triggerAssignmentId?, memberAssignmentIds[], deconsolidatedAt}` (subject = the carrier; `reason` is `PROMISE_REVISED`, `PURCHASE_ORDER_REJECTED` or `PURCHASE_ORDER_EXPIRED`) |
 
 Payload rules:
 
@@ -80,10 +88,12 @@ Payload rules:
   `apis/asyncapi.yaml`.
 - Reason vocabularies (the model leaves them open, ADR 0002 A14):
   `FulfillmentReassigned.reason` is one of `REOPTIMISED`, `RELEASE_RECHECK`,
-  `PURCHASE_ORDER_REJECTED`, `PURCHASE_ORDER_EXPIRED`, `PROMISE_REVISED`;
+  `PURCHASE_ORDER_REJECTED`, `PURCHASE_ORDER_EXPIRED`, `PROMISE_REVISED`,
+  `CONSOLIDATION_WITHDRAWN` (ADR 0015);
   `FulfillmentLocked.lockReason` is `PURCHASE_ORDER_ACCEPTED`;
   `FulfillmentUnsourceable.reason` is `NO_CANDIDATE` or `NODE_REFUSED`;
-  `FulfillmentCancelRefused.reason` is `CANCEL_AFTER_LOCK`.
+  `FulfillmentCancelRefused.reason` is `CANCEL_AFTER_LOCK`, or `CANCEL_WHILE_MERGED`
+  for a member of a live merge that is not yet locked (ADR 0015).
 - A breaking payload change is a new `.v2` type and dataschema, never a
   mutation of v1.
 

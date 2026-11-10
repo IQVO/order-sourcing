@@ -45,8 +45,11 @@ Every event leaves through the transactional outbox, written in the same transac
 | `FulfillmentDelivered` | analytics | `MarkDelivered` (last package) | none known |
 | `FulfillmentUnsourceable` | events | `QueueAssignment`, `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` | `delivery-promise`, `customer-ordering` |
 | `FulfillmentCancelled` | events | `CancelAssignment` | `vendor-connectivity`, `linehaul-transportation`, `customer-ordering` |
-| `FulfillmentCancelRefused` | events | `CancelAssignment` (after the lock) | `customer-ordering` |
+| `FulfillmentCancelRefused` | events | `CancelAssignment` (after the lock, or while a merged release is not yet locked, ADR 0015) | `customer-ordering` |
 | `FulfillmentConstraintRevised` | events | `ApplyRevisedPromise` | none found |
+| `FulfillmentReleaseWithdrawn` | events | `ApplyRevisedPromise` (a revision breaks a merged window, ADR 0015) | `vendor-connectivity` (cancels the purchase order) |
+| `AssignmentsConsolidated` | analytics | `ReleaseToNode` (a merged release, ADR 0015) | none |
+| `AssignmentsDeconsolidated` | analytics | `HandleNodeRefusal`, `ApplyRevisedPromise` (ADR 0015) | none |
 
 The consumer column is from the handler files named on [Integration](/docs/ecosystem/integration).
 
@@ -144,7 +147,7 @@ explains, same aggregate version, its own event id.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `assignmentId`, `orderId`, `groupNo` | string, string, integer | The group |
-| `reason` | string | From `CustomerOrderCancelled.reason` (default `UNSPECIFIED`); `CANCEL_AFTER_LOCK` for the refusal |
+| `reason` | string | From `CustomerOrderCancelled.reason` (default `UNSPECIFIED`); `CANCEL_AFTER_LOCK` for the refusal after the lock, `CANCEL_WHILE_MERGED` for the refusal of a member of a live merged release (ADR 0015) |
 
 ### FulfillmentConstraintRevised
 

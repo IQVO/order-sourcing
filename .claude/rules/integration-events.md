@@ -7,8 +7,8 @@ paths:
 
 # Cross-service integration events (Kafka)
 
-order-sourcing PUBLISHES twelve events (eight integration events to `retailnetwork.order-sourcing.events`, four
-analytics-only events to `retailnetwork.order-sourcing.analytics`, ADR 0013 for `FulfillmentSourcingDecided`, ADR 0014 for `SourcingPolicyPublished`) and CONSUMES 32 event types from nine sibling topics
+order-sourcing PUBLISHES fifteen events (nine integration events to `retailnetwork.order-sourcing.events`, six
+analytics-only events to `retailnetwork.order-sourcing.analytics`, ADR 0013 for `FulfillmentSourcingDecided`, ADR 0014 for `SourcingPolicyPublished`, ADR 0015 for the consolidation events) and CONSUMES 32 event types from nine sibling topics
 (ADR 0003, ADR 0004). Never produce or consume a `warehouse.*` topic.
 
 ## Events: CloudEvents 1.0 is MANDATORY
@@ -60,7 +60,10 @@ Subject and Kafka key = `assignmentId` (the one exception is `SourcingPolicyPubl
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelled` | `retailnetwork.order-sourcing.events` |
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelRefused` | `retailnetwork.order-sourcing.events` |
 | `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentConstraintRevised` | `retailnetwork.order-sourcing.events` |
+| `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleaseWithdrawn` | `retailnetwork.order-sourcing.events` |
 | `com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished` | `retailnetwork.order-sourcing.analytics` |
+| `com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsConsolidated` | `retailnetwork.order-sourcing.analytics` |
+| `com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsDeconsolidated` | `retailnetwork.order-sourcing.analytics` |
 
 ### Consumed types
 
