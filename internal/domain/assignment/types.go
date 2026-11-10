@@ -51,33 +51,47 @@ func (s State) Committed() bool { return s == StateLocked || s == StateShipped |
 // Tier is a service tier of the model.
 type Tier string
 
-// The four service tiers.
+// The service tiers: four classic ones and CONSOLIDATED, the customer-chosen
+// consolidated delivery day (ADR 0015, ADR 0016).
 const (
-	TierSameDay  Tier = "SAME_DAY"
-	TierNextDay  Tier = "NEXT_DAY"
-	TierTwoDay   Tier = "TWO_DAY"
-	TierStandard Tier = "STANDARD"
+	TierSameDay      Tier = "SAME_DAY"
+	TierNextDay      Tier = "NEXT_DAY"
+	TierTwoDay       Tier = "TWO_DAY"
+	TierStandard     Tier = "STANDARD"
+	TierConsolidated Tier = "CONSOLIDATED"
 )
 
-// Valid reports whether t is one of the four tiers.
+// Valid reports whether t is one of the five tiers.
 func (t Tier) Valid() bool {
-	return t == TierSameDay || t == TierNextDay || t == TierTwoDay || t == TierStandard
+	return t == TierSameDay || t == TierNextDay || t == TierTwoDay || t == TierStandard || t == TierConsolidated
+}
+
+// FulfilmentClass is the tier the release carries on the wire: vendor
+// connectivity and shipping know only the four classic tiers, so CONSOLIDATED
+// is released as STANDARD (ADR 0015).
+func (t Tier) FulfilmentClass() Tier {
+	if t == TierConsolidated {
+		return TierStandard
+	}
+	return t
 }
 
 // Outcome is the outcome of a release.
 type Outcome string
 
-// The four release outcomes.
+// The five release outcomes. WITHDRAWN is a release that order-sourcing took
+// back because the merge it belonged to was dissolved (ADR 0015).
 const (
-	OutcomePending  Outcome = "PENDING"
-	OutcomeAccepted Outcome = "ACCEPTED"
-	OutcomeRejected Outcome = "REJECTED"
-	OutcomeExpired  Outcome = "EXPIRED"
+	OutcomePending   Outcome = "PENDING"
+	OutcomeAccepted  Outcome = "ACCEPTED"
+	OutcomeRejected  Outcome = "REJECTED"
+	OutcomeExpired   Outcome = "EXPIRED"
+	OutcomeWithdrawn Outcome = "WITHDRAWN"
 )
 
-// Valid reports whether o is one of the four outcomes.
+// Valid reports whether o is one of the five outcomes.
 func (o Outcome) Valid() bool {
-	return o == OutcomePending || o == OutcomeAccepted || o == OutcomeRejected || o == OutcomeExpired
+	return o == OutcomePending || o == OutcomeAccepted || o == OutcomeRejected || o == OutcomeExpired || o == OutcomeWithdrawn
 }
 
 // Reasons of the events (ADR 0004; the model leaves the vocabularies open).
@@ -91,6 +105,11 @@ const (
 	ReasonNodeRefused           = "NODE_REFUSED"
 	LockReasonAccepted          = "PURCHASE_ORDER_ACCEPTED"
 	ReasonCancelAfterLock       = "CANCEL_AFTER_LOCK"
+	// ReasonCancelWhileMerged refuses a cancel of a member of a live merge that
+	// is not yet LOCKED; ReasonConsolidationWithdrawn is the reassignment reason
+	// of a member re-queued after its merge was withdrawn (ADR 0015).
+	ReasonCancelWhileMerged      = "CANCEL_WHILE_MERGED"
+	ReasonConsolidationWithdrawn = "CONSOLIDATION_WITHDRAWN"
 )
 
 // Bounds, plain literals because Postgres limits them (ADR 0002, A21).
@@ -116,13 +135,16 @@ type Line struct {
 }
 
 // PromiseConstraint is what the assignment must keep (model value object plus
-// revisionNo, G13).
+// revisionNo, G13). DeliverByEarliest is the start of the promised window, zero
+// when unknown (a group queued before ADR 0015); when known it is not after
+// DeliverByLatest.
 type PromiseConstraint struct {
-	PromiseID       string
-	Tier            Tier
-	DeliverByLatest time.Time
-	WitnessNodeID   string
-	RevisionNo      int
+	PromiseID         string
+	Tier              Tier
+	DeliverByEarliest time.Time
+	DeliverByLatest   time.Time
+	WitnessNodeID     string
+	RevisionNo        int
 }
 
 // Candidate is the current best node and path (model value object plus the

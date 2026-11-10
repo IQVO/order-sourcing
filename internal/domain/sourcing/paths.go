@@ -189,7 +189,8 @@ func (s searcher) finish(d network.Departure, legs []string) (path, bool) {
 	var best network.Wave
 	found := false
 	for _, w := range s.w.Waves {
-		if w.StationID != s.w.Area.StationID || !w.Usable() || w.InductCutoffAt.Before(d.ArrivesAt) || w.WindowEnd.After(s.r.DeliverByLatest) {
+		if w.StationID != s.w.Area.StationID || !w.Usable() || w.InductCutoffAt.Before(d.ArrivesAt) || w.WindowEnd.After(s.r.DeliverByLatest) ||
+			(!s.r.NotBefore.IsZero() && w.WindowEnd.Before(s.r.NotBefore)) {
 			continue
 		}
 		if !found || w.WindowEnd.Before(best.WindowEnd) || (w.WindowEnd.Equal(best.WindowEnd) && w.ID < best.ID) {

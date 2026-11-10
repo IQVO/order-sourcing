@@ -17,6 +17,8 @@ import (
 const (
 	MaxSurchargeCents   = 100000
 	MaxDeviationPercent = 200
+	// MaxConsolidationAssignments bounds consolidationMaxAssignments (ADR 0015).
+	MaxConsolidationAssignments = 10
 	// MaxVersion bounds the version number to what the wire and the database hold.
 	MaxVersion = 2147483647
 )
@@ -29,6 +31,7 @@ type Policy struct {
 	version      int
 	crossRegion  int
 	maxDeviation int
+	consolidate  int
 	publishedAt  time.Time
 }
 
@@ -37,7 +40,9 @@ type Snapshot struct {
 	Version                   int
 	CrossRegionSurchargeCents int
 	MaxCostDeviationPercent   int
-	PublishedAt               time.Time
+	// ConsolidationMaxAssignments is 0 for a row written before ADR 0015.
+	ConsolidationMaxAssignments int
+	PublishedAt                 time.Time
 }
 
 // Input is the data of a publish: the whole document, every field an integer
@@ -45,6 +50,9 @@ type Snapshot struct {
 type Input struct {
 	CrossRegionSurchargeCents int
 	MaxCostDeviationPercent   int
+	// ConsolidationMaxAssignments is the most assignments one merged release
+	// holds (0..10); 0 and 1 mean consolidation is off (ADR 0015).
+	ConsolidationMaxAssignments int
 }
 
 // Default returns version 0: the policy in force before anything is published.
@@ -56,6 +64,9 @@ func validate(in Input) error {
 	}
 	if in.MaxCostDeviationPercent < 0 || in.MaxCostDeviationPercent > MaxDeviationPercent {
 		return shared.Invalid("maxCostDeviationPercent must be between 0 and %d", MaxDeviationPercent)
+	}
+	if in.ConsolidationMaxAssignments < 0 || in.ConsolidationMaxAssignments > MaxConsolidationAssignments {
+		return shared.Invalid("consolidationMaxAssignments must be between 0 and %d", MaxConsolidationAssignments)
 	}
 	return nil
 }
@@ -71,11 +82,12 @@ func Publish(current int, in Input, now time.Time) (*Policy, []shared.Event, err
 	}
 	p := &Policy{
 		version: current + 1, crossRegion: in.CrossRegionSurchargeCents, maxDeviation: in.MaxCostDeviationPercent,
-		publishedAt: shared.UTC(now),
+		consolidate: in.ConsolidationMaxAssignments, publishedAt: shared.UTC(now),
 	}
 	ev := SourcingPolicyPublished{
 		Header: shared.Header{Version: int64(p.version), At: p.publishedAt}, Number: p.version,
-		CrossRegionSurchargeCents: p.crossRegion, MaxCostDeviationPercent: p.maxDeviation, PublishedAt: p.publishedAt,
+		CrossRegionSurchargeCents: p.crossRegion, MaxCostDeviationPercent: p.maxDeviation,
+		ConsolidationMaxAssignments: p.consolidate, PublishedAt: p.publishedAt,
 	}
 	return p, []shared.Event{ev}, nil
 }
@@ -83,7 +95,8 @@ func Publish(current int, in Input, now time.Time) (*Policy, []shared.Event, err
 // Restore rebuilds a persisted policy, validating every invariant. Version 0
 // is only valid as the default.
 func Restore(s Snapshot) (*Policy, error) {
-	if err := validate(Input{CrossRegionSurchargeCents: s.CrossRegionSurchargeCents, MaxCostDeviationPercent: s.MaxCostDeviationPercent}); err != nil {
+	if err := validate(Input{CrossRegionSurchargeCents: s.CrossRegionSurchargeCents, MaxCostDeviationPercent: s.MaxCostDeviationPercent,
+		ConsolidationMaxAssignments: s.ConsolidationMaxAssignments}); err != nil {
 		return nil, shared.Corrupt("policy %d: %v", s.Version, err)
 	}
 	if s.Version < 1 || s.Version > MaxVersion || s.PublishedAt.IsZero() {
@@ -91,7 +104,7 @@ func Restore(s Snapshot) (*Policy, error) {
 	}
 	return &Policy{
 		version: s.Version, crossRegion: s.CrossRegionSurchargeCents, maxDeviation: s.MaxCostDeviationPercent,
-		publishedAt: shared.UTC(s.PublishedAt),
+		consolidate: s.ConsolidationMaxAssignments, publishedAt: shared.UTC(s.PublishedAt),
 	}, nil
 }
 
@@ -106,6 +119,10 @@ func (p *Policy) CrossRegionSurchargeCents() int { return p.crossRegion }
 // effective cost.
 func (p *Policy) MaxCostDeviationPercent() int { return p.maxDeviation }
 
+// ConsolidationMaxAssignments returns the most assignments one merged release
+// holds; 0 and 1 mean consolidation is off (ADR 0015).
+func (p *Policy) ConsolidationMaxAssignments() int { return p.consolidate }
+
 // PublishedAt returns when the version was published (zero for the default).
 func (p *Policy) PublishedAt() time.Time { return p.publishedAt }
 
@@ -113,6 +130,6 @@ func (p *Policy) PublishedAt() time.Time { return p.publishedAt }
 func (p *Policy) Snapshot() Snapshot {
 	return Snapshot{
 		Version: p.version, CrossRegionSurchargeCents: p.crossRegion, MaxCostDeviationPercent: p.maxDeviation,
-		PublishedAt: p.publishedAt,
+		ConsolidationMaxAssignments: p.consolidate, PublishedAt: p.publishedAt,
 	}
 }
