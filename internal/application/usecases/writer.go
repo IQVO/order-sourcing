@@ -37,6 +37,9 @@ type Deps struct {
 	// nothing.
 	Policies      ports.PolicyRepository
 	PolicyMetrics ports.PolicyMetrics
+	// ConsolidationMetrics records merges, withdrawals, refused cancels and stale
+	// acceptances (ADR 0015); nil records nothing.
+	ConsolidationMetrics ports.ConsolidationMetrics
 }
 
 // Meta identifies the Kafka message that triggered a command. A zero Meta (a
@@ -73,6 +76,22 @@ type noPolicyMetrics struct{}
 
 func (noPolicyMetrics) PolicyVersionRead(context.Context, int)  {}
 func (noPolicyMetrics) BudgetPreferred(context.Context, string) {}
+
+// consolidationMetrics returns the configured ConsolidationMetrics or a no-op.
+func (d Deps) consolidationMetrics() ports.ConsolidationMetrics {
+	if d.ConsolidationMetrics != nil {
+		return d.ConsolidationMetrics
+	}
+	return noConsolidationMetrics{}
+}
+
+// noConsolidationMetrics is the ConsolidationMetrics of a Deps without one.
+type noConsolidationMetrics struct{}
+
+func (noConsolidationMetrics) Consolidated(context.Context, int) {}
+func (noConsolidationMetrics) Withdrawn(context.Context, string) {}
+func (noConsolidationMetrics) CancelRefused(context.Context)     {}
+func (noConsolidationMetrics) StaleAccept(context.Context)       {}
 
 // writer is what every command embeds.
 type writer struct{ Deps }

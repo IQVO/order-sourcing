@@ -98,7 +98,7 @@ func Card(cfg Config) *a2a.AgentCard {
 			{
 				ID:          skillAssignmentDetail,
 				Name:        "Explain one fulfillment assignment",
-				Description: "Reads one fulfillment assignment in full by assignmentId: the promise it must keep (tier, deliverByLatest, witness node), its lines, the current candidate node and path with the cost in cost points, the VirtualQueue release point, the whole release history with each outcome (ACCEPTED, REJECTED, EXPIRED, PENDING), the nodes that were excluded and why, and the lock, shipment and delivery facts once they apply. Answered as a not-found problem for an unknown id. Read-only.",
+				Description: "Reads one fulfillment assignment in full by assignmentId: the promise it must keep (tier, deliverByLatest, witness node), its lines, the current candidate node and path with the cost in cost points, the VirtualQueue release point, the whole release history with each outcome (ACCEPTED, REJECTED, EXPIRED, WITHDRAWN, PENDING), the nodes that were excluded and why, and the lock, shipment and delivery facts once they apply. Answered as a not-found problem for an unknown id. Read-only.",
 				Tags:        []string{agentName, "assignment", "read"},
 				InputModes:  []string{mediaTypeJSON},
 				Examples: []string{

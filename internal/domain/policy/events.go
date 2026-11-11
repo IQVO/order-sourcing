@@ -16,7 +16,9 @@ type SourcingPolicyPublished struct {
 	Number                    int
 	CrossRegionSurchargeCents int
 	MaxCostDeviationPercent   int
-	PublishedAt               time.Time
+	// ConsolidationMaxAssignments is the consolidation cap of the version (ADR 0015).
+	ConsolidationMaxAssignments int
+	PublishedAt                 time.Time
 }
 
 // EventName returns "SourcingPolicyPublished".

@@ -33,6 +33,10 @@ type Snapshot struct {
 	DeliveredAt             time.Time
 	CancelReason            string
 	UpdatedAt               time.Time
+	// ConsolidationKey, ConsolidatedInto and Members are the merge fields (ADR 0015).
+	ConsolidationKey string
+	ConsolidatedInto ID
+	Members          []ID
 }
 
 // Snapshot returns the persisted form (deep copies).
@@ -44,6 +48,7 @@ func (a *Assignment) Snapshot() Snapshot {
 		LockReason: a.lockReason, PickupDepartureID: a.pickupDeparture, TrackingNumbers: slices.Clone(a.trackingNumbers),
 		ShippedAt: a.shippedAt, Delivered: slices.Clone(a.delivered), DeliveredAt: a.deliveredAt,
 		CancelReason: a.cancelReason, UpdatedAt: a.updatedAt,
+		ConsolidationKey: a.consolidationKey, ConsolidatedInto: a.consolidatedInto, Members: slices.Clone(a.members),
 	}
 	if a.candidate != nil {
 		c := a.candidate.clone()
@@ -64,9 +69,11 @@ func Restore(s Snapshot) (*Assignment, error) {
 		lockedAt: shared.UTC(s.LockedAt), lockReason: s.LockReason, pickupDeparture: s.PickupDepartureID,
 		trackingNumbers: slices.Clone(s.TrackingNumbers), shippedAt: shared.UTC(s.ShippedAt),
 		delivered: slices.Clone(s.Delivered), deliveredAt: shared.UTC(s.DeliveredAt), cancelReason: s.CancelReason,
-		updatedAt: shared.UTC(s.UpdatedAt),
+		updatedAt: shared.UTC(s.UpdatedAt), consolidationKey: s.ConsolidationKey, consolidatedInto: s.ConsolidatedInto,
+		members: slices.Clone(s.Members),
 	}
 	a.promise.DeliverByLatest = shared.UTC(a.promise.DeliverByLatest)
+	a.promise.DeliverByEarliest = shared.UTC(a.promise.DeliverByEarliest)
 	if s.Candidate != nil {
 		c := s.Candidate.clone()
 		a.candidate = &c
@@ -76,7 +83,7 @@ func Restore(s Snapshot) (*Assignment, error) {
 
 func checkSnapshot(s Snapshot) error {
 	if err := validateNew(New{ID: s.ID, OrderID: s.OrderID, GroupNo: s.GroupNo, DestinationPostalPrefix: s.DestinationPostalPrefix,
-		Promise: s.Promise, Lines: s.Lines}); err != nil {
+		Promise: s.Promise, Lines: s.Lines, ConsolidationKey: s.ConsolidationKey}); err != nil {
 		return err
 	}
 	if !s.State.Valid() {
@@ -89,6 +96,9 @@ func checkSnapshot(s Snapshot) error {
 		return err
 	}
 	if err := checkExcluded(s.ExcludedNodes); err != nil {
+		return err
+	}
+	if err := checkMerge(s); err != nil {
 		return err
 	}
 	return checkState(s)

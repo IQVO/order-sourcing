@@ -225,4 +225,21 @@ changes: version 0 is the default (both levers 0, off).
    (releases the budget decided) in Grafana, and the cost-to-serve report of `cmd/os-reports`.
 5. To switch it off publish `{}` (both levers 0): that creates a new version, versions are never deleted.
 
+## Turning consolidation on (ADR 0015)
+
+Carrier and follower consolidation merges the QUEUED CONSOLIDATED groups of one shopper into one release. It is OFF until
+`consolidationMaxAssignments` is published as 2 or more (0 and 1 are off; the range is 0..10) AND customer-ordering sends a
+`consolidationKey` on `CustomerOrderPlaced`.
+
+1. Do NOT publish it before the consumers handle a merged release: vendor-connectivity (withdraw consumer), linehaul-transportation
+   (one booking per carrier), delivery-promise and customer-ordering (one tracking number for several groups).
+2. Publish the whole document: `PUT /sourcing-policy` with `Idempotency-Key` and a body such as
+   `{"crossRegionSurchargeCents": 250, "maxCostDeviationPercent": 20, "consolidationMaxAssignments": 4}`. An omitted lever is 0, so
+   repeat the other two.
+3. Watch `ordersourcing_consolidated_releases_total`, `ordersourcing_consolidated_assignments_total` (followers absorbed),
+   `ordersourcing_consolidation_withdrawn_total{reason}`, `ordersourcing_merged_cancel_refused_total` (shopper cancels refused
+   while a merge is live) and `ordersourcing_stale_accept_total` (an acceptance for a withdrawn release: expect near zero).
+4. To switch it off publish `consolidationMaxAssignments: 0`. Releases already merged stay merged until they lock, are refused
+   or are withdrawn; nothing is un-merged by the switch.
+
 No environment variable, topic or chart value is involved; the analytics topic already exists.

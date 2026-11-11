@@ -18,6 +18,8 @@ func runAssignments(t *testing.T, f Factory) {
 	t.Run("find by group and by promise", func(t *testing.T) { findBy(t, f(t)) })
 	t.Run("list filters, order and limit", func(t *testing.T) { listFilters(t, f(t)) })
 	t.Run("due and queued", func(t *testing.T) { dueAndQueued(t, f(t)) })
+	t.Run("the merge fields round trip", func(t *testing.T) { mergeRoundTrip(t, f(t)) })
+	t.Run("queued by consolidation key", func(t *testing.T) { queuedByKey(t, f(t)) })
 }
 
 func missIsNotFound(t *testing.T, fx Fixture) {

@@ -7,11 +7,14 @@ import (
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
-// Revision is a revised promise (PromiseRevised). WitnessNodeID empty keeps the witness.
+// Revision is a revised promise (PromiseRevised). WitnessNodeID empty keeps the
+// witness. DeliverByEarliest is the revised window start, zero when the event
+// carries none (unknown).
 type Revision struct {
-	RevisionNo      int
-	DeliverByLatest time.Time
-	WitnessNodeID   string
+	RevisionNo        int
+	DeliverByEarliest time.Time
+	DeliverByLatest   time.Time
+	WitnessNodeID     string
 }
 
 // ApplyRevisedPromise applies a revised promise in every non-terminal state
@@ -26,6 +29,7 @@ func (a *Assignment) ApplyRevisedPromise(rev Revision, best *Candidate, releaseA
 	}
 	next := a.promise
 	next.RevisionNo, next.DeliverByLatest = rev.RevisionNo, shared.UTC(rev.DeliverByLatest)
+	next.DeliverByEarliest = shared.UTC(rev.DeliverByEarliest)
 	if rev.WitnessNodeID != "" {
 		next.WitnessNodeID = rev.WitnessNodeID
 	}

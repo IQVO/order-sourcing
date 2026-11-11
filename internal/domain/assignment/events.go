@@ -65,6 +65,11 @@ type FulfillmentReleasedToNode struct {
 	EstimatedCostCents      *int64
 	PolicyVersion           int
 	EffectiveCostCents      *int64
+	// Members lists a merged release (carrier first, then ascending assignment
+	// id) and LineMembers the member each line of Lines belongs to; both are
+	// empty for a single-group release (ADR 0015).
+	Members     []MergedMember
+	LineMembers []ID
 }
 
 // EventName returns "FulfillmentReleasedToNode".
@@ -92,6 +97,10 @@ type FulfillmentSourcingDecided struct {
 	DecidedAt           time.Time
 	PolicyVersion       int
 	EffectiveCostCents  *int64
+	// CarrierAssignmentID is set on a follower's fact and ConsolidatedCount on
+	// every member of a merge (0 when not merged), ADR 0015.
+	CarrierAssignmentID ID
+	ConsolidatedCount   int
 }
 
 // EventName returns "FulfillmentSourcingDecided".
@@ -133,6 +142,11 @@ type FulfillmentLocked struct {
 	PickupDepartureID string
 	LockedAt          time.Time
 	LockReason        string
+	// ConsolidatedInto is the carrier of a follower and MergedAssignmentIDs
+	// every merged assignment id, carrier included, ascending; both empty when
+	// the assignment is not merged (ADR 0015).
+	ConsolidatedInto    ID
+	MergedAssignmentIDs []ID
 }
 
 // EventName returns "FulfillmentLocked".

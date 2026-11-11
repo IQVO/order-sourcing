@@ -29,15 +29,20 @@ type Assignment struct {
 	ShippedAt               time.Time
 	DeliveredAt             time.Time
 	CancelReason            string
+	// ConsolidatedInto is the carrier of a follower and ConsolidatedWith the
+	// followers of a carrier; both empty when the assignment is not merged (ADR 0015).
+	ConsolidatedInto string
+	ConsolidatedWith []string
 }
 
-// Promise is the promise constraint.
+// Promise is the promise constraint. DeliverByEarliest is zero when unknown.
 type Promise struct {
-	PromiseID       string
-	Tier            string
-	DeliverByLatest time.Time
-	WitnessNodeID   string
-	RevisionNo      int
+	PromiseID         string
+	Tier              string
+	DeliverByEarliest time.Time
+	DeliverByLatest   time.Time
+	WitnessNodeID     string
+	RevisionNo        int
 }
 
 // Line is one line of the group. OwnerRef is whose stock the released line
@@ -94,8 +99,10 @@ func AssignmentFrom(a *assignment.Assignment) Assignment {
 	v := Assignment{
 		AssignmentID: string(a.ID()), OrderID: a.OrderID(), GroupNo: a.GroupNo(), DestinationPostalPrefix: a.DestinationPostalPrefix(),
 		State: string(a.State()), AssignmentVersion: a.Version(),
-		Promise: Promise{PromiseID: p.PromiseID, Tier: string(p.Tier), DeliverByLatest: p.DeliverByLatest, WitnessNodeID: p.WitnessNodeID, RevisionNo: p.RevisionNo},
-		Lines:   make([]Line, 0, len(a.Lines())), Releases: []Release{}, ExcludedNodes: []ExcludedNode{},
+		Promise: Promise{PromiseID: p.PromiseID, Tier: string(p.Tier), DeliverByEarliest: p.DeliverByEarliest, DeliverByLatest: p.DeliverByLatest,
+			WitnessNodeID: p.WitnessNodeID, RevisionNo: p.RevisionNo},
+		ConsolidatedInto: string(a.ConsolidatedInto()),
+		Lines:            make([]Line, 0, len(a.Lines())), Releases: []Release{}, ExcludedNodes: []ExcludedNode{},
 		ReleaseAt: a.ReleaseAt(), LockedAt: a.LockedAt(), LockReason: a.LockReason(), PickupDepartureID: a.PickupDepartureID(),
 		TrackingNumbers: append([]string{}, a.TrackingNumbers()...), ShippedAt: a.ShippedAt(), DeliveredAt: a.DeliveredAt(),
 		CancelReason: a.CancelReason(),
@@ -119,6 +126,9 @@ func AssignmentFrom(a *assignment.Assignment) Assignment {
 	}
 	for _, e := range a.ExcludedNodes() {
 		v.ExcludedNodes = append(v.ExcludedNodes, ExcludedNode{NodeID: e.NodeID, Reason: e.Reason})
+	}
+	for _, m := range a.Members() {
+		v.ConsolidatedWith = append(v.ConsolidatedWith, string(m))
 	}
 	return v
 }

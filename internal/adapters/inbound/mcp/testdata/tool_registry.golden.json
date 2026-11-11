@@ -5,7 +5,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Read one fulfillment assignment in full by id: the promise constraint it must keep (tier, deliverByLatest, witness node), its lines, the current candidate node and path with the cost in cost points, the VirtualQueue release point, the whole release history with each outcome (ACCEPTED, REJECTED, EXPIRED, PENDING), the nodes that were excluded and why, and the lock, shipment and delivery facts once they apply. Read-only; fails with not-found for an unknown id.",
+    "description": "Read one fulfillment assignment in full by id: the promise constraint it must keep (tier, deliverByLatest, witness node), its lines, the current candidate node and path with the cost in cost points, the VirtualQueue release point, the whole release history with each outcome (ACCEPTED, REJECTED, EXPIRED, WITHDRAWN, PENDING), the nodes that were excluded and why, and the lock, shipment and delivery facts once they apply. Read-only; fails with not-found for an unknown id.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -81,6 +81,18 @@
           "type": [
             "null",
             "object"
+          ]
+        },
+        "consolidatedInto": {
+          "type": "string"
+        },
+        "consolidatedWith": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
           ]
         },
         "deliveredAt": {
@@ -161,6 +173,9 @@
         "promise": {
           "additionalProperties": false,
           "properties": {
+            "deliverByEarliest": {
+              "type": "string"
+            },
             "deliverByLatest": {
               "type": "string"
             },
@@ -355,6 +370,18 @@
                   "object"
                 ]
               },
+              "consolidatedInto": {
+                "type": "string"
+              },
+              "consolidatedWith": {
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              },
               "deliveredAt": {
                 "type": "string"
               },
@@ -433,6 +460,9 @@
               "promise": {
                 "additionalProperties": false,
                 "properties": {
+                  "deliverByEarliest": {
+                    "type": "string"
+                  },
                   "deliverByLatest": {
                     "type": "string"
                   },

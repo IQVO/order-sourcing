@@ -25,10 +25,12 @@ var _ ports.PolicyRepository = (*PolicyRepository)(nil)
 
 // policyJSON is the stored snapshot (private: the domain structs carry no tags).
 type policyJSON struct {
-	Version                   int       `json:"version"`
-	CrossRegionSurchargeCents int       `json:"crossRegionSurchargeCents"`
-	MaxCostDeviationPercent   int       `json:"maxCostDeviationPercent"`
-	PublishedAt               time.Time `json:"publishedAt"`
+	Version                   int `json:"version"`
+	CrossRegionSurchargeCents int `json:"crossRegionSurchargeCents"`
+	MaxCostDeviationPercent   int `json:"maxCostDeviationPercent"`
+	// ConsolidationMaxAssignments is optional: a row written before ADR 0015 decodes 0.
+	ConsolidationMaxAssignments int       `json:"consolidationMaxAssignments,omitempty"`
+	PublishedAt                 time.Time `json:"publishedAt"`
 }
 
 // Current returns the highest version or ports.ErrNotFound.
@@ -47,7 +49,7 @@ func (r *PolicyRepository) Current(ctx context.Context) (*policy.Policy, error) 
 	}
 	return policy.Restore(policy.Snapshot{
 		Version: j.Version, CrossRegionSurchargeCents: j.CrossRegionSurchargeCents, MaxCostDeviationPercent: j.MaxCostDeviationPercent,
-		PublishedAt: j.PublishedAt.UTC(),
+		ConsolidationMaxAssignments: j.ConsolidationMaxAssignments, PublishedAt: j.PublishedAt.UTC(),
 	})
 }
 
@@ -56,7 +58,7 @@ func (r *PolicyRepository) Save(ctx context.Context, p *policy.Policy) error {
 	s := p.Snapshot()
 	raw, err := json.Marshal(policyJSON{
 		Version: s.Version, CrossRegionSurchargeCents: s.CrossRegionSurchargeCents, MaxCostDeviationPercent: s.MaxCostDeviationPercent,
-		PublishedAt: s.PublishedAt.UTC(),
+		ConsolidationMaxAssignments: s.ConsolidationMaxAssignments, PublishedAt: s.PublishedAt.UTC(),
 	})
 	if err != nil {
 		return fmt.Errorf("encode sourcing policy: %w", err)

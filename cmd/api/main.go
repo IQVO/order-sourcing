@@ -117,14 +117,17 @@ type services struct {
 
 // buildServices wires the adapters and use cases; metrics (nil = none) is the
 // business-counter port the queueing use case reports to and policyMetrics
-// (nil = none) the one of the sourcing policy (ADR 0014).
-func buildServices(pool *pgxpool.Pool, readiness *inboundhttp.Readiness, metrics ports.SourcingMetrics, policyMetrics ports.PolicyMetrics) services {
+// (nil = none) the one of the sourcing policy (ADR 0014) and consolidationMetrics
+// (nil = none) the one of the carrier and follower consolidation (ADR 0015).
+func buildServices(pool *pgxpool.Pool, readiness *inboundhttp.Readiness, metrics ports.SourcingMetrics, policyMetrics ports.PolicyMetrics,
+	consolidationMetrics ports.ConsolidationMetrics,
+) services {
 	outbox := postgres.NewOutbox(pool, outboundkafka.Encoder{})
 	assignments := postgres.NewAssignmentRepository(pool)
 	deps := usecases.Deps{
 		Assignments: assignments, ReadModels: postgres.NewReadModels(pool), World: postgres.NewWorldReader(pool), Outbox: outbox,
 		Inbox: postgres.NewInbox(pool), UoW: postgres.NewUnitOfWork(pool), Clock: clock.System{}, IDs: ids.UUID{},
-		Metrics: metrics, Policies: postgres.NewPolicyRepository(pool), PolicyMetrics: policyMetrics,
+		Metrics: metrics, Policies: postgres.NewPolicyRepository(pool), PolicyMetrics: policyMetrics, ConsolidationMetrics: consolidationMetrics,
 	}
 	reoptimise := usecases.NewReoptimiseAssignment(deps)
 	queries := usecases.NewQueries(assignments)
@@ -193,7 +196,11 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	svc := buildServices(pool, readiness, sourcingMetrics, policyMetrics)
+	consolidationMetrics, err := telemetry.NewConsolidationMetrics()
+	if err != nil {
+		return err
+	}
+	svc := buildServices(pool, readiness, sourcingMetrics, policyMetrics, consolidationMetrics)
 	svc.server.Logger, svc.server.ServiceName = logger, tel.serviceName
 	httpServer := &http.Server{
 		Addr: getenv("HTTP_ADDR", ":8080"), Handler: svc.server.Handler(), ReadHeaderTimeout: serviceReadHeaderTimeout,

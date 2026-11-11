@@ -41,6 +41,7 @@ func (w writer) currentPolicy(ctx context.Context) (sourcing.Policy, error) {
 	w.policyMetrics().PolicyVersionRead(ctx, p.Version())
 	return sourcing.Policy{
 		Version: p.Version(), CrossRegionSurchargeCents: int64(p.CrossRegionSurchargeCents()), MaxCostDeviationPercent: p.MaxCostDeviationPercent(),
+		ConsolidationMaxAssignments: p.ConsolidationMaxAssignments(),
 	}, nil
 }
 

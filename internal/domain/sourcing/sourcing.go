@@ -50,10 +50,14 @@ type Request struct {
 	Now             time.Time
 	Tier            assignment.Tier
 	DeliverByLatest time.Time
-	WitnessNodeID   string
-	Lines           []assignment.Line
-	Excluded        []assignment.ExcludedNode
-	Policy          Policy
+	// NotBefore is the earliest delivery wave end the search accepts (the
+	// delivery window start of a promise); zero means no lower bound, which
+	// leaves every search exactly as it was (ADR 0015).
+	NotBefore     time.Time
+	WitnessNodeID string
+	Lines         []assignment.Line
+	Excluded      []assignment.ExcludedNode
+	Policy        Policy
 }
 
 // Option is one ranked candidate with its release point. CrossRegion is true

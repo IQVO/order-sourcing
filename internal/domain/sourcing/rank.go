@@ -18,7 +18,13 @@ type Policy struct {
 	// MaxCostDeviationPercent is the regional budget over the cheapest
 	// effective cost; 0 switches the budget rule off.
 	MaxCostDeviationPercent int
+	// ConsolidationMaxAssignments is the most assignments one merged release
+	// holds; 0 and 1 switch consolidation off (ADR 0015).
+	ConsolidationMaxAssignments int
 }
+
+// ConsolidationOn reports whether releases may merge.
+func (p Policy) ConsolidationOn() bool { return p.ConsolidationMaxAssignments >= 2 }
 
 // Ranking is the ordered candidate set of one search. BudgetPreferred is true
 // when the budget rule put a different option first than the pure cheapest

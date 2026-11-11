@@ -28,3 +28,4 @@ The *Status* column is copied from each ADR's own `## Status` section.
 | [0012](./0012-owner-aware-availability-and-sourcing.md) | Owner-aware availability and sourcing | Accepted (2026-11-08) |
 | [0013](./0013-analytics-read-side-and-the-sourcing-decision-fact.md) | Analytics read side and the sourcing-decision fact | Accepted (2026-11-09) |
 | [0014](./0014-a-versioned-sourcing-policy.md) | a versioned sourcing policy (cross-region surcharge, regional cost-deviation budget) | Accepted (2026-11-09) |
+| [0015](./0015-carrier-and-follower-consolidation-at-release.md) | carrier and follower consolidation at release (CONSOLIDATED groups only, cancel refused while merged) | Accepted (2026-11-10) |

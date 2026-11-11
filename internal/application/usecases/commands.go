@@ -2,13 +2,15 @@ package usecases
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
 	"github.com/claudioed/order-sourcing/internal/application/views"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
-	"github.com/claudioed/order-sourcing/internal/domain/sourcing"
 )
 
 // mutate loads one assignment, applies one domain command to it and persists
@@ -60,42 +62,6 @@ func (uc *ReoptimiseAssignment) Execute(ctx context.Context, id assignment.ID, e
 	})
 }
 
-// ReleaseToNode releases a QUEUED assignment to its best node.
-type ReleaseToNode struct{ writer }
-
-// NewReleaseToNode builds the use case.
-func NewReleaseToNode(d Deps) *ReleaseToNode { return &ReleaseToNode{writer{d}} }
-
-// Execute re-checks the candidate against fresh read models and releases to
-// the best node, or declares the group UNSOURCEABLE when none is left. An
-// assignment that is no longer QUEUED is left alone (a second timer firing).
-func (uc *ReleaseToNode) Execute(ctx context.Context, id assignment.ID) (views.Assignment, error) {
-	preferred := false
-	v, err := uc.mutate(ctx, Meta{}, id, func(ctx context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
-		preferred = false
-		if a.State() != assignment.StateQueued {
-			return nil, nil
-		}
-		found, err := uc.search(ctx, a, now)
-		if err != nil {
-			return nil, err
-		}
-		if found.best == nil {
-			return a.Release(nil, nil, assignment.SourcingFacts{}, now)
-		}
-		// The search only returns nodes that ship every line, so the listings resolve; a missing
-		// listing would fail the aggregate's own check.
-		lines, _ := sourcing.ResolveLines(found.world, found.best.Candidate.NodeID, a.Lines())
-		preferred = found.budgetPreferred
-		return a.Release(&found.best.Candidate, lines, found.facts(), now)
-	})
-	if err == nil && preferred {
-		// After the commit, so a rolled-back attempt is not counted (ADR 0014).
-		uc.policyMetrics().BudgetPreferred(ctx, budgetKindRegion)
-	}
-	return v, err
-}
-
 // HandleNodeRefusalCommand is the input of HandleNodeRefusal.
 type HandleNodeRefusalCommand struct {
 	Meta
@@ -113,20 +79,58 @@ func NewHandleNodeRefusal(d Deps) *HandleNodeRefusal { return &HandleNodeRefusal
 
 // Execute excludes the refusing node and re-queues on the next best candidate,
 // or declares the group UNSOURCEABLE. The outcome of a release that is not the
-// pending one is assignment.ErrReleaseNotPending.
+// pending one is assignment.ErrReleaseNotPending. A refused carrier takes every
+// follower of its merge with it: each follower refuses its own pending release,
+// excludes the node and is re-searched independently (ADR 0015).
 func (uc *HandleNodeRefusal) Execute(ctx context.Context, cmd HandleNodeRefusalCommand) (views.Assignment, error) {
-	return uc.mutate(ctx, cmd.Meta, cmd.AssignmentID, func(ctx context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
-		var extra []assignment.ExcludedNode
-		if rels := a.Releases(); a.State() == assignment.StateReleased && len(rels) > 0 {
-			extra = append(extra, assignment.ExcludedNode{NodeID: rels[len(rels)-1].NodeID, Reason: string(cmd.Outcome)})
+	return transact(ctx, uc.UoW, func(ctx context.Context) (views.Assignment, error) {
+		if done, err := uc.claim(ctx, cmd.Meta); err != nil || done {
+			return views.Assignment{}, err
 		}
-		found, err := uc.search(ctx, a, now, extra...)
+		a, err := uc.Assignments.Get(ctx, cmd.AssignmentID)
 		if err != nil {
-			return nil, err
+			return views.Assignment{}, err
 		}
-		cand, releaseAt := candidateOf(found.best)
-		return a.RefuseRelease(cmd.ReleaseNo, cmd.Outcome, cmd.ReasonCode, cand, releaseAt, now)
+		if a.ConsolidatedInto() != "" {
+			// The vendor only knows the carrier's id: an outcome on a follower's id is stale.
+			return views.Assignment{}, fmt.Errorf("%w: assignment %s follows %s", assignment.ErrReleaseNotPending, a.ID(), a.ConsolidatedInto())
+		}
+		followers := a.Members()
+		if err := uc.refuseOne(ctx, a, cmd.ReleaseNo, cmd); err != nil {
+			return views.Assignment{}, err
+		}
+		for _, id := range followers {
+			f, err := uc.Assignments.Get(ctx, id)
+			if err != nil {
+				return views.Assignment{}, err
+			}
+			rels := f.Releases()
+			if err := uc.refuseOne(ctx, f, rels[len(rels)-1].No, cmd); err != nil {
+				return views.Assignment{}, err
+			}
+		}
+		return views.AssignmentFrom(a), nil
 	})
+}
+
+// refuseOne applies the refusal of release no to one assignment and saves it.
+func (uc *HandleNodeRefusal) refuseOne(ctx context.Context, a *assignment.Assignment, no int, cmd HandleNodeRefusalCommand) error {
+	now := uc.now()
+	var extra []assignment.ExcludedNode
+	if rels := a.Releases(); a.State() == assignment.StateReleased && len(rels) > 0 {
+		extra = append(extra, assignment.ExcludedNode{NodeID: rels[len(rels)-1].NodeID, Reason: string(cmd.Outcome)})
+	}
+	found, err := uc.search(ctx, a, now, extra...)
+	if err != nil {
+		return err
+	}
+	cand, releaseAt := candidateOf(found.best)
+	before := a.Version()
+	events, err := a.RefuseRelease(no, cmd.Outcome, cmd.ReasonCode, cand, releaseAt, now)
+	if err != nil {
+		return err
+	}
+	return uc.persist(ctx, a, before, events)
 }
 
 // LockAssignmentCommand is the input of LockAssignment.
@@ -143,11 +147,24 @@ type LockAssignment struct{ writer }
 // NewLockAssignment builds the use case.
 func NewLockAssignment(d Deps) *LockAssignment { return &LockAssignment{writer{d}} }
 
-// Execute locks the assignment on the acceptance of its pending release.
+// Execute locks the assignment on the acceptance of its pending release; every
+// follower of a merged carrier locks with it, each on its own pending release.
+// An acceptance for a release that is no longer pending (a stale accept after a
+// withdrawal) is counted and returned as assignment.ErrReleaseNotPending, which
+// the consumer acknowledges (ADR 0015).
 func (uc *LockAssignment) Execute(ctx context.Context, cmd LockAssignmentCommand) (views.Assignment, error) {
-	return uc.mutate(ctx, cmd.Meta, cmd.AssignmentID, func(_ context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
-		return a.Lock(cmd.ReleaseNo, cmd.AcceptedAt, now)
-	})
+	v, err := uc.mutateMerged(ctx, cmd.Meta, cmd.AssignmentID,
+		func(_ context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+			return a.Lock(cmd.ReleaseNo, cmd.AcceptedAt, now)
+		},
+		func(carrier, f *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+			return f.LockFollower(carrier.MergedAssignmentIDs(), cmd.AcceptedAt, now)
+		})
+	if errors.Is(err, assignment.ErrReleaseNotPending) {
+		uc.consolidationMetrics().StaleAccept(ctx)
+		slog.WarnContext(ctx, "acceptance for a release that is not pending", "assignmentId", cmd.AssignmentID, "releaseNo", cmd.ReleaseNo)
+	}
+	return v, err
 }
 
 // MarkShippedCommand is the input of MarkShipped.
@@ -164,11 +181,17 @@ type MarkShipped struct{ writer }
 // NewMarkShipped builds the use case.
 func NewMarkShipped(d Deps) *MarkShipped { return &MarkShipped{writer{d}} }
 
-// Execute records the shipment of a LOCKED assignment.
+// Execute records the shipment of a LOCKED assignment; every follower of a
+// merged carrier ships under the same tracking numbers (ADR 0015).
 func (uc *MarkShipped) Execute(ctx context.Context, cmd MarkShippedCommand) (views.Assignment, error) {
-	return uc.mutate(ctx, cmd.Meta, cmd.AssignmentID, func(_ context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+	ship := func(a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
 		return a.MarkShipped(slices.Clone(cmd.TrackingNumbers), cmd.ShippedAt, now)
-	})
+	}
+	return uc.mutateMerged(ctx, cmd.Meta, cmd.AssignmentID,
+		func(_ context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+			return ship(a, now)
+		},
+		func(_, f *assignment.Assignment, now time.Time) ([]shared.Event, error) { return ship(f, now) })
 }
 
 // MarkDeliveredCommand is the input of MarkDelivered.
@@ -185,11 +208,17 @@ type MarkDelivered struct{ writer }
 // NewMarkDelivered builds the use case.
 func NewMarkDelivered(d Deps) *MarkDelivered { return &MarkDelivered{writer{d}} }
 
-// Execute records one delivered package; the last one delivers the group.
+// Execute records one delivered package; the last one delivers the group. A
+// merged carrier's followers record the same package (ADR 0015).
 func (uc *MarkDelivered) Execute(ctx context.Context, cmd MarkDeliveredCommand) (views.Assignment, error) {
-	return uc.mutate(ctx, cmd.Meta, cmd.AssignmentID, func(_ context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+	deliver := func(a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
 		return a.MarkDelivered(cmd.TrackingNumber, cmd.DeliveredAt, now)
-	})
+	}
+	return uc.mutateMerged(ctx, cmd.Meta, cmd.AssignmentID,
+		func(_ context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+			return deliver(a, now)
+		},
+		func(_, f *assignment.Assignment, now time.Time) ([]shared.Event, error) { return deliver(f, now) })
 }
 
 // RecordPickupMovedCommand is the input of RecordPickupMoved (BookingMoved).
@@ -206,11 +235,16 @@ type RecordPickupMoved struct{ writer }
 // NewRecordPickupMoved builds the use case.
 func NewRecordPickupMoved(d Deps) *RecordPickupMoved { return &RecordPickupMoved{writer{d}} }
 
-// Execute points a LOCKED assignment at the new pickup departure.
+// Execute points a LOCKED assignment at the new pickup departure; the followers
+// of a merged carrier follow the same booking (ADR 0015).
 func (uc *RecordPickupMoved) Execute(ctx context.Context, cmd RecordPickupMovedCommand) (views.Assignment, error) {
-	return uc.mutate(ctx, cmd.Meta, cmd.AssignmentID, func(_ context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
-		return nil, a.MovePickup(cmd.FromDeparture, cmd.ToDeparture, now)
-	})
+	return uc.mutateMerged(ctx, cmd.Meta, cmd.AssignmentID,
+		func(_ context.Context, a *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+			return nil, a.MovePickup(cmd.FromDeparture, cmd.ToDeparture, now)
+		},
+		func(_, f *assignment.Assignment, now time.Time) ([]shared.Event, error) {
+			return nil, f.MovePickup(cmd.FromDeparture, cmd.ToDeparture, now)
+		})
 }
 
 // RecordProcessed claims the inbox row of an event that needs no effect (for

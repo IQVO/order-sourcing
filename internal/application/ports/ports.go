@@ -39,6 +39,11 @@ type AssignmentRepository interface {
 	// Queued returns the ids of QUEUED assignments after the given id, ordered
 	// by id, at most limit (the keyset the re-optimisation sweep pages by).
 	Queued(ctx context.Context, after assignment.ID, limit int) ([]assignment.ID, error)
+	// QueuedByKey returns the QUEUED assignments that carry the non-empty
+	// consolidation key, other than excludeID, ordered by deliverByLatest then
+	// id, at most limit (the candidates of a merge, ADR 0015). An empty key
+	// matches nothing.
+	QueuedByKey(ctx context.Context, key string, excludeID assignment.ID, limit int) ([]*assignment.Assignment, error)
 	// Save persists the assignment under the concurrency rule of the package
 	// comment. A second assignment of the same (orderId, groupNo) is
 	// ErrDuplicateGroup.
@@ -155,4 +160,19 @@ type PolicyMetrics interface {
 	// BudgetPreferred counts one release whose winner the budget rule changed
 	// relative to the pure cheapest ordering; kind is "region".
 	BudgetPreferred(ctx context.Context, kind string)
+}
+
+// ConsolidationMetrics records what the consolidation did (ADR 0015); the
+// implementation lives in internal/adapters/outbound/telemetry and a nil
+// Deps.ConsolidationMetrics records nothing.
+type ConsolidationMetrics interface {
+	// Consolidated counts one merged release and the followers it absorbed.
+	Consolidated(ctx context.Context, followers int)
+	// Withdrawn counts one dissolved merge that withdrew its release; reason is
+	// PROMISE_REVISED.
+	Withdrawn(ctx context.Context, reason string)
+	// CancelRefused counts a cancel of a merged member that was refused.
+	CancelRefused(ctx context.Context)
+	// StaleAccept counts an acceptance for a release that is no longer pending.
+	StaleAccept(ctx context.Context)
 }
