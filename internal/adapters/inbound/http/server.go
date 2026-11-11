@@ -1,5 +1,5 @@
 // Package http is the REST inbound adapter (apis/openapi.yaml): list and get
-// assignments, and the planner's reoptimise action. It maps wire shapes to
+// assignments, the planner's reoptimise action and the sourcing policy. It maps wire shapes to
 // use-case calls and typed errors to RFC 9457 problems; it holds no rules.
 package http
 
@@ -41,6 +41,8 @@ type Server struct {
 	List        Lister
 	Get         Getter
 	Reoptimise  Reoptimiser
+	PolicyGet   PolicyReader
+	PolicyPut   PolicyPublisher
 	Readiness   *Readiness
 	Idempotency func(http.Handler) http.Handler // nil = no key required (unit tests only)
 
@@ -78,11 +80,14 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/readyz", s.handleReadyz)
 	r.Get("/assignments", s.handleList)
 	r.Get("/assignments/{id}", s.handleGet)
+	r.Get("/sourcing-policy", s.handleGetPolicy)
 	r.Group(func(r chi.Router) {
 		if s.Idempotency != nil {
 			r.Use(s.Idempotency)
 		}
 		r.Post("/assignments/{id}/reoptimisations", s.handleReoptimise)
+		// Every PUT publishes a NEW version, so a retry must not publish twice: it takes the key too (ADR 0014).
+		r.Put("/sourcing-policy", s.handlePutPolicy)
 	})
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, notFoundResource, "no resource matches the requested path")

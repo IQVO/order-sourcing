@@ -43,6 +43,8 @@ Kafka types below are the CloudEvents `type` suffix; the full type is
 | 13 | `Projector` (`projector.go`) | 22 sibling event types, see below | Kafka, seven topics |
 | 14 | `Queries.ListAssignments` (`queries.go`) | `GET /assignments`; MCP `list_assignments`; A2A `find_assignments` | REST, MCP, A2A |
 | 15 | `Queries.GetAssignment` (`queries.go`) | `GET /assignments/{id}`; MCP `get_assignment`; A2A `assignment_detail` | REST, MCP, A2A |
+| 16 | `SourcingPolicies.Current` (`policy.go`) | `GET /sourcing-policy` | REST |
+| 17 | `SourcingPolicies.Publish` (`policy.go`) | `PUT /sourcing-policy` (with `Idempotency-Key`) | REST |
 
 ## Use cases in detail
 
@@ -65,8 +67,8 @@ Kafka types below are the CloudEvents `type` suffix; the full type is
 | 15 | assignment id | Unknown id is `ports.ErrNotFound` (404 over REST). | none |
 
 Which events go to which topic is on [Domain events](/docs/ddd/domain-events) and the
-[event catalogue](/docs/api-reference/events). Eight of the eleven events are on `retailnetwork.order-sourcing.events`;
-`FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentDelivered` are analytics-only (`Stream()` in `internal/domain/assignment/events.go`).
+[event catalogue](/docs/api-reference/events). Eight of the twelve events are on `retailnetwork.order-sourcing.events`;
+`FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered` and `SourcingPolicyPublished` are analytics-only (`Stream()` in `internal/domain/assignment/events.go`).
 
 ## The projected events (use case 13)
 
@@ -90,14 +92,26 @@ Nine consumed topics carry 32 handled event types: 10 reach a command use case (
   five departures (none for `SAME_DAY`), respects the sort dwell at intermediate nodes, and ends at a delivery wave of the
   destination's service-area station whose induct cutoff is not before the last arrival and whose window ends no later than
   `deliverByLatest`. The candidate `eta` is that window end.
-- Cost: 100 per onward leg, 10 per hour between departure and wave start, 1000 for a node outside the destination's region,
-  a scorecard penalty on the 30-day window (A 0, B 50, C 200, D 500; no scorecard or `PROVISIONAL` adds nothing), and 500 when
-  the promise book is under pressure for that node and pickup departure.
-- Order: lowest cost, then the witness node, then the lower node id, then the lower pickup departure id.
+- Cost: `estimatedCostCents` (the declared per-unit lane costs of every departure plus the final wave's per-stop cost, ADR 0011)
+  plus the sourcing policy's cross-region surcharge, `effectiveCostCents`. The legacy points (100 per onward leg, 10 per hour
+  between departure and wave start, 1000 for a node outside the destination's region, a scorecard penalty on the 30-day window
+  (A 0, B 50, C 200, D 500; no scorecard or `PROVISIONAL` adds nothing), and 500 when the promise book is under pressure for
+  that node and pickup departure) are the tie-break score.
+- Order: with a published policy whose `maxCostDeviationPercent` is above 0, candidates within `cheapest + floor(cheapest * percent / 100)`
+  come first, in-region before cross-region, then the ones over the budget; inside each group, lowest effective cents, then
+  the lowest tie-break score, then the witness node, then the lower node id, then the lower pickup departure id. With the
+  default policy (version 0, or every lever 0) the order is exactly that of ADR 0011: no budget tier.
+- A CONSOLIDATED promise (ADR 0016) bounds the search with its window start (`deliverByEarliest`: a delivery wave that ends before it
+  is skipped, so the group lands on the wave of the chosen day; unknown = no bound) and, after the money and before the legacy score,
+  prefers the LATER pickup cutoff, which holds the release until the latest pickup that still reaches that day. Other tiers are untouched.
+- The policy is an input: the use case reads the current version once per search (`writer.currentPolicy`) and passes it in
+  `sourcing.Request.Policy`; the version is stamped on every candidate and on the release (`policyVersion`). The budget
+  counter `ordersourcing_budget_preferred_total{kind="region"}` counts a release the budget rule decided. Order-level split
+  planning does not exist (customer-ordering decides the groups), so there is no split surcharge (ADR 0014).
 - `releaseAt`: now for `SAME_DAY`; otherwise the pickup cutoff minus the node's handling time minus a 30 minute acknowledgement
   budget, never before now.
 
-Source: `internal/domain/sourcing/sourcing.go` (`Search`, `option`, `penalties`, `explore`, `finish`).
+Source: `internal/domain/sourcing/sourcing.go` (`Search`), `rank.go` (`Rank`, the comparator and the budget tiers) and `paths.go` (`option`, `penalties`, `explore`, `finish`).
 
 ## Errors and the problem types they become
 

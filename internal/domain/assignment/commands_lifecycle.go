@@ -20,10 +20,20 @@ func (a *Assignment) Lock(no int, acceptedAt, now time.Time) ([]shared.Event, er
 	if a.state == StateCancelled {
 		return nil, fmt.Errorf("%w: assignment %s is CANCELLED", shared.ErrIllegalTransition, a.id)
 	}
+	if a.consolidatedInto != "" {
+		// A follower locks with its carrier (LockFollower), never on its own id.
+		return nil, fmt.Errorf("%w: assignment %s follows %s", ErrReleaseNotPending, a.id, a.consolidatedInto)
+	}
 	rel, err := a.pendingRelease(no)
 	if err != nil {
 		return nil, err
 	}
+	return a.lock(rel, a.MergedAssignmentIDs(), acceptedAt, now), nil
+}
+
+// lock accepts the pending release rel and raises FulfillmentLocked; merged is
+// the merged id list of the event (nil when not merged).
+func (a *Assignment) lock(rel *Release, merged []ID, acceptedAt, now time.Time) []shared.Event {
 	rel.Outcome = OutcomeAccepted
 	a.state = StateLocked
 	a.lockedAt = shared.UTC(acceptedAt)
@@ -36,7 +46,8 @@ func (a *Assignment) Lock(no int, acceptedAt, now time.Time) ([]shared.Event, er
 	return []shared.Event{FulfillmentLocked{
 		Base: a.base(), OrderID: a.orderID, GroupNo: a.groupNo, PromiseID: a.promise.PromiseID, NodeID: rel.NodeID,
 		PickupDepartureID: a.pickupDeparture, LockedAt: a.lockedAt, LockReason: a.lockReason,
-	}}, nil
+		ConsolidatedInto: a.consolidatedInto, MergedAssignmentIDs: slices.Clone(merged),
+	}}
 }
 
 // MarkShipped records the vendor's shipment (LOCKED to SHIPPED). A repeat on a
@@ -107,14 +118,19 @@ func (a *Assignment) MarkDelivered(trackingNumber string, deliveredAt, now time.
 
 // Cancel cancels a QUEUED, RELEASED or UNSOURCEABLE assignment
 // (CancelAssignment; UNSOURCEABLE since G10). LOCKED and later is
-// ErrCancelAfterLock; a repeat on CANCELLED returns no events. A PENDING
-// release stays as it is: vendor-connectivity cancels the purchase order.
+// ErrCancelAfterLock; a member of a live merge that is still RELEASED is
+// ErrCancelWhileMerged (ADR 0015); a repeat on CANCELLED returns no events. A
+// PENDING release stays as it is: vendor-connectivity cancels the purchase order.
 func (a *Assignment) Cancel(reason string, now time.Time) ([]shared.Event, error) {
 	switch a.state {
 	case StateCancelled:
 		return nil, nil
 	case StateLocked, StateShipped, StateDelivered:
 		return nil, fmt.Errorf("%w: assignment %s is %s", ErrCancelAfterLock, a.id, a.state)
+	case StateReleased:
+		if a.Merged() {
+			return nil, fmt.Errorf("%w: assignment %s is a member of a merged release", ErrCancelWhileMerged, a.id)
+		}
 	}
 	if !shared.ValidTextN(reason, MaxReason) {
 		return nil, shared.Invalid("reason must be 1 to %d printable characters", MaxReason)
@@ -128,11 +144,17 @@ func (a *Assignment) Cancel(reason string, now time.Time) ([]shared.Event, error
 }
 
 // RefuseCancel answers a cancel request that came after the lock
-// (contracts-delta E11): the state does not change, the version does.
+// (contracts-delta E11) or while the assignment is a member of a live merge
+// (ADR 0015, reason CANCEL_WHILE_MERGED): the state does not change, the
+// version does.
 func (a *Assignment) RefuseCancel(now time.Time) ([]shared.Event, error) {
+	reason := ReasonCancelAfterLock
 	if !a.state.Committed() {
-		return nil, fmt.Errorf("%w: assignment %s is %s, a cancel is not refused", shared.ErrIllegalTransition, a.id, a.state)
+		if a.state != StateReleased || !a.Merged() {
+			return nil, fmt.Errorf("%w: assignment %s is %s, a cancel is not refused", shared.ErrIllegalTransition, a.id, a.state)
+		}
+		reason = ReasonCancelWhileMerged
 	}
 	a.touch(now)
-	return []shared.Event{FulfillmentCancelRefused{Base: a.base(), OrderID: a.orderID, GroupNo: a.groupNo, Reason: ReasonCancelAfterLock}}, nil
+	return []shared.Event{FulfillmentCancelRefused{Base: a.base(), OrderID: a.orderID, GroupNo: a.groupNo, Reason: reason}}, nil
 }

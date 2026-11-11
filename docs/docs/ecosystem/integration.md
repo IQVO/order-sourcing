@@ -84,8 +84,9 @@ All of them are CloudEvents 1.0 in structured mode, decoded only by `internal/ad
 
 ## Downstream: what Order Sourcing publishes
 
-Eleven events through the transactional outbox, at least once, key = `assignmentId`: eight to `retailnetwork.order-sourcing.events`,
-`FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentDelivered` to `retailnetwork.order-sourcing.analytics` only. This
+Fifteen events through the transactional outbox, at least once, key = `assignmentId` (`policy` for `SourcingPolicyPublished`): nine to `retailnetwork.order-sourcing.events`
+(the eight integration events and `FulfillmentReleaseWithdrawn`, ADR 0015),
+`FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered`, `SourcingPolicyPublished`, `AssignmentsConsolidated` and `AssignmentsDeconsolidated` to `retailnetwork.order-sourcing.analytics` only. `FulfillmentReleasedToNode` carries the optional `policyVersion` and `effectiveCostCents` (ADR 0014); consumers decode them tolerantly. This
 context's own `cmd/os-projector` (ADR 0013) consumes both topics into its analytical database.
 
 | Consumer | Protocol and topic | Contract | Status |
@@ -95,7 +96,7 @@ context's own `cmd/os-projector` (ADR 0013) consumes both topics into its analyt
 | delivery-promise | same | `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable` | **Built + verified.** `internal/adapters/inbound/kafka/dispatch.go` handles these three; `FulfillmentUnsourceable` is what asks for a re-promise, and its `PromiseRevised` answer comes back as upstream traffic. |
 | customer-ordering | same | `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused` | **Built + verified.** `internal/adapters/inbound/kafka/handlers.go` handles these five. |
 | any consumer | same | `FulfillmentConstraintRevised` | **Published, no consumer found** in the four clones above. |
-| analytics read side | Kafka, `retailnetwork.order-sourcing.analytics` | `FulfillmentQueued`, `FulfillmentDelivered` | **Published, no consumer in this repository**; no domain consumer is known. |
+| analytics read side | Kafka, `retailnetwork.order-sourcing.analytics` | `FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered` | Consumed in this repository by `cmd/os-projector` (ADR 0013), which projects `FulfillmentQueued` and `FulfillmentSourcingDecided` into the analytical database (the decoder `internal/adapters/inbound/kafka/analytics_decode.go` maps only `FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentUnsourceable`, so `FulfillmentDelivered` is not projected); no domain consumer is known. |
 | network-ops planner, console, agents | REST `GET /assignments`, `GET /assignments/{id}`, `POST /assignments/{id}/reoptimisations`; MCP; A2A | `apis/openapi.yaml`, [MCP tools](/docs/mcp/tools), [API overview](/docs/api-reference#a2a) | **Built.** The web remote `order_sourcing_mfe` (`web/`, [ADR 0007](/docs/adr/0007-console-remote)) calls only this context's own `/api/order-sourcing`. |
 
 Compared with the design pack in `warehouse-docs` (`domain-events`), the downstream handlers on `origin/develop` read more than the

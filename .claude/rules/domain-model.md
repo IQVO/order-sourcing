@@ -19,8 +19,13 @@ and every assumption the model left open (A1-A23) are in
   reset when `revisionNo` changes.
 - **Excluded node** — a node that rejected or let a release expire; never released to again for the same
   revision.
-- **AssignmentCost** — integer cost points (100 per departure, 10 per hour, cross-region penalty 1000,
-  book-pressure 500, scorecard grade A 0 / B 50 / C 200 / D 500 from the 30-day window; `PROVISIONAL` adds none).
+- **AssignmentCost** — money first: `estimatedCostCents` (declared lane and wave cents, ADR 0011) ranks candidates; the
+  integer cost points (100 per departure, 10 per hour, cross-region penalty 1000, book-pressure 500, scorecard grade
+  A 0 / B 50 / C 200 / D 500 from the 30-day window; `PROVISIONAL` adds none) are the legacy tie-break score.
+- **SourcingPolicy** (`internal/domain/policy`, ADR 0014) — one versioned document, every publish is version n+1, version 0 =
+  defaults: `crossRegionSurchargeCents` (0..100000) is added to a cross-region candidate's `effectiveCostCents`, and
+  `maxCostDeviationPercent` (0..200) is the budget inside which an in-region candidate beats a cheaper cross-region one.
+  Both default to 0 (off). Read once per search, stamped on the candidate and the release (`policyVersion`).
 - **NetworkGraphView** — the local read models fed by sibling events (`internal/domain/network`): nodes, lanes,
   departures, waves, service areas, listings, scorecards, book pressure.
 
@@ -31,7 +36,10 @@ and every assumption the model left open (A1-A23) are in
   `ErrCandidateBreaksPromise`, `ErrAssignmentLocked` (the node never changes after LOCKED),
   `ErrNodeExcluded`, `ErrReleaseInFlight`, `ErrStaleAssignmentVersion`, `ErrCancelAfterLock` (answered with
   `FulfillmentCancelRefused`), `ErrReleaseNotPending`, `ErrStaleRevision` (both ignored by consumers).
-- **Candidate search** (`internal/domain/sourcing`): pure `Search`/`Best` over a `World` value; no I/O.
+- **SourcingPolicy** (`internal/domain/policy`): `Publish`, `Restore`, `Snapshot()`; raises the analytics-only
+  `SourcingPolicyPublished`.
+- **Candidate search** (`internal/domain/sourcing`): pure `Search`/`Rank`/`Best` over a `World` value and a `Request` that
+  carries the policy read once; no I/O.
 - **Network read models** (`internal/domain/network`): value types with last-write-wins rules, not aggregates.
 - `internal/domain/shared`: `Event`, `Header`, `ErrValidation`, `ErrIllegalTransition`, `ErrInvalidSnapshot`.
 
@@ -41,10 +49,13 @@ imports nothing outside `internal/domain`.
 
 ## Domain events (`internal/domain/assignment/events.go`)
 
-Ten events, entity `assignment`, subject = `assignmentId`. On `retailnetwork.order-sourcing.events`:
+Eleven events, entity `assignment`, subject = `assignmentId`. On `retailnetwork.order-sourcing.events`:
 `FulfillmentReleasedToNode`, `FulfillmentReassigned`, `FulfillmentLocked`, `FulfillmentShipped`,
 `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused`, `FulfillmentConstraintRevised`.
-On `.analytics` only: `FulfillmentQueued`, `FulfillmentDelivered`.
+On `.analytics` only: `FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered`.
+`FulfillmentReleasedToNode` and `FulfillmentSourcingDecided` carry the optional `policyVersion` and `effectiveCostCents` (ADR 0014).
+The twelfth event, `SourcingPolicyPublished` (`internal/domain/policy/events.go`), has entity `policy`, subject `policy`, and
+goes ONLY to `.analytics`.
 
 ## Key use cases (`internal/application/usecases`)
 
@@ -54,6 +65,8 @@ retries once on `ports.ErrConcurrentUpdate`.
 - `QueueAssignment` (`queue.go`), `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `LockAssignment`,
   `MarkShipped`, `MarkDelivered`, `RecordPickupMoved`, `RecordProcessed` (`commands.go`);
   `CancelAssignment`, `ApplyRevisedPromise` (`cancel_revise.go`); `SweepQueue` (`sweep.go`, the release timer).
+- `SourcingPolicies` (`policy.go`): `Current` and `Publish` (REST `GET`/`PUT /sourcing-policy`); every search reads the
+  current policy once through `ports.PolicyRepository` (`currentPolicy`) and stamps its version on the candidate.
 - `Projector` (`projector.go`) maintains the read models from sibling events.
 - Queries (`queries.go`): `ListAssignments`, `GetAssignment`. DTOs in `internal/application/views`, filters in
   `internal/application/repository`.

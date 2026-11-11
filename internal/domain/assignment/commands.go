@@ -111,14 +111,29 @@ func (a *Assignment) Release(best *Candidate, lines []Line, facts SourcingFacts,
 	if best == nil {
 		return []shared.Event{a.toUnsourceable(ReasonNoCandidate, now)}, nil
 	}
-	if err := a.checkCandidate(best); err != nil {
+	events, rel, err := a.openRelease(best, lines, facts, now)
+	if err != nil {
 		return nil, err
+	}
+	return append(events, a.releasedToNode(rel, best, lines, nil), a.sourcingDecided(rel, *best, facts)), nil
+}
+
+// openRelease validates a release of best with the assignment's own resolved
+// lines and moves it to RELEASED with a PENDING release; it returns the
+// reassignment event when the node changed. The merged release paths share it
+// (ADR 0015).
+func (a *Assignment) openRelease(best *Candidate, lines []Line, facts SourcingFacts, now time.Time) ([]shared.Event, Release, error) {
+	if err := a.guardMovable(); err != nil {
+		return nil, Release{}, err
+	}
+	if err := a.checkCandidate(best); err != nil {
+		return nil, Release{}, err
 	}
 	if err := a.checkReleaseLines(lines); err != nil {
-		return nil, err
+		return nil, Release{}, err
 	}
 	if err := facts.validate(); err != nil {
-		return nil, err
+		return nil, Release{}, err
 	}
 	from := ""
 	if a.candidate != nil {
@@ -132,13 +147,24 @@ func (a *Assignment) Release(best *Candidate, lines []Line, facts SourcingFacts,
 		RequiredShipBy: shared.UTC(best.PickupCutoffAt), Outcome: OutcomePending,
 	})
 	a.state = StateReleased
-	rel := a.releases[len(a.releases)-1]
-	return append(events, FulfillmentReleasedToNode{
+	return events, a.releases[len(a.releases)-1], nil
+}
+
+// releasedToNode builds FulfillmentReleasedToNode of release rel. merge is nil
+// for a single-group release; otherwise it carries the member list, the union
+// of the lines in member order and the minimum promised latest delivery.
+func (a *Assignment) releasedToNode(rel Release, best *Candidate, lines []Line, merge *mergedRelease) FulfillmentReleasedToNode {
+	e := FulfillmentReleasedToNode{
 		Base: a.base(), ReleaseNo: rel.No, OrderID: a.orderID, GroupNo: a.groupNo, NodeID: rel.NodeID,
 		PickupDepartureID: best.PickupDepartureID, RequiredShipBy: rel.RequiredShipBy,
-		PromisedDeliverByLatest: a.promise.DeliverByLatest, Tier: a.promise.Tier, Lines: cloneLines(a.lines),
-		EstimatedCostCents: estimateOf(*best),
-	}, a.sourcingDecided(rel, *best, facts)), nil
+		PromisedDeliverByLatest: a.promise.DeliverByLatest, Tier: a.promise.Tier.FulfilmentClass(), Lines: cloneLines(lines),
+		EstimatedCostCents: estimateOf(*best), PolicyVersion: best.PolicyVersion, EffectiveCostCents: best.EffectiveCostOnWire(),
+	}
+	if merge != nil {
+		e.Members, e.Lines, e.LineMembers = merge.members, merge.lines, merge.lineMembers
+		e.PromisedDeliverByLatest = merge.promisedLatest
+	}
+	return e
 }
 
 // sourcingDecided is the analytics fact of release rel (ADR 0013).
@@ -147,7 +173,7 @@ func (a *Assignment) sourcingDecided(rel Release, best Candidate, facts Sourcing
 		Base: a.base(), OrderID: a.orderID, GroupNo: a.groupNo, ReleaseNo: rel.No, NodeID: rel.NodeID,
 		NodeRegionID: facts.NodeRegionID, DestinationRegionID: facts.DestinationRegionID, Legs: len(best.Legs),
 		EstimatedCostCents: estimateOf(best), Units: unitsOf(a.lines), CandidateCount: facts.CandidateCount,
-		DecidedAt: rel.ReleasedAt,
+		DecidedAt: rel.ReleasedAt, PolicyVersion: best.PolicyVersion, EffectiveCostCents: best.EffectiveCostOnWire(),
 	}
 }
 
@@ -243,8 +269,9 @@ func (a *Assignment) RefuseRelease(no int, outcome Outcome, reasonCode string, b
 	}
 	rel.Outcome, rel.ReasonCode = outcome, reasonCode
 	a.excluded = append(a.excluded, ExcludedNode{NodeID: rel.NodeID, Reason: why})
+	ids := a.mergedIDs()
 	if best == nil {
-		return []shared.Event{a.toUnsourceable(ReasonNodeRefused, now)}, nil
+		return a.endMerge([]shared.Event{a.toUnsourceable(ReasonNodeRefused, now)}, rel.No, reason, ids, now), nil
 	}
 	if err := a.checkCandidate(best); err != nil {
 		rel.Outcome, rel.ReasonCode = OutcomePending, ""
@@ -253,5 +280,5 @@ func (a *Assignment) RefuseRelease(no int, outcome Outcome, reasonCode string, b
 	}
 	a.state = StateQueued
 	a.touch(now)
-	return a.setCandidate(best, releaseAt, rel.NodeID, reason), nil
+	return a.endMerge(a.setCandidate(best, releaseAt, rel.NodeID, reason), rel.No, reason, ids, now), nil
 }

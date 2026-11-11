@@ -70,11 +70,12 @@ type skillData struct {
 // --- DTOs (the REST/MCP bodies, camelCase like the REST contract) ---------------
 
 type promiseView struct {
-	PromiseID       string `json:"promiseId"`
-	Tier            string `json:"tier"`
-	DeliverByLatest string `json:"deliverByLatest"`
-	WitnessNodeID   string `json:"witnessNodeId"`
-	RevisionNo      int    `json:"revisionNo"`
+	PromiseID         string `json:"promiseId"`
+	Tier              string `json:"tier"`
+	DeliverByEarliest string `json:"deliverByEarliest,omitempty"`
+	DeliverByLatest   string `json:"deliverByLatest"`
+	WitnessNodeID     string `json:"witnessNodeId"`
+	RevisionNo        int    `json:"revisionNo"`
 }
 
 type lineView struct {
@@ -130,6 +131,10 @@ type assignmentView struct {
 	ShippedAt               string             `json:"shippedAt,omitempty"`
 	DeliveredAt             string             `json:"deliveredAt,omitempty"`
 	CancelReason            string             `json:"cancelReason,omitempty"`
+	// ConsolidatedInto names the carrier of a follower and ConsolidatedWith the
+	// followers of a carrier (ADR 0015); both are omitted when not merged.
+	ConsolidatedInto string   `json:"consolidatedInto,omitempty"`
+	ConsolidatedWith []string `json:"consolidatedWith,omitempty"`
 }
 
 type assignmentListView struct {
@@ -148,7 +153,7 @@ func instant(t time.Time) string {
 
 func toPromise(p views.Promise) promiseView {
 	return promiseView{
-		PromiseID: p.PromiseID, Tier: p.Tier, DeliverByLatest: instant(p.DeliverByLatest),
+		PromiseID: p.PromiseID, Tier: p.Tier, DeliverByEarliest: instant(p.DeliverByEarliest), DeliverByLatest: instant(p.DeliverByLatest),
 		WitnessNodeID: p.WitnessNodeID, RevisionNo: p.RevisionNo,
 	}
 }
@@ -210,6 +215,7 @@ func toAssignment(v views.Assignment) assignmentView {
 		LockedAt: instant(v.LockedAt), LockReason: v.LockReason, PickupDepartureID: v.PickupDepartureID,
 		TrackingNumbers: append([]string{}, v.TrackingNumbers...), ShippedAt: instant(v.ShippedAt),
 		DeliveredAt: instant(v.DeliveredAt), CancelReason: v.CancelReason,
+		ConsolidatedInto: v.ConsolidatedInto, ConsolidatedWith: v.ConsolidatedWith,
 	}
 }
 

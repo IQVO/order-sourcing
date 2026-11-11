@@ -20,6 +20,8 @@ func candidate(node string) *assignment.Candidate {
 	return &assignment.Candidate{
 		NodeID: node, PickupDepartureID: "dep-" + node, PickupCutoffAt: hours(5), Legs: []string{"leg-1", "leg-2"},
 		DeliveryWaveID: "wave-1", ETA: hours(30), Cost: 130,
+		// The money and sourcing-policy fields of the candidate (ADR 0011, ADR 0014) round-trip too.
+		EstimatedCostCents: 950, CostComplete: true, SurchargeCents: 300, PolicyVersion: 2,
 	}
 }
 

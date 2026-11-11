@@ -60,12 +60,13 @@ export function StatePill({ state }: { state: AssignmentState }) {
 }
 
 /** A release outcome's colour: PENDING is still open, ACCEPTED went through,
- *  REJECTED/EXPIRED are the node's refusals. */
+ *  REJECTED/EXPIRED are the node's refusals, WITHDRAWN was recalled first. */
 const OUTCOME_TONE: Record<Outcome, Tone> = {
   PENDING: "neutral",
   ACCEPTED: "success",
   REJECTED: "danger",
   EXPIRED: "warning",
+  WITHDRAWN: "neutral",
 };
 
 export function OutcomePill({ outcome }: { outcome: Outcome }) {

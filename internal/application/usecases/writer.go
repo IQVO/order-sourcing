@@ -31,6 +31,15 @@ type Deps struct {
 	// Metrics records the business outcome of each queued shipment group; nil
 	// records nothing, so unit tests need no wiring.
 	Metrics ports.SourcingMetrics
+	// Policies is the SourcingPolicy repository (ADR 0014); nil means the
+	// default policy always applies and nothing can be published, so unit tests
+	// need no wiring. PolicyMetrics records what the policy did; nil records
+	// nothing.
+	Policies      ports.PolicyRepository
+	PolicyMetrics ports.PolicyMetrics
+	// ConsolidationMetrics records merges, withdrawals, refused cancels and stale
+	// acceptances (ADR 0015); nil records nothing.
+	ConsolidationMetrics ports.ConsolidationMetrics
 }
 
 // Meta identifies the Kafka message that triggered a command. A zero Meta (a
@@ -53,6 +62,36 @@ type noMetrics struct{}
 
 func (noMetrics) GroupSourced(context.Context, string)   {}
 func (noMetrics) SourcingFailed(context.Context, string) {}
+
+// policyMetrics returns the configured PolicyMetrics or a no-op.
+func (d Deps) policyMetrics() ports.PolicyMetrics {
+	if d.PolicyMetrics != nil {
+		return d.PolicyMetrics
+	}
+	return noPolicyMetrics{}
+}
+
+// noPolicyMetrics is the PolicyMetrics of a Deps without one.
+type noPolicyMetrics struct{}
+
+func (noPolicyMetrics) PolicyVersionRead(context.Context, int)  {}
+func (noPolicyMetrics) BudgetPreferred(context.Context, string) {}
+
+// consolidationMetrics returns the configured ConsolidationMetrics or a no-op.
+func (d Deps) consolidationMetrics() ports.ConsolidationMetrics {
+	if d.ConsolidationMetrics != nil {
+		return d.ConsolidationMetrics
+	}
+	return noConsolidationMetrics{}
+}
+
+// noConsolidationMetrics is the ConsolidationMetrics of a Deps without one.
+type noConsolidationMetrics struct{}
+
+func (noConsolidationMetrics) Consolidated(context.Context, int) {}
+func (noConsolidationMetrics) Withdrawn(context.Context, string) {}
+func (noConsolidationMetrics) CancelRefused(context.Context)     {}
+func (noConsolidationMetrics) StaleAccept(context.Context)       {}
 
 // writer is what every command embeds.
 type writer struct{ Deps }

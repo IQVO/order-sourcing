@@ -112,6 +112,31 @@ func (r *AssignmentRepository) Queued(ctx context.Context, after assignment.ID, 
 	return firstIDs(queued, limit), nil
 }
 
+// QueuedByKey implements ports.AssignmentRepository.
+func (r *AssignmentRepository) QueuedByKey(ctx context.Context, key string, excludeID assignment.ID, limit int) ([]*assignment.Assignment, error) {
+	defer r.s.enter(ctx)()
+	if key == "" || limit <= 0 {
+		return nil, nil
+	}
+	rows := r.sorted(func(s assignment.Snapshot) bool {
+		return s.State == assignment.StateQueued && s.ConsolidationKey == key && s.ID != excludeID
+	}, func(a, b assignment.Snapshot) int {
+		return cmp.Or(a.Promise.DeliverByLatest.Compare(b.Promise.DeliverByLatest), byID(a, b))
+	})
+	var out []*assignment.Assignment
+	for _, snap := range rows {
+		if len(out) == limit {
+			break
+		}
+		a, err := restore(snap)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, nil
+}
+
 func firstIDs(snaps []assignment.Snapshot, limit int) []assignment.ID {
 	out := make([]assignment.ID, 0, min(limit, len(snaps)))
 	for _, s := range snaps {

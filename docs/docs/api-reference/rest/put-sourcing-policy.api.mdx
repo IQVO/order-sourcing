@@ -1,0 +1,70 @@
+---
+id: put-sourcing-policy
+title: "Publish the next sourcing policy version (PublishSourcingPolicy)"
+description: "Replaces the whole policy document: validates every range, stores version n+1 (n is the highest stored version, 0 when none) and raises the analytics-only SourcingPolicyPublished event in the same transaction. An omitted field takes its default, 0 (the lever is off); an empty body is 400. Every call publishes a NEW version, so it takes an Idempotency-Key like a POST: the same key with the same body replays the first answer for 24 hours instead of publishing twice; the same key with another request is 409 idempotency-key-reused. Searches that started before the publish keep the version they read."
+sidebar_label: "Publish the next sourcing policy version (PublishSourcingPolicy)"
+hide_title: true
+hide_table_of_contents: true
+api: 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
+sidebar_class_name: "put api-method"
+info_path: docs/api-reference/rest/order-sourcing-api
+custom_edit_url: null
+hide_send_button: true
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+import Translate from "@docusaurus/Translate";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Publish the next sourcing policy version (PublishSourcingPolicy)"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"put"}
+  path={"/sourcing-policy"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Replaces the whole policy document: validates every range, stores version n+1 (n is the highest stored version, 0 when none) and raises the analytics-only SourcingPolicyPublished event in the same transaction. An omitted field takes its default, 0 (the lever is off); an empty body is 400. Every call publishes a NEW version, so it takes an Idempotency-Key like a POST: the same key with the same body replays the first answer for 24 hours instead of publishing twice; the same key with another request is 409 idempotency-key-reused. Searches that started before the publish keep the version they read.
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+>
+  <Translate id="theme.openapi.request.title">Request</Translate>
+</Heading>
+
+<ParamsDetails
+  {...require("./put-sourcing-policy.ParamsDetails.json")}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  {...require("./put-sourcing-policy.RequestSchema.json")}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  {...require("./put-sourcing-policy.StatusCodes.json")}
+>
+  
+</StatusCodes>
+
+
+      

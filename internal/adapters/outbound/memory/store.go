@@ -21,6 +21,7 @@ import (
 
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
 	"github.com/claudioed/order-sourcing/internal/domain/network"
+	"github.com/claudioed/order-sourcing/internal/domain/policy"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
@@ -40,6 +41,7 @@ type state struct {
 	discontinued map[string]bool
 	scorecards   map[scorecardKey]network.Scorecard
 	pressure     map[string]network.Pressure
+	policies     map[int]policy.Snapshot
 	inbox        map[string]string
 	outbox       []shared.Event
 }
@@ -55,7 +57,7 @@ func newState() state {
 		assignments: map[assignment.ID]assignment.Snapshot{}, nodes: map[string]network.Node{}, lanes: map[string]network.Lane{},
 		departures: map[string]network.Departure{}, waves: map[string]network.Wave{}, areas: map[string]network.ServiceArea{},
 		regions: map[string]network.Region{}, listings: map[string]network.Listing{}, discontinued: map[string]bool{},
-		scorecards: map[scorecardKey]network.Scorecard{}, pressure: map[string]network.Pressure{}, inbox: map[string]string{},
+		scorecards: map[scorecardKey]network.Scorecard{}, pressure: map[string]network.Pressure{}, policies: map[int]policy.Snapshot{}, inbox: map[string]string{},
 	}
 }
 
@@ -75,7 +77,7 @@ func (s *Store) capture() state {
 		assignments: cloneMap(s.assignments), nodes: cloneMap(s.nodes), lanes: cloneMap(s.lanes), departures: cloneMap(s.departures),
 		waves: cloneMap(s.waves), areas: cloneMap(s.areas), regions: cloneMap(s.regions), listings: cloneMap(s.listings),
 		discontinued: cloneMap(s.discontinued), scorecards: cloneMap(s.scorecards), pressure: cloneMap(s.pressure),
-		inbox: cloneMap(s.inbox), outbox: append([]shared.Event(nil), s.outbox...),
+		policies: cloneMap(s.policies), inbox: cloneMap(s.inbox), outbox: append([]shared.Event(nil), s.outbox...),
 	}
 }
 
@@ -100,6 +102,9 @@ func (s *Store) ReadModels() *ReadModels { return &ReadModels{s} }
 
 // World returns the WorldReader double.
 func (s *Store) World() *WorldReader { return &WorldReader{s} }
+
+// Policies returns the PolicyRepository double.
+func (s *Store) Policies() *PolicyRepository { return &PolicyRepository{s} }
 
 // Outbox returns the EventOutbox double.
 func (s *Store) Outbox() *Outbox { return &Outbox{s} }

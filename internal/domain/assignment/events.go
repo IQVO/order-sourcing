@@ -47,7 +47,10 @@ func (FulfillmentQueued) Stream() string { return shared.StreamAnalytics }
 // FulfillmentReleasedToNode is raised by Release. EstimatedCostCents carries
 // the money-denominated estimate of the released path in planner-declared
 // cents and is nil when the estimate is incomplete (a component had no
-// declared cost); consumers decode it tolerantly (ADR 0011).
+// declared cost); consumers decode it tolerantly (ADR 0011). PolicyVersion is
+// the sourcing policy version the search read, 0 (omitted on the wire) when
+// none was published; EffectiveCostCents is the estimate plus the policy
+// surcharges, nil (omitted) unless a surcharge changed the cost (ADR 0014).
 type FulfillmentReleasedToNode struct {
 	Base
 	ReleaseNo               int
@@ -60,6 +63,13 @@ type FulfillmentReleasedToNode struct {
 	Tier                    Tier
 	Lines                   []Line
 	EstimatedCostCents      *int64
+	PolicyVersion           int
+	EffectiveCostCents      *int64
+	// Members lists a merged release (carrier first, then ascending assignment
+	// id) and LineMembers the member each line of Lines belongs to; both are
+	// empty for a single-group release (ADR 0015).
+	Members     []MergedMember
+	LineMembers []ID
 }
 
 // EventName returns "FulfillmentReleasedToNode".
@@ -71,6 +81,7 @@ func (FulfillmentReleasedToNode) EventName() string { return "FulfillmentRelease
 // are the departures after the pickup; EstimatedCostCents follows ADR 0011
 // (nil when incomplete); Units is the sum of the line quantities and
 // CandidateCount the size of the candidate set the release chose from.
+// PolicyVersion and EffectiveCostCents follow FulfillmentReleasedToNode (ADR 0014).
 type FulfillmentSourcingDecided struct {
 	Base
 	OrderID             string
@@ -84,6 +95,12 @@ type FulfillmentSourcingDecided struct {
 	Units               int
 	CandidateCount      int
 	DecidedAt           time.Time
+	PolicyVersion       int
+	EffectiveCostCents  *int64
+	// CarrierAssignmentID is set on a follower's fact and ConsolidatedCount on
+	// every member of a merge (0 when not merged), ADR 0015.
+	CarrierAssignmentID ID
+	ConsolidatedCount   int
 }
 
 // EventName returns "FulfillmentSourcingDecided".
@@ -125,6 +142,11 @@ type FulfillmentLocked struct {
 	PickupDepartureID string
 	LockedAt          time.Time
 	LockReason        string
+	// ConsolidatedInto is the carrier of a follower and MergedAssignmentIDs
+	// every merged assignment id, carrier included, ascending; both empty when
+	// the assignment is not merged (ADR 0015).
+	ConsolidatedInto    ID
+	MergedAssignmentIDs []ID
 }
 
 // EventName returns "FulfillmentLocked".

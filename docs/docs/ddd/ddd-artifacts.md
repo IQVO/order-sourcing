@@ -23,7 +23,7 @@ before the service was built and this one follows the code.
 | [EventStorming](/docs/ddd/eventstorming) | [EventStorming glossary and cheat sheet](https://github.com/ddd-crew/eventstorming-glossary-cheat-sheet) | Process-level boards with the sticky-note colours, plus the hotspot inventory. |
 | [Ubiquitous language](/docs/ddd/ubiquitous-language) | Glossary | Every term with the code identifier that implements it, and the neighbour terms it borrows. |
 | [Class diagrams](/docs/ddd/class-diagram) | UML class diagram | The aggregate and its value objects, the eleven events, the search types, and the hexagonal ports and adapters. |
-| [Entity-relationship diagram](/docs/ddd/entity-relationship) | ER diagram | The Postgres schema created by `0001_order_sourcing_schema.up.sql`: 14 tables. |
+| [Entity-relationship diagram](/docs/ddd/entity-relationship) | ER diagram | The Postgres schema created by `0001_order_sourcing_schema.up.sql`: 14 tables (columns changed by `0002` to `0004`), and the 4 tables of the analytical database. |
 | [Sequence diagrams](/docs/ddd/sequence-diagrams) | UML sequence diagram | Queue, re-optimise, sweep and release, refusal, lock, ship and deliver, cancel and revise, with error branches. |
 | [Domain events](/docs/ddd/domain-events) | Event catalogue | The ten published events with typed fields and consumers, and the 32 consumed types. |
 

@@ -23,7 +23,7 @@ Everything it knows about the network is a local read model fed by sibling event
 | `mcp` Deployment | `cmd/mcp` | `mcp.enabled` (default off, on in the fleet) | 8090 | Kong route `/api/mcp/order-sourcing`, rewritten to `/mcp` |
 | `a2a` Deployment | `cmd/a2a` | `a2a.enabled` (default off, on in the fleet) | 8093 | Kong route `/api/a2a/order-sourcing`, rewritten to `/`; the Agent Card stays under the same prefix |
 | `analytics-projector` Deployment | `cmd/os-projector` | `analytics.enabled` (default off) | 8091 (admin probes only, no Service) | none |
-| `analytics-reports` Deployment | `cmd/os-reports` | `analytics.enabled` (default off) | 8092 (Service port 80) | `analytics.reports.route.enabled`: Kong `/api/order-sourcing/reports`, rewritten to `/reports` |
+| `analytics-reports` Deployment | `cmd/os-reports` | `analytics.enabled` (default off) | 8092 (Service port 80) | `analytics.reports.route.enabled`: Kong `/api/order-sourcing/reports`, rewritten to `/reports`; `konghq.com/regex-priority: "10"` so it outranks the API prefix |
 | `frontend` Deployment | nginx serving `web/` | `frontend.enabled` (default off, on in the fleet) | 8080 | the web gateway, `/mfes/order-sourcing/` (never the API route) |
 
 The three Go binaries are in one image (`ghcr.io/iqvo/order-sourcing`). `cmd/api` is the only one that writes: one process runs
@@ -36,6 +36,10 @@ analytical database, and the read-only `cmd/os-reports`; neither opens the OLTP 
 - **Postgres** (schema in `internal/adapters/outbound/postgres/migrations/0001_order_sourcing_schema.up.sql`): `assignments`,
   the `rm_*` read models, `outbox_events`, `processed_events`, `idempotency_keys`. Every binary runs the embedded migrations at
   boot, then pings, each wrapped in `bootretry` (5 attempts, 15 s of backoff in total).
+- **Analytical Postgres** (`analytics.enabled`): `cmd/os-projector` runs the embedded analytical migration
+  (`analytics/migrations/0001_sourcing_facts.up.sql`: `queued_groups`, `sourcing_decisions`, `unsourceable_declarations` and
+  `analytics_processed_events`, 4 tables) against `ANALYTICS_DATABASE_URL`; `cmd/os-reports` only reads it. It is a projection of the
+  context's own topics and can be rebuilt from them. To roll back by hand use `0001_sourcing_facts.down.sql`.
 - **PgBouncer versus a direct DSN**: `DATABASE_URL` is the pooled DSN the pool uses; `MIGRATIONS_DATABASE_URL` (an optional key in
   the same secret) is a direct, session-mode DSN used only by the migration step, because golang-migrate holds a session
   advisory lock a transaction-pooling proxy cannot honour. If unset, the binary falls back to `DATABASE_URL`. In the fleet both
@@ -109,8 +113,10 @@ python3 charts/order-sourcing/tests/test_service_selectors.py
 
 ## Migrations
 
-A single migration, `0001_order_sourcing_schema`, is embedded in the binary (`internal/adapters/outbound/postgres/migrations/`).
-It runs at boot in all three binaries through golang-migrate over `MIGRATIONS_DATABASE_URL`, so a config change or a new image is a
+Five migrations are embedded in the binary (`internal/adapters/outbound/postgres/migrations/`): `0001_order_sourcing_schema`
+creates the 14 tables, `0002_idempotency_global_key` re-keys `idempotency_keys` by `key` alone (adding `fingerprint`),
+`0003_rm_lane_wave_cost` adds the declared cost columns to `rm_lanes` and `rm_waves`, `0004_rm_listings_owner_ref` adds
+`rm_listings.owner_ref`, and `0005_sourcing_policies` adds `sourcing_policies` (one jsonb snapshot per published policy version). They run at boot in all three binaries through golang-migrate over `MIGRATIONS_DATABASE_URL`, so a config change or a new image is a
 rollout that migrates before serving. State lives in `schema_migrations`; a failed partial migration leaves `dirty = true` and
 every later boot fails until the schema is repaired by hand and the version forced with the golang-migrate tooling (take a
 backup first).
@@ -197,5 +203,43 @@ Symptom-by-symptom tables are in [Troubleshooting](/docs/operations/troubleshoot
 | Read logs | Grafana Loki `{app="order-sourcing"}`; JSON fields include `consumer`, `topic`, `error`, `outbox_id`, `trace_id`, `request_id` |
 | Change configuration | change the Helm values (a config change is a rollout); consumer group changes re-read the topic from the start |
 | Inspect an assignment | `GET /assignments/{id}` or the MCP tool `get_assignment` ([MCP tools](/docs/mcp/tools)) |
+| Publish a sourcing policy | `PUT /sourcing-policy` with an `Idempotency-Key` and the whole document, for example `{"crossRegionSurchargeCents": 250, "maxCostDeviationPercent": 20}` (ranges 0..100000 and 0..200, an omitted field is 0 = off; see "Publishing a sourcing policy" below). `GET /sourcing-policy` shows the current version (version 0 = defaults) |
 | Re-optimise one queued assignment | `POST /assignments/{id}/reoptimisations` with `Idempotency-Key` and optionally `{"assignmentVersion": N}` |
 | Prune bookkeeping tables | nothing prunes `idempotency_keys`, `processed_events` or published `outbox_events`; plan retention in SQL yourself (keep `processed_events` as long as a topic can be re-read) |
+
+## Publishing a sourcing policy
+
+The sourcing policy (ADR 0014) trades a bounded cost deviation for in-region fulfilment. Until a version is published nothing
+changes: version 0 is the default (both levers 0, off).
+
+1. Read the current one: `GET /sourcing-policy` (`version: 0` when nothing was published).
+2. Publish the whole document: `PUT /sourcing-policy` with `Idempotency-Key: <one per logical publish>` and a body such as
+   `{"crossRegionSurchargeCents": 250, "maxCostDeviationPercent": 20}`. `crossRegionSurchargeCents` (0..100000) is added to the
+   effective cost of a candidate whose node region differs from the delivery area region; `maxCostDeviationPercent` (0..200) is
+   the budget: an in-region candidate within `cheapest + floor(cheapest * percent / 100)` beats a cheaper cross-region one.
+   The answer is the new version (n+1). A range error is `422 validation-failed`; a lost race with another publisher is
+   `409 concurrent-update` (retry with a new key).
+3. The next search of every queued assignment (the sweep re-optimises each one every `SWEEP_INTERVAL`) uses it; releases and
+   `FulfillmentSourcingDecided` carry `policyVersion`, and `effectiveCostCents` when a surcharge changed the cost.
+4. Watch `ordersourcing_sourcing_policy_version` (the version last read) and `ordersourcing_budget_preferred_total{kind="region"}`
+   (releases the budget decided) in Grafana, and the cost-to-serve report of `cmd/os-reports`.
+5. To switch it off publish `{}` (both levers 0): that creates a new version, versions are never deleted.
+
+## Turning consolidation on (ADR 0015)
+
+Carrier and follower consolidation merges the QUEUED CONSOLIDATED groups of one shopper into one release. It is OFF until
+`consolidationMaxAssignments` is published as 2 or more (0 and 1 are off; the range is 0..10) AND customer-ordering sends a
+`consolidationKey` on `CustomerOrderPlaced`.
+
+1. Do NOT publish it before the consumers handle a merged release: vendor-connectivity (withdraw consumer), linehaul-transportation
+   (one booking per carrier), delivery-promise and customer-ordering (one tracking number for several groups).
+2. Publish the whole document: `PUT /sourcing-policy` with `Idempotency-Key` and a body such as
+   `{"crossRegionSurchargeCents": 250, "maxCostDeviationPercent": 20, "consolidationMaxAssignments": 4}`. An omitted lever is 0, so
+   repeat the other two.
+3. Watch `ordersourcing_consolidated_releases_total`, `ordersourcing_consolidated_assignments_total` (followers absorbed),
+   `ordersourcing_consolidation_withdrawn_total{reason}`, `ordersourcing_merged_cancel_refused_total` (shopper cancels refused
+   while a merge is live) and `ordersourcing_stale_accept_total` (an acceptance for a withdrawn release: expect near zero).
+4. To switch it off publish `consolidationMaxAssignments: 0`. Releases already merged stay merged until they lock, are refused
+   or are withdrawn; nothing is un-merged by the switch.
+
+No environment variable, topic or chart value is involved; the analytics topic already exists.

@@ -36,6 +36,28 @@ const sidebar: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Sourcing policy",
+      link: {
+        type: "doc",
+        id: "api-reference/rest/sourcing-policy",
+      },
+      items: [
+        {
+          type: "doc",
+          id: "api-reference/rest/get-sourcing-policy",
+          label: "Get the current sourcing policy (GetSourcingPolicy)",
+          className: "api-method get",
+        },
+        {
+          type: "doc",
+          id: "api-reference/rest/put-sourcing-policy",
+          label: "Publish the next sourcing policy version (PublishSourcingPolicy)",
+          className: "api-method put",
+        },
+      ],
+    },
+    {
+      type: "category",
       label: "reports",
       link: {
         type: "doc",

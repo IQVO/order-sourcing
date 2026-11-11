@@ -11,7 +11,9 @@ import (
 
 	"github.com/claudioed/order-sourcing/internal/adapters/kafka/cloudevents"
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/kafka"
+	"github.com/claudioed/order-sourcing/internal/application/outbox"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
+	"github.com/claudioed/order-sourcing/internal/domain/policy"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
@@ -27,9 +29,11 @@ func allEvents() []shared.Event {
 	return []shared.Event{
 		assignment.FulfillmentQueued{Base: base(), OrderID: "ord-1", GroupNo: 1, PromiseID: "prm-1", DeliverByLatest: at, Lines: lines},
 		assignment.FulfillmentReleasedToNode{Base: base(), ReleaseNo: 1, OrderID: "ord-1", GroupNo: 1, NodeID: "n1", PickupDepartureID: "dep-1",
-			RequiredShipBy: at, PromisedDeliverByLatest: at, Tier: assignment.TierTwoDay, Lines: lines, EstimatedCostCents: &complete},
+			RequiredShipBy: at, PromisedDeliverByLatest: at, Tier: assignment.TierTwoDay, Lines: lines, EstimatedCostCents: &complete,
+			PolicyVersion: 2, EffectiveCostCents: &effective},
 		assignment.FulfillmentSourcingDecided{Base: base(), OrderID: "ord-1", GroupNo: 1, ReleaseNo: 1, NodeID: "n1", NodeRegionID: "reg-se",
-			DestinationRegionID: "reg-se", Legs: 1, EstimatedCostCents: &complete, Units: 2, CandidateCount: 3, DecidedAt: at},
+			DestinationRegionID: "reg-se", Legs: 1, EstimatedCostCents: &complete, Units: 2, CandidateCount: 3, DecidedAt: at,
+			PolicyVersion: 2, EffectiveCostCents: &effective},
 		assignment.FulfillmentReassigned{Base: base(), FromNodeID: "n1", ToNodeID: "n2", Reason: "REJECTED"},
 		assignment.FulfillmentLocked{Base: base(), OrderID: "ord-1", GroupNo: 1, PromiseID: "prm-1", NodeID: "n1", PickupDepartureID: "dep-1", LockedAt: at, LockReason: "ACCEPTED"},
 		assignment.FulfillmentShipped{Base: base(), OrderID: "ord-1", GroupNo: 1, NodeID: "n1", TrackingNumbers: []string{"TRK1"}, ShippedAt: at},
@@ -38,6 +42,12 @@ func allEvents() []shared.Event {
 		assignment.FulfillmentCancelled{Base: base(), OrderID: "ord-1", GroupNo: 1, Reason: "CUSTOMER_REQUEST"},
 		assignment.FulfillmentCancelRefused{Base: base(), OrderID: "ord-1", GroupNo: 1, Reason: "LOCKED"},
 		assignment.FulfillmentConstraintRevised{Base: base(), RevisionNo: 1, DeliverByLatest: at},
+		policy.SourcingPolicyPublished{Header: shared.Header{Version: 2, At: at}, Number: 2, CrossRegionSurchargeCents: 250, MaxCostDeviationPercent: 20,
+			ConsolidationMaxAssignments: 4, PublishedAt: at},
+		assignment.AssignmentsConsolidated{Base: base(), ReleaseNo: 1, NodeID: "n1", Members: mergedMembers(), ConsolidatedAt: at},
+		assignment.AssignmentsDeconsolidated{Base: base(), ReleaseNo: 1, Reason: assignment.ReasonPromiseRevised, TriggerAssignmentID: "asg-2c9d41aa",
+			MemberAssignmentIDs: []assignment.ID{"asg-7f3c2d10", "asg-2c9d41aa"}, DeconsolidatedAt: at},
+		assignment.FulfillmentReleaseWithdrawn{Base: base(), ReleaseNo: 1, OrderID: "ord-1", GroupNo: 1, Reason: assignment.ReasonPromiseRevised, WithdrawnAt: at},
 	}
 }
 
@@ -74,10 +84,13 @@ func publishedKeys(t *testing.T) map[string][]string {
 // complete is a complete estimate: every cost component of the released path was declared.
 var complete = int64(1065)
 
+// effective is the estimate plus a surcharge of 250 cents (ADR 0014).
+var effective = int64(1315)
+
 func TestEncoderMatchesThePublishedContract(t *testing.T) {
 	want := publishedKeys(t)
-	if len(want) != 11 {
-		t.Fatalf("the contract publishes %d messages, want 11", len(want))
+	if len(want) != 15 {
+		t.Fatalf("the contract publishes %d messages, want 15", len(want))
 	}
 	enc := kafka.Encoder{NewID: func() string { return "11111111-1111-4111-8111-111111111111" }}
 	for _, ev := range allEvents() {
@@ -85,16 +98,7 @@ func TestEncoderMatchesThePublishedContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", ev.EventName(), err)
 		}
-		topic := kafka.TopicEvents
-		if ev.Stream() == shared.StreamAnalytics {
-			topic = kafka.TopicAnalytics
-		}
-		if m.Topic != topic || string(m.Key) != "asg-7f3c2d10" || m.Subject != "asg-7f3c2d10" || m.EventID == "" || len(m.Headers) != 1 {
-			t.Errorf("%s: envelope %+v", ev.EventName(), m)
-		}
-		if m.EventType != "com.retailnetwork.commerce.order-sourcing.assignment."+ev.EventName() {
-			t.Errorf("%s: type %s", ev.EventName(), m.EventType)
-		}
+		wantEnvelope(t, m, ev)
 		e, err := cloudevents.Decode(m.Value)
 		if err != nil {
 			t.Fatalf("%s: %v", ev.EventName(), err)
@@ -111,6 +115,25 @@ func TestEncoderMatchesThePublishedContract(t *testing.T) {
 		if g, w := join(got), join(want[ev.EventName()]); g != w {
 			t.Errorf("%s data keys\n got  %s\n want %s", ev.EventName(), g, w)
 		}
+	}
+}
+
+// wantEnvelope checks the topic, the key and subject, the headers and the type of one encoded event.
+func wantEnvelope(t *testing.T, m outbox.Message, ev shared.Event) {
+	t.Helper()
+	topic := kafka.TopicEvents
+	if ev.Stream() == shared.StreamAnalytics {
+		topic = kafka.TopicAnalytics
+	}
+	subject := "asg-7f3c2d10"
+	if ev.Entity() == "policy" {
+		subject = "policy" // the policy is one document: its subject and key are constant (ADR 0014)
+	}
+	if m.Topic != topic || string(m.Key) != subject || m.Subject != subject || m.EventID == "" || len(m.Headers) != 1 {
+		t.Errorf("%s: envelope %+v", ev.EventName(), m)
+	}
+	if m.EventType != "com.retailnetwork.commerce.order-sourcing."+ev.Entity()+"."+ev.EventName() {
+		t.Errorf("%s: type %s", ev.EventName(), m.EventType)
 	}
 }
 

@@ -11,9 +11,13 @@ import (
 	"github.com/claudioed/order-sourcing/internal/testing/pgtest"
 )
 
-// latestMigration is the version ceiling of the embedded migrations: 0004 adds
-// rm_listings.owner_ref (ADR 0012). A new migration moves it.
-const latestMigration = 4
+// latestMigration is the version ceiling of the embedded migrations: 0006 adds
+// the consolidation columns of assignments (ADR 0015), 0005 sourcing_policies
+// (ADR 0014), 0004 rm_listings.owner_ref (ADR 0012). A new migration moves it.
+const latestMigration = 6
+
+// ownerRefMigration is the migration 0004 the backfill test below exercises.
+const ownerRefMigration = 4
 
 func TestMigrationsReachTheLatestVersion(t *testing.T) {
 	steps, err := postgres.MigrationSteps()
@@ -50,8 +54,8 @@ func openAt(t *testing.T, url string) (sqlExec, *postgres.ReadModels, func()) {
 // (item, node, owner) is unique for every row with an item; 0004 goes down.
 func TestMigration0004BackfillsOperatorOwnedListings(t *testing.T) {
 	url := pgtest.URL(t)
-	if err := postgres.MigrateTo(url, latestMigration-1); err != nil {
-		t.Fatalf("down to %d: %v", latestMigration-1, err)
+	if err := postgres.MigrateTo(url, ownerRefMigration-1); err != nil {
+		t.Fatalf("down to %d: %v", ownerRefMigration-1, err)
 	}
 	run, _, closeOld := openAt(t, url)
 	for _, row := range [][]any{{"lst-op", "cat-1", "n1", 5}, {"lst-stub", "", "n1", 0}} {
@@ -71,7 +75,7 @@ func TestMigration0004BackfillsOperatorOwnedListings(t *testing.T) {
 	}
 	wantMigratedKey(t, run)
 	closeNew()
-	if err := postgres.MigrateTo(url, latestMigration-1); err != nil {
+	if err := postgres.MigrateTo(url, ownerRefMigration-1); err != nil {
 		t.Fatalf("0004 down: %v", err)
 	}
 }

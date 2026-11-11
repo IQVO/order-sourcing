@@ -17,6 +17,13 @@ type searchResult struct {
 	best       *sourcing.Option
 	world      sourcing.World
 	candidates int
+	// budgetPreferred is true when the sourcing policy's budget rule put the
+	// best option ahead of the pure cheapest one (ADR 0014).
+	budgetPreferred bool
+	// policy is the sourcing policy this search read (ADR 0014); a release reads
+	// the consolidation cap from it, so the merge uses the version the carrier's
+	// own search stamped (ADR 0015).
+	policy sourcing.Policy
 }
 
 // facts is what the search knew about its best option (ADR 0013): the regions
@@ -45,13 +52,29 @@ func (w writer) bestOption(ctx context.Context, now time.Time, prefix string, p 
 	if err != nil {
 		return searchResult{}, fmt.Errorf("load read models: %w", err)
 	}
-	opts := sourcing.Search(world, sourcing.Request{
-		Now: now, Tier: p.Tier, DeliverByLatest: p.DeliverByLatest, WitnessNodeID: p.WitnessNodeID, Lines: lines, Excluded: excluded,
-	})
-	if len(opts) == 0 {
-		return searchResult{world: world}, nil
+	pol, err := w.currentPolicy(ctx)
+	if err != nil {
+		return searchResult{}, err
 	}
-	return searchResult{best: &opts[0], world: world, candidates: len(opts)}, nil
+	ranking := sourcing.Rank(world, searchRequest(now, p, lines, excluded, pol))
+	if len(ranking.Options) == 0 {
+		return searchResult{world: world, policy: pol}, nil
+	}
+	return searchResult{best: &ranking.Options[0], world: world, candidates: len(ranking.Options), budgetPreferred: ranking.BudgetPreferred, policy: pol}, nil
+}
+
+// searchRequest is the search constraint of a promise. A CONSOLIDATED group
+// asks for a delivery wave that ends no earlier than the start of its promised
+// window (the day the customer chose) and holds the latest pickup that still
+// reaches it (ADR 0016); every other tier is searched exactly as before.
+func searchRequest(now time.Time, p assignment.PromiseConstraint, lines []assignment.Line, excluded []assignment.ExcludedNode, pol sourcing.Policy) sourcing.Request {
+	r := sourcing.Request{
+		Now: now, Tier: p.Tier, DeliverByLatest: p.DeliverByLatest, WitnessNodeID: p.WitnessNodeID, Lines: lines, Excluded: excluded, Policy: pol,
+	}
+	if p.Tier == assignment.TierConsolidated {
+		r.NotBefore, r.HoldLatestPickup = p.DeliverByEarliest, true
+	}
+	return r
 }
 
 // candidateOf returns the candidate and release point of an option, nil and

@@ -10,9 +10,12 @@ import (
 	"github.com/claudioed/order-sourcing/internal/analytics/report"
 )
 
-// entityAssignment is the CloudEvents entity segment of this context's one
-// aggregate.
-const entityAssignment = "assignment"
+// entityAssignment is the CloudEvents entity segment of the assignment
+// aggregate; entityPolicy that of the SourcingPolicy (ADR 0014).
+const (
+	entityAssignment = "assignment"
+	entityPolicy     = "policy"
+)
 
 // projectedKinds maps the FULL CloudEvents type of each projected event
 // (ADR 0013) to its report.Kind.
@@ -31,9 +34,13 @@ func acknowledgedTypes() map[string]bool {
 	for _, name := range []string{
 		"FulfillmentReleasedToNode", "FulfillmentReassigned", "FulfillmentLocked", "FulfillmentShipped",
 		"FulfillmentDelivered", "FulfillmentCancelled", "FulfillmentCancelRefused", "FulfillmentConstraintRevised",
+		// The consolidation facts (ADR 0015): the packages-per-order reports are a later slice.
+		"FulfillmentReleaseWithdrawn", "AssignmentsConsolidated", "AssignmentsDeconsolidated",
 	} {
 		out[cloudevents.Type(entityAssignment, name)] = true
 	}
+	// The analytics-only policy fact (ADR 0014): no report needs it yet.
+	out[cloudevents.Type(entityPolicy, "SourcingPolicyPublished")] = true
 	return out
 }
 
@@ -56,6 +63,20 @@ type analyticsData struct {
 	Units               int       `json:"units"`
 	CandidateCount      int       `json:"candidateCount"`
 	DecidedAt           time.Time `json:"decidedAt"`
+	// CarrierAssignmentID is set on the fact of a follower of a merged release (ADR 0015).
+	CarrierAssignmentID string `json:"carrierAssignmentId"`
+}
+
+// followerCost is the estimate a decision adds to the cost totals. A merged
+// package ships once, so the carrier's fact holds its cost and a follower's
+// fact (it names its carrier) books 0: cost-to-serve counts the package once
+// while the follower's units still count (ADR 0015).
+func followerCost(d analyticsData) *int64 {
+	if d.CarrierAssignmentID == "" || d.EstimatedCostCents == nil {
+		return d.EstimatedCostCents
+	}
+	zero := int64(0)
+	return &zero
 }
 
 // toEvent decodes and validates a CloudEvent of a projected kind. Every error
@@ -79,7 +100,7 @@ func toEvent(kind report.Kind, evt ce.Event) (report.Event, error) {
 	if kind == report.KindFulfillmentDecided {
 		e.Decision = report.Decision{
 			ReleaseNo: d.ReleaseNo, NodeID: d.NodeID, NodeRegionID: d.NodeRegionID, DestinationRegionID: d.DestinationRegionID,
-			InRegion: d.InRegion, Legs: d.Legs, EstimatedCostCents: d.EstimatedCostCents, CostComplete: d.CostComplete,
+			InRegion: d.InRegion, Legs: d.Legs, EstimatedCostCents: followerCost(d), CostComplete: d.CostComplete,
 			Units: d.Units, CandidateCount: d.CandidateCount,
 		}
 	}

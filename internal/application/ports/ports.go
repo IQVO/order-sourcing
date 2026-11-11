@@ -16,6 +16,7 @@ import (
 	"github.com/claudioed/order-sourcing/internal/application/repository"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
 	"github.com/claudioed/order-sourcing/internal/domain/network"
+	"github.com/claudioed/order-sourcing/internal/domain/policy"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 	"github.com/claudioed/order-sourcing/internal/domain/sourcing"
 )
@@ -38,6 +39,11 @@ type AssignmentRepository interface {
 	// Queued returns the ids of QUEUED assignments after the given id, ordered
 	// by id, at most limit (the keyset the re-optimisation sweep pages by).
 	Queued(ctx context.Context, after assignment.ID, limit int) ([]assignment.ID, error)
+	// QueuedByKey returns the QUEUED assignments that carry the non-empty
+	// consolidation key, other than excludeID, ordered by deliverByLatest then
+	// id, at most limit (the candidates of a merge, ADR 0015). An empty key
+	// matches nothing.
+	QueuedByKey(ctx context.Context, key string, excludeID assignment.ID, limit int) ([]*assignment.Assignment, error)
 	// Save persists the assignment under the concurrency rule of the package
 	// comment. A second assignment of the same (orderId, groupNo) is
 	// ErrDuplicateGroup.
@@ -70,6 +76,17 @@ type ReadModels interface {
 // for one search.
 type WorldReader interface {
 	Load(ctx context.Context, q repository.WorldQuery) (sourcing.World, error)
+}
+
+// PolicyRepository persists SourcingPolicy versions (ADR 0014); every version
+// is kept.
+type PolicyRepository interface {
+	// Current returns the highest published version, or ErrNotFound when none
+	// was published (the caller then uses policy.Default()).
+	Current(ctx context.Context) (*policy.Policy, error)
+	// Save stores a new version; a version that already exists is
+	// ErrConcurrentUpdate.
+	Save(ctx context.Context, p *policy.Policy) error
 }
 
 // EventOutbox is the write side of the transactional outbox. Called with the
@@ -131,4 +148,31 @@ type SourcingMetrics interface {
 	// SourcingFailed counts a QueueAssignment that stored nothing; reason is a
 	// stable, low-cardinality slug.
 	SourcingFailed(ctx context.Context, reason string)
+}
+
+// PolicyMetrics records what the sourcing policy did (ADR 0014); the
+// implementation lives in internal/adapters/outbound/telemetry and a nil
+// Deps.PolicyMetrics records nothing.
+type PolicyMetrics interface {
+	// PolicyVersionRead records the policy version a search read (0 = the
+	// default policy): the gauge of the current policy version.
+	PolicyVersionRead(ctx context.Context, version int)
+	// BudgetPreferred counts one release whose winner the budget rule changed
+	// relative to the pure cheapest ordering; kind is "region".
+	BudgetPreferred(ctx context.Context, kind string)
+}
+
+// ConsolidationMetrics records what the consolidation did (ADR 0015); the
+// implementation lives in internal/adapters/outbound/telemetry and a nil
+// Deps.ConsolidationMetrics records nothing.
+type ConsolidationMetrics interface {
+	// Consolidated counts one merged release and the followers it absorbed.
+	Consolidated(ctx context.Context, followers int)
+	// Withdrawn counts one dissolved merge that withdrew its release; reason is
+	// PROMISE_REVISED.
+	Withdrawn(ctx context.Context, reason string)
+	// CancelRefused counts a cancel of a merged member that was refused.
+	CancelRefused(ctx context.Context)
+	// StaleAccept counts an acceptance for a release that is no longer pending.
+	StaleAccept(ctx context.Context)
 }

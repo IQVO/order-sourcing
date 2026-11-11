@@ -16,6 +16,9 @@ var (
 	ErrStaleAssignmentVersion = errors.New("stale assignment version")
 	// ErrCancelAfterLock: cancel only before LOCKED (409).
 	ErrCancelAfterLock = errors.New("cancel after lock")
+	// ErrCancelWhileMerged: a member of a live merge is not cancelled before the
+	// carrier's lock; the request is refused and the merge stays (ADR 0015).
+	ErrCancelWhileMerged = errors.New("cancel while merged")
 	// ErrReleaseNotPending: the outcome is for a release that is not the pending one (a late
 	// outcome of an old release). Consumers record it and move on (ADR 0002).
 	ErrReleaseNotPending = errors.New("release not pending")

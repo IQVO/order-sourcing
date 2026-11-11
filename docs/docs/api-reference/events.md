@@ -32,28 +32,45 @@ are always present. A breaking payload change would be a new `.v2` type; every s
 
 ## Published
 
-Eleven events, written through the transactional outbox in the same transaction as the aggregate and drained by the always-on
-relay in `cmd/api` (at least once). Eight go to `retailnetwork.order-sourcing.events`; the three analytics-only events go **only**
+Twelve events, written through the transactional outbox in the same transaction as the aggregate and drained by the always-on
+relay in `cmd/api` (at least once). Eight go to `retailnetwork.order-sourcing.events`; the four analytics-only events go **only**
 to `retailnetwork.order-sourcing.analytics`. `FulfillmentSourcingDecided` is written in the same transaction as every
 `FulfillmentReleasedToNode`, with its own `id` (ADR 0013); its optional fields are omitted when unknown (`inRegion` when either
 region is unknown, `estimatedCostCents` when the estimate is incomplete, so `costComplete` is `false`).
 
+`FulfillmentReleasedToNode` and `FulfillmentSourcingDecided` also carry two optional policy fields (ADR 0014): `policyVersion`, the
+sourcing policy version the search read (omitted when no version was published), and `effectiveCostCents`, the estimate plus the
+cross-region surcharge (omitted unless a surcharge changed the cost; present even when the estimate is incomplete). Consumers
+(vendor-connectivity, delivery-promise) decode them tolerantly. `SourcingPolicyPublished` is the one event of the `policy` entity:
+its `type` is `com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished`, its subject and Kafka key are the constant
+`policy`, and it is raised by `PUT /sourcing-policy`.
+
+A release may be MERGED (ADR 0015): the carrier's `FulfillmentReleasedToNode` then lists `members[{assignmentId, orderId, groupNo, promiseId}]`
+and the union of the lines (each with its own optional `assignmentId`), and every member raises its own `FulfillmentLocked` (a follower also
+carries `consolidatedInto`, every member `mergedAssignmentIds`), `FulfillmentShipped` and `FulfillmentDelivered`. `FulfillmentReleaseWithdrawn`
+takes a published merged release back when a promise revision dissolves it; `AssignmentsConsolidated` and `AssignmentsDeconsolidated` are
+analytics only. Every merge field is optional and omitted when the release is not merged.
+
 | Event (`type` suffix after `assignment.`) | Topic | Raised by | `data` |
 | --- | --- | --- | --- |
 | `FulfillmentQueued` | analytics | `QueueAssignment` | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `deliverByLatest`, `lines[{lineNo, catalogItemId, quantity}]` |
-| `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` (`SAME_DAY`) | `assignmentId`, `releaseNo`, `orderId`, `groupNo`, `nodeId`, `pickupDepartureId`, `requiredShipBy`, `promisedDeliverByLatest`, `tier`, `lines[{catalogItemId, listingId, quantity}]` |
-| `FulfillmentSourcingDecided` | analytics | with every `FulfillmentReleasedToNode` | `assignmentId`, `orderId`, `groupNo` (optional), `releaseNo`, `nodeId`, `nodeRegionId` (optional), `destinationRegionId` (optional), `inRegion` (optional), `legs`, `estimatedCostCents` (optional), `costComplete`, `units`, `candidateCount`, `decidedAt` |
+| `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` (`SAME_DAY`) | `assignmentId`, `releaseNo`, `orderId`, `groupNo`, `nodeId`, `pickupDepartureId`, `requiredShipBy`, `promisedDeliverByLatest`, `tier`, `lines[{catalogItemId, listingId, ownerRef (optional), quantity, assignmentId (optional)}]`, `estimatedCostCents` (optional), `policyVersion` (optional), `effectiveCostCents` (optional), `members` (optional, merged release only) |
+| `FulfillmentSourcingDecided` | analytics | with every `FulfillmentReleasedToNode` | `assignmentId`, `orderId`, `groupNo` (optional), `releaseNo`, `nodeId`, `nodeRegionId` (optional), `destinationRegionId` (optional), `inRegion` (optional), `legs`, `estimatedCostCents` (optional), `costComplete`, `units`, `candidateCount`, `decidedAt`, `policyVersion` (optional), `effectiveCostCents` (optional), `carrierAssignmentId` (optional), `consolidatedCount` (optional) |
 | `FulfillmentReassigned` | events | `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` (node changed) | `assignmentId`, `fromNodeId`, `toNodeId`, `reason`, `assignmentVersion` |
-| `FulfillmentLocked` | events | `LockAssignment` | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `nodeId`, `pickupDepartureId`, `lockedAt`, `lockReason` |
+| `FulfillmentLocked` | events | `LockAssignment` (every member of a merged release) | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `nodeId`, `pickupDepartureId`, `lockedAt`, `lockReason`, `consolidatedInto` (optional), `mergedAssignmentIds` (optional) |
 | `FulfillmentShipped` | events | `MarkShipped` | `assignmentId`, `orderId`, `groupNo`, `nodeId`, `trackingNumbers`, `shippedAt` |
 | `FulfillmentDelivered` | analytics | `MarkDelivered` (last package) | `assignmentId`, `orderId`, `groupNo`, `deliveredAt` |
 | `FulfillmentUnsourceable` | events | `QueueAssignment`, `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `excludedNodes[{nodeId, reason}]`, `reason` |
 | `FulfillmentCancelled` | events | `CancelAssignment` | `assignmentId`, `orderId`, `groupNo`, `reason` |
-| `FulfillmentCancelRefused` | events | `CancelAssignment` (after the lock) | `assignmentId`, `orderId`, `groupNo`, `reason` (`CANCEL_AFTER_LOCK`) |
+| `FulfillmentCancelRefused` | events | `CancelAssignment` (after the lock, or while a merged release is not yet locked) | `assignmentId`, `orderId`, `groupNo`, `reason` (`CANCEL_AFTER_LOCK` or `CANCEL_WHILE_MERGED`) |
 | `FulfillmentConstraintRevised` | events | `ApplyRevisedPromise` | `assignmentId`, `revisionNo`, `deliverByLatest` |
+| `SourcingPolicyPublished` (type `...order-sourcing.policy.SourcingPolicyPublished`, subject `policy`) | analytics | `SourcingPolicies.Publish` (`PUT /sourcing-policy`) | `version`, `crossRegionSurchargeCents`, `maxCostDeviationPercent`, `consolidationMaxAssignments`, `publishedAt` |
+| `FulfillmentReleaseWithdrawn` | events | `ApplyRevisedPromise` (a revision breaks the merged window) | `assignmentId`, `releaseNo`, `orderId`, `groupNo`, `reason` (`PROMISE_REVISED`), `withdrawnAt` |
+| `AssignmentsConsolidated` | analytics | `ReleaseToNode` (a merged release) | `carrierAssignmentId`, `releaseNo`, `nodeId`, `memberCount`, `units`, `members[{assignmentId, orderId, groupNo, promiseId, units}]`, `consolidatedAt` |
+| `AssignmentsDeconsolidated` | analytics | `HandleNodeRefusal`, `ApplyRevisedPromise` | `carrierAssignmentId`, `releaseNo`, `reason`, `triggerAssignmentId` (optional), `memberAssignmentIds`, `deconsolidatedAt` |
 
 Reason vocabularies in the code (`internal/domain/assignment/types.go`): `FulfillmentReassigned.reason` is `REOPTIMISED`,
-`RELEASE_RECHECK`, `PURCHASE_ORDER_REJECTED`, `PURCHASE_ORDER_EXPIRED` or `PROMISE_REVISED`; `FulfillmentUnsourceable.reason` is
+`RELEASE_RECHECK`, `PURCHASE_ORDER_REJECTED`, `PURCHASE_ORDER_EXPIRED`, `PROMISE_REVISED` or `CONSOLIDATION_WITHDRAWN`; `FulfillmentUnsourceable.reason` is
 `NO_CANDIDATE` or `NODE_REFUSED`; `FulfillmentLocked.lockReason` is `PURCHASE_ORDER_ACCEPTED`. Each excluded node's `reason` is
 `REJECTED`, `REJECTED:<reasonCode>` or `EXPIRED`.
 

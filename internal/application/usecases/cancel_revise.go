@@ -29,13 +29,17 @@ func NewCancelAssignment(d Deps) *CancelAssignment { return &CancelAssignment{wr
 
 // Execute cancels every listed group of the order: FulfillmentCancelled before
 // the lock, FulfillmentCancelRefused after it (the state does not change). A
-// group this service never queued is skipped.
+// member of a live merge that is not yet locked is refused the same way: the
+// merge stays and the cancel can be retried after the lock or after a
+// dissolution (ADR 0015). A group this service never queued is skipped.
 func (uc *CancelAssignment) Execute(ctx context.Context, cmd CancelAssignmentCommand) ([]views.Assignment, error) {
 	reason := cmd.Reason
 	if reason == "" {
 		reason = DefaultCancelReason
 	}
-	return transact(ctx, uc.UoW, func(ctx context.Context) ([]views.Assignment, error) {
+	refusedMerged := 0
+	out, err := transact(ctx, uc.UoW, func(ctx context.Context) ([]views.Assignment, error) {
+		refusedMerged = 0
 		if done, err := uc.claim(ctx, cmd.Meta); err != nil || done {
 			return nil, err
 		}
@@ -47,25 +51,41 @@ func (uc *CancelAssignment) Execute(ctx context.Context, cmd CancelAssignmentCom
 			} else if !ok {
 				continue
 			}
-			if err := uc.cancelOne(ctx, a, reason); err != nil {
+			merged, err := uc.cancelOne(ctx, a, reason)
+			if err != nil {
 				return nil, err
+			}
+			if merged {
+				refusedMerged++
 			}
 			out = append(out, views.AssignmentFrom(a))
 		}
 		return out, nil
 	})
+	if err == nil {
+		for range refusedMerged {
+			uc.consolidationMetrics().CancelRefused(ctx)
+		}
+	}
+	return out, err
 }
 
-func (uc *CancelAssignment) cancelOne(ctx context.Context, a *assignment.Assignment, reason string) error {
+// cancelOne cancels one group, or refuses the cancel after the lock or while the
+// group is a member of a live merge; merged reports the latter.
+func (uc *CancelAssignment) cancelOne(ctx context.Context, a *assignment.Assignment, reason string) (merged bool, err error) {
 	before, now := a.Version(), uc.now()
 	events, err := a.Cancel(reason, now)
-	if errors.Is(err, assignment.ErrCancelAfterLock) {
+	switch {
+	case errors.Is(err, assignment.ErrCancelAfterLock):
+		events, err = a.RefuseCancel(now)
+	case errors.Is(err, assignment.ErrCancelWhileMerged):
+		merged = true
 		events, err = a.RefuseCancel(now)
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	return uc.persist(ctx, a, before, events)
+	return merged, uc.persist(ctx, a, before, events)
 }
 
 // ApplyRevisedPromiseCommand is the input of ApplyRevisedPromise (PromiseRevised).
@@ -75,6 +95,8 @@ type ApplyRevisedPromiseCommand struct {
 	RevisionNo      int
 	DeliverByLatest time.Time
 	WitnessNodeID   string
+	// DeliverByEarliest is the revised window start; zero when the event carries none.
+	DeliverByEarliest time.Time
 }
 
 // ApplyRevisedPromise reacts to PromiseRevised (gap G13).
@@ -86,7 +108,9 @@ func NewApplyRevisedPromise(d Deps) *ApplyRevisedPromise { return &ApplyRevisedP
 // Execute applies the revision to the assignment of the promise in every
 // non-terminal state. A revision not above the applied one is ignored.
 func (uc *ApplyRevisedPromise) Execute(ctx context.Context, cmd ApplyRevisedPromiseCommand) (views.Assignment, error) {
-	return transact(ctx, uc.UoW, func(ctx context.Context) (views.Assignment, error) {
+	dissolved := false
+	v, err := transact(ctx, uc.UoW, func(ctx context.Context) (views.Assignment, error) {
+		dissolved = false
 		if done, err := uc.claim(ctx, cmd.Meta); err != nil || done {
 			return views.Assignment{}, err
 		}
@@ -105,22 +129,37 @@ func (uc *ApplyRevisedPromise) Execute(ctx context.Context, cmd ApplyRevisedProm
 		if err := uc.persist(ctx, a, before, events); err != nil {
 			return views.Assignment{}, err
 		}
+		// A revision that moves the promised window off the merged delivery
+		// dissolves the merge (ADR 0015); one that keeps it leaves the merge as it is.
+		if a.State() == assignment.StateReleased && a.Merged() && a.WindowBroken() {
+			dissolved = true
+			if err := uc.dissolve(ctx, a, assignment.ReasonPromiseRevised, uc.now()); err != nil {
+				return views.Assignment{}, err
+			}
+		}
 		return views.AssignmentFrom(a), nil
 	})
+	if err == nil && dissolved {
+		uc.consolidationMetrics().Withdrawn(ctx, assignment.ReasonPromiseRevised)
+	}
+	return v, err
 }
 
 func (uc *ApplyRevisedPromise) apply(ctx context.Context, a *assignment.Assignment, cmd ApplyRevisedPromiseCommand) ([]shared.Event, error) {
 	if err := validateRevision(cmd); err != nil {
 		return nil, err
 	}
+	if cmd.DeliverByEarliest.After(cmd.DeliverByLatest) {
+		cmd.DeliverByEarliest = time.Time{} // a window start after its end is unknown, not a reason to refuse the revision
+	}
 	now := uc.now()
-	rev := assignment.Revision{RevisionNo: cmd.RevisionNo, DeliverByLatest: cmd.DeliverByLatest, WitnessNodeID: cmd.WitnessNodeID}
+	rev := assignment.Revision{RevisionNo: cmd.RevisionNo, DeliverByEarliest: cmd.DeliverByEarliest, DeliverByLatest: cmd.DeliverByLatest, WitnessNodeID: cmd.WitnessNodeID}
 	var cand *assignment.Candidate
 	var releaseAt time.Time
 	if st := a.State(); st == assignment.StateQueued || st == assignment.StateUnsourceable {
 		// The search runs under the NEW constraint and with no exclusions (they reset with the revision).
 		next := a.Promise()
-		next.DeliverByLatest, next.RevisionNo = cmd.DeliverByLatest, cmd.RevisionNo
+		next.DeliverByLatest, next.DeliverByEarliest, next.RevisionNo = cmd.DeliverByLatest, cmd.DeliverByEarliest, cmd.RevisionNo
 		if cmd.WitnessNodeID != "" {
 			next.WitnessNodeID = cmd.WitnessNodeID
 		}

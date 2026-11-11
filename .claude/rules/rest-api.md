@@ -13,6 +13,9 @@ Route -> use case, kept in sync with `apis/openapi.yaml`. Routes are registered 
 - `GET /assignments?state=&nodeId=&orderId=&limit=&cursor=` -> `ListAssignments` (paged, body `{items,nextCursor}`)
 - `GET /assignments/{assignmentId}` -> `GetAssignment`
 - `POST /assignments/{assignmentId}/reoptimisations` -> `ReoptimiseAssignment` (optional body `{"assignmentVersion"}`)
+- `GET /sourcing-policy` -> `SourcingPolicies.Current` (the current version, or the defaults with `version: 0`);
+  `PUT /sourcing-policy` -> `SourcingPolicies.Publish` (whole document `{crossRegionSurchargeCents, maxCostDeviationPercent}`,
+  422 outside the ranges, publishes version n+1, takes an `Idempotency-Key` because every call publishes a new version; ADR 0014)
 - `GET /healthz` (liveness), `GET /readyz` (readiness): not business operations.
 - Not served by `cmd/api`: the read-only `GET /reports/...` routes (tag `reports`, `cmd/os-reports`, `internal/adapters/inbound/reportshttp`, ADR 0013; rules in `.claude/rules/analytics.md`).
 

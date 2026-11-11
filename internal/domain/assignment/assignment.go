@@ -32,9 +32,15 @@ type Assignment struct {
 	deliveredAt     time.Time
 	cancelReason    string
 	updatedAt       time.Time
+	// The merge fields (ADR 0015): the optional customer-ordering key, the
+	// carrier this assignment follows ("" unless a follower) and, on a carrier,
+	// the follower ids in ascending order.
+	consolidationKey string
+	consolidatedInto ID
+	members          []ID
 }
 
-// New is the input of Queue.
+// New is the input of Queue. ConsolidationKey is optional: "" never merges.
 type New struct {
 	ID                      ID
 	OrderID                 string
@@ -42,6 +48,7 @@ type New struct {
 	DestinationPostalPrefix string
 	Promise                 PromiseConstraint
 	Lines                   []Line
+	ConsolidationKey        string
 }
 
 // Queue creates an assignment at version 1 and raises FulfillmentQueued. best
@@ -58,9 +65,10 @@ func Queue(in New, best *Candidate, releaseAt, now time.Time) (*Assignment, []sh
 	a := &Assignment{
 		id: in.ID, orderID: in.OrderID, groupNo: in.GroupNo, destination: in.DestinationPostalPrefix,
 		promise: in.Promise, lines: cloneLines(in.Lines), state: StateQueued, version: 1,
-		queuedAt: shared.UTC(now), updatedAt: shared.UTC(now),
+		queuedAt: shared.UTC(now), updatedAt: shared.UTC(now), consolidationKey: in.ConsolidationKey,
 	}
 	a.promise.DeliverByLatest = shared.UTC(a.promise.DeliverByLatest)
+	a.promise.DeliverByEarliest = shared.UTC(a.promise.DeliverByEarliest)
 	queued := FulfillmentQueued{
 		Base: newBase(a.id, 1, now), OrderID: a.orderID, GroupNo: a.groupNo, PromiseID: a.promise.PromiseID,
 		DeliverByLatest: a.promise.DeliverByLatest, Lines: cloneLines(a.lines),
@@ -95,6 +103,9 @@ func validateNew(in New) error {
 	if err := validatePromise(in.Promise); err != nil {
 		return err
 	}
+	if !validKey(in.ConsolidationKey) {
+		return shared.Invalid("consolidationKey must be empty or 64 lower-case hexadecimal characters")
+	}
 	return validateLines(in.Lines)
 }
 
@@ -107,6 +118,9 @@ func validatePromise(p PromiseConstraint) error {
 	}
 	if p.DeliverByLatest.IsZero() {
 		return shared.Invalid("deliverByLatest is required")
+	}
+	if !p.DeliverByEarliest.IsZero() && p.DeliverByEarliest.After(p.DeliverByLatest) {
+		return shared.Invalid("deliverByEarliest must not be after deliverByLatest")
 	}
 	if p.WitnessNodeID != "" && !shared.ValidID(p.WitnessNodeID) {
 		return shared.Invalid("witnessNodeId %q is not a valid id", p.WitnessNodeID)
@@ -159,6 +173,9 @@ func (a *Assignment) checkCandidate(c *Candidate) error {
 	}
 	if c.EstimatedCostCents < 0 {
 		return shared.Invalid("estimatedCostCents must not be negative")
+	}
+	if c.SurchargeCents < 0 || c.PolicyVersion < 0 || c.PolicyVersion > MaxInt32 {
+		return shared.Invalid("surchargeCents must not be negative and policyVersion must be between 0 and %d", MaxInt32)
 	}
 	if a.isExcluded(c.NodeID) {
 		return fmt.Errorf("%w: %s", ErrNodeExcluded, c.NodeID)

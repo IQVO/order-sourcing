@@ -9,6 +9,7 @@ import (
 	"github.com/claudioed/order-sourcing/internal/adapters/kafka/cloudevents"
 	"github.com/claudioed/order-sourcing/internal/application/outbox"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
+	"github.com/claudioed/order-sourcing/internal/domain/policy"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
@@ -37,6 +38,9 @@ type releasedLine struct {
 	// operator-owned (ADR 0012).
 	OwnerRef string `json:"ownerRef,omitempty"`
 	Quantity int    `json:"quantity"`
+	// AssignmentID is the member of a merged release the line belongs to,
+	// omitted when the release is not merged (ADR 0015).
+	AssignmentID string `json:"assignmentId,omitempty"`
 }
 
 type excludedNode struct {
@@ -66,6 +70,13 @@ type releasedData struct {
 	Lines                   []releasedLine `json:"lines"`
 	// EstimatedCostCents is omitted when the estimate is incomplete (ADR 0011).
 	EstimatedCostCents *int64 `json:"estimatedCostCents,omitempty"`
+	// PolicyVersion is omitted when no sourcing policy was published, and
+	// EffectiveCostCents unless a surcharge changed the cost (ADR 0014).
+	PolicyVersion      int    `json:"policyVersion,omitempty"`
+	EffectiveCostCents *int64 `json:"effectiveCostCents,omitempty"`
+	// Members is present only on a merged release: carrier first, then ascending
+	// assignment id. Absent means a single-group release (ADR 0015).
+	Members []releasedMember `json:"members,omitempty"`
 }
 
 // decidedData is the analytics-only sourcing decision (ADR 0013). The regions
@@ -86,6 +97,12 @@ type decidedData struct {
 	Units               int       `json:"units"`
 	CandidateCount      int       `json:"candidateCount"`
 	DecidedAt           time.Time `json:"decidedAt"`
+	PolicyVersion       int       `json:"policyVersion,omitempty"`
+	EffectiveCostCents  *int64    `json:"effectiveCostCents,omitempty"`
+	// CarrierAssignmentID (followers only) and ConsolidatedCount (merged members
+	// only) are omitted when the release is not merged (ADR 0015).
+	CarrierAssignmentID string `json:"carrierAssignmentId,omitempty"`
+	ConsolidatedCount   int    `json:"consolidatedCount,omitempty"`
 }
 
 func decided(e assignment.FulfillmentSourcingDecided) decidedData {
@@ -97,7 +114,8 @@ func decided(e assignment.FulfillmentSourcingDecided) decidedData {
 		AssignmentID: e.SubjectID(), OrderID: e.OrderID, GroupNo: e.GroupNo, ReleaseNo: e.ReleaseNo, NodeID: e.NodeID,
 		NodeRegionID: e.NodeRegionID, DestinationRegionID: e.DestinationRegionID, InRegion: inRegion, Legs: e.Legs,
 		EstimatedCostCents: e.EstimatedCostCents, CostComplete: e.CostComplete(), Units: e.Units, CandidateCount: e.CandidateCount,
-		DecidedAt: utc(e.DecidedAt),
+		DecidedAt: utc(e.DecidedAt), PolicyVersion: e.PolicyVersion, EffectiveCostCents: e.EffectiveCostCents,
+		CarrierAssignmentID: string(e.CarrierAssignmentID), ConsolidatedCount: e.ConsolidatedCount,
 	}
 }
 
@@ -118,6 +136,10 @@ type lockedData struct {
 	PickupDepartureID string    `json:"pickupDepartureId"`
 	LockedAt          time.Time `json:"lockedAt"`
 	LockReason        string    `json:"lockReason"`
+	// ConsolidatedInto (followers only) and MergedAssignmentIDs (every merged
+	// assignment id, ascending) are omitted when not merged (ADR 0015).
+	ConsolidatedInto    string   `json:"consolidatedInto,omitempty"`
+	MergedAssignmentIDs []string `json:"mergedAssignmentIds,omitempty"`
 }
 
 type shippedData struct {
@@ -156,6 +178,17 @@ type revisedData struct {
 	AssignmentID    string    `json:"assignmentId"`
 	RevisionNo      int       `json:"revisionNo"`
 	DeliverByLatest time.Time `json:"deliverByLatest"`
+}
+
+// policyPublishedData is the analytics-only SourcingPolicyPublished payload
+// (ADR 0014): subject and Kafka key are the constant "policy".
+type policyPublishedData struct {
+	Version                   int `json:"version"`
+	CrossRegionSurchargeCents int `json:"crossRegionSurchargeCents"`
+	MaxCostDeviationPercent   int `json:"maxCostDeviationPercent"`
+	// ConsolidationMaxAssignments is the cap on one merged release; 0 = off (ADR 0015).
+	ConsolidationMaxAssignments int       `json:"consolidationMaxAssignments"`
+	PublishedAt                 time.Time `json:"publishedAt"`
 }
 
 // Encoder turns a domain event into one outbox.Message holding the CloudEvents
@@ -232,14 +265,16 @@ func payload(ev shared.Event) (any, error) {
 	case assignment.FulfillmentQueued:
 		return queuedData{id, e.OrderID, e.GroupNo, e.PromiseID, utc(e.DeliverByLatest), queuedLines(e.Lines)}, nil
 	case assignment.FulfillmentReleasedToNode:
-		return releasedData{id, e.ReleaseNo, e.OrderID, e.GroupNo, e.NodeID, e.PickupDepartureID, utc(e.RequiredShipBy),
-			utc(e.PromisedDeliverByLatest), string(e.Tier), releasedLines(e.Lines), e.EstimatedCostCents}, nil
+		return released(e), nil
 	case assignment.FulfillmentSourcingDecided:
 		return decided(e), nil
 	case assignment.FulfillmentReassigned:
 		return reassignedData{id, e.FromNodeID, e.ToNodeID, e.Reason, e.AggregateVersion()}, nil
 	case assignment.FulfillmentLocked:
-		return lockedData{id, e.OrderID, e.GroupNo, e.PromiseID, e.NodeID, e.PickupDepartureID, utc(e.LockedAt), e.LockReason}, nil
+		return lockedData{id, e.OrderID, e.GroupNo, e.PromiseID, e.NodeID, e.PickupDepartureID, utc(e.LockedAt), e.LockReason,
+			string(e.ConsolidatedInto), idStrings(e.MergedAssignmentIDs)}, nil
+	case assignment.AssignmentsConsolidated, assignment.AssignmentsDeconsolidated, assignment.FulfillmentReleaseWithdrawn:
+		return consolidationPayload(ev)
 	case assignment.FulfillmentShipped:
 		return shippedData{id, e.OrderID, e.GroupNo, e.NodeID, tracking(e.TrackingNumbers), utc(e.ShippedAt)}, nil
 	case assignment.FulfillmentDelivered:
@@ -252,6 +287,8 @@ func payload(ev shared.Event) (any, error) {
 		return cancelledData{id, e.OrderID, e.GroupNo, e.Reason}, nil
 	case assignment.FulfillmentConstraintRevised:
 		return revisedData{id, e.RevisionNo, utc(e.DeliverByLatest)}, nil
+	case policy.SourcingPolicyPublished:
+		return policyPublishedData{e.Number, e.CrossRegionSurchargeCents, e.MaxCostDeviationPercent, e.ConsolidationMaxAssignments, utc(e.PublishedAt)}, nil
 	default:
 		return nil, fmt.Errorf("kafka encoder: no wire form for %T", ev)
 	}

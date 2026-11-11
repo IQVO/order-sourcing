@@ -51,33 +51,47 @@ func (s State) Committed() bool { return s == StateLocked || s == StateShipped |
 // Tier is a service tier of the model.
 type Tier string
 
-// The four service tiers.
+// The service tiers: four classic ones and CONSOLIDATED, the customer-chosen
+// consolidated delivery day (ADR 0015, ADR 0016).
 const (
-	TierSameDay  Tier = "SAME_DAY"
-	TierNextDay  Tier = "NEXT_DAY"
-	TierTwoDay   Tier = "TWO_DAY"
-	TierStandard Tier = "STANDARD"
+	TierSameDay      Tier = "SAME_DAY"
+	TierNextDay      Tier = "NEXT_DAY"
+	TierTwoDay       Tier = "TWO_DAY"
+	TierStandard     Tier = "STANDARD"
+	TierConsolidated Tier = "CONSOLIDATED"
 )
 
-// Valid reports whether t is one of the four tiers.
+// Valid reports whether t is one of the five tiers.
 func (t Tier) Valid() bool {
-	return t == TierSameDay || t == TierNextDay || t == TierTwoDay || t == TierStandard
+	return t == TierSameDay || t == TierNextDay || t == TierTwoDay || t == TierStandard || t == TierConsolidated
+}
+
+// FulfilmentClass is the tier the release carries on the wire: vendor
+// connectivity and shipping know only the four classic tiers, so CONSOLIDATED
+// is released as STANDARD (ADR 0015).
+func (t Tier) FulfilmentClass() Tier {
+	if t == TierConsolidated {
+		return TierStandard
+	}
+	return t
 }
 
 // Outcome is the outcome of a release.
 type Outcome string
 
-// The four release outcomes.
+// The five release outcomes. WITHDRAWN is a release that order-sourcing took
+// back because the merge it belonged to was dissolved (ADR 0015).
 const (
-	OutcomePending  Outcome = "PENDING"
-	OutcomeAccepted Outcome = "ACCEPTED"
-	OutcomeRejected Outcome = "REJECTED"
-	OutcomeExpired  Outcome = "EXPIRED"
+	OutcomePending   Outcome = "PENDING"
+	OutcomeAccepted  Outcome = "ACCEPTED"
+	OutcomeRejected  Outcome = "REJECTED"
+	OutcomeExpired   Outcome = "EXPIRED"
+	OutcomeWithdrawn Outcome = "WITHDRAWN"
 )
 
-// Valid reports whether o is one of the four outcomes.
+// Valid reports whether o is one of the five outcomes.
 func (o Outcome) Valid() bool {
-	return o == OutcomePending || o == OutcomeAccepted || o == OutcomeRejected || o == OutcomeExpired
+	return o == OutcomePending || o == OutcomeAccepted || o == OutcomeRejected || o == OutcomeExpired || o == OutcomeWithdrawn
 }
 
 // Reasons of the events (ADR 0004; the model leaves the vocabularies open).
@@ -91,6 +105,11 @@ const (
 	ReasonNodeRefused           = "NODE_REFUSED"
 	LockReasonAccepted          = "PURCHASE_ORDER_ACCEPTED"
 	ReasonCancelAfterLock       = "CANCEL_AFTER_LOCK"
+	// ReasonCancelWhileMerged refuses a cancel of a member of a live merge that
+	// is not yet LOCKED; ReasonConsolidationWithdrawn is the reassignment reason
+	// of a member re-queued after its merge was withdrawn (ADR 0015).
+	ReasonCancelWhileMerged      = "CANCEL_WHILE_MERGED"
+	ReasonConsolidationWithdrawn = "CONSOLIDATION_WITHDRAWN"
 )
 
 // Bounds, plain literals because Postgres limits them (ADR 0002, A21).
@@ -116,20 +135,25 @@ type Line struct {
 }
 
 // PromiseConstraint is what the assignment must keep (model value object plus
-// revisionNo, G13).
+// revisionNo, G13). DeliverByEarliest is the start of the promised window, zero
+// when unknown (a group queued before ADR 0015); when known it is not after
+// DeliverByLatest.
 type PromiseConstraint struct {
-	PromiseID       string
-	Tier            Tier
-	DeliverByLatest time.Time
-	WitnessNodeID   string
-	RevisionNo      int
+	PromiseID         string
+	Tier              Tier
+	DeliverByEarliest time.Time
+	DeliverByLatest   time.Time
+	WitnessNodeID     string
+	RevisionNo        int
 }
 
 // Candidate is the current best node and path (model value object plus the
 // pickup cutoff, which is the requiredShipBy of a release). Cost is the legacy
 // ordinal score (ADR 0002, A12); EstimatedCostCents is the money-denominated
 // estimate in planner-declared cents, complete only when every lane and wave
-// component of the path had a declared cost (ADR 0011).
+// component of the path had a declared cost (ADR 0011). SurchargeCents is what
+// the sourcing policy added to the estimate (ADR 0014; 0 when none) and
+// PolicyVersion the policy version the search read (0 when none was published).
 type Candidate struct {
 	NodeID             string
 	PickupDepartureID  string
@@ -140,6 +164,22 @@ type Candidate struct {
 	Cost               int64
 	EstimatedCostCents int64
 	CostComplete       bool
+	SurchargeCents     int64
+	PolicyVersion      int
+}
+
+// EffectiveCostCents is the estimate plus the surcharges (ADR 0014); the sum
+// of the estimate's cents even when the estimate is incomplete.
+func (c Candidate) EffectiveCostCents() int64 { return c.EstimatedCostCents + c.SurchargeCents }
+
+// EffectiveCostOnWire is the effective cost where it is published: set only
+// when a surcharge changed the cost, nil otherwise (ADR 0014).
+func (c Candidate) EffectiveCostOnWire() *int64 {
+	if c.SurchargeCents == 0 {
+		return nil
+	}
+	cents := c.EffectiveCostCents()
+	return &cents
 }
 
 func (c Candidate) clone() Candidate {
@@ -152,7 +192,8 @@ func (c Candidate) clone() Candidate {
 func (c Candidate) Same(o Candidate) bool {
 	return c.NodeID == o.NodeID && c.PickupDepartureID == o.PickupDepartureID && c.PickupCutoffAt.Equal(o.PickupCutoffAt) &&
 		slices.Equal(c.Legs, o.Legs) && c.DeliveryWaveID == o.DeliveryWaveID && c.ETA.Equal(o.ETA) && c.Cost == o.Cost &&
-		c.EstimatedCostCents == o.EstimatedCostCents && c.CostComplete == o.CostComplete
+		c.EstimatedCostCents == o.EstimatedCostCents && c.CostComplete == o.CostComplete &&
+		c.SurchargeCents == o.SurchargeCents && c.PolicyVersion == o.PolicyVersion
 }
 
 // Release is one release of the group to a node.

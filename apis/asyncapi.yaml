@@ -13,17 +13,26 @@ info:
     description: The order-sourcing bounded context (retail network, commerce tier, Core).
   - name: assignment
     description: Events raised by the FulfillmentAssignment aggregate.
+  - name: policy
+    description: Events raised by the SourcingPolicy aggregate (analytics only, ADR 0014).
   - name: consumed
     description: Events of sibling contexts this service consumes into its local read models or as commands.
   description: 'Event catalog for the **order-sourcing** bounded context of the retail network (commerce tier):
     it decides which vendor node and path fulfil each shipment group (ADR 0001, ADR 0002).
 
 
-    **Published.** Eleven events of the FulfillmentAssignment aggregate (entity `assignment`): eight on `retailnetwork.order-sourcing.events`
-    and the three analytics-only ones (FulfillmentQueued, FulfillmentSourcingDecided, FulfillmentDelivered) ONLY on `retailnetwork.order-sourcing.analytics`,
+    **Published.** Fourteen events of the FulfillmentAssignment aggregate (entity `assignment`): nine on `retailnetwork.order-sourcing.events`
+    (the eight integration events and FulfillmentReleaseWithdrawn, ADR 0015) and the five analytics-only ones (FulfillmentQueued,
+    FulfillmentSourcingDecided, FulfillmentDelivered, AssignmentsConsolidated, AssignmentsDeconsolidated) ONLY on `retailnetwork.order-sourcing.analytics`,
+    plus a fifteenth, analytics-only event of the SourcingPolicy aggregate (entity `policy`, subject `policy`): SourcingPolicyPublished (ADR 0014),
     through a **transactional outbox**: the aggregate row and its already-encoded events are written in ONE database
     transaction and an always-on relay drains them to Kafka (at-least-once; the CloudEvents `id` is stored with
-    the outbox row, so a retry republishes the same `id`). The eleven types are catalogued in ADR 0004.
+    the outbox row, so a retry republishes the same `id`). The fifteen types are catalogued in ADR 0004, ADR 0014 and ADR 0015.
+
+
+    **Consolidation (ADR 0015).** A release may be MERGED: the carrier''s FulfillmentReleasedToNode lists the `members` and the union of the lines
+    (one purchase order), and every member keeps its own FulfillmentLocked, FulfillmentShipped and FulfillmentDelivered. Absent `members` means a
+    single-group release; absent `consolidationKey` on CustomerOrderPlaced means the order never merges.
 
 
     **Consumed.** Thirty-two event types from nine producers (ADR 0003): commands that drive the aggregate (CustomerOrderPlaced,
@@ -44,7 +53,8 @@ info:
     **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka header `content-type: application/cloudevents+json;
     charset=UTF-8`. `specversion`, `id`, `source` (`/retailnetwork/order-sourcing`), `type`, `subject` (the assignmentId),
     `time`, `datacontenttype` (`application/json`) and `dataschema` (`urn:retailnetwork:order-sourcing:<stream>:<EventName>:v1`)
-    are all required. Kafka key = the subject. Type = `com.retailnetwork.commerce.order-sourcing.assignment.<EventName>`.
+    are all required. Kafka key = the subject. Type = `com.retailnetwork.commerce.order-sourcing.assignment.<EventName>`
+    (SourcingPolicyPublished: `com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished`, subject `policy`).
     A breaking payload change is a new `.v2` type, never a mutation.
 
 
@@ -83,6 +93,8 @@ channels:
         $ref: '#/components/messages/FulfillmentCancelRefused'
       FulfillmentConstraintRevised:
         $ref: '#/components/messages/FulfillmentConstraintRevised'
+      FulfillmentReleaseWithdrawn:
+        $ref: '#/components/messages/FulfillmentReleaseWithdrawn'
   orderSourcingAnalytics:
     address: retailnetwork.order-sourcing.analytics
     title: order-sourcing analytics topic
@@ -95,6 +107,12 @@ channels:
         $ref: '#/components/messages/FulfillmentSourcingDecided'
       FulfillmentDelivered:
         $ref: '#/components/messages/FulfillmentDelivered'
+      SourcingPolicyPublished:
+        $ref: '#/components/messages/SourcingPolicyPublished'
+      AssignmentsConsolidated:
+        $ref: '#/components/messages/AssignmentsConsolidated'
+      AssignmentsDeconsolidated:
+        $ref: '#/components/messages/AssignmentsDeconsolidated'
   customerOrderingEvents:
     address: retailnetwork.customer-ordering.events
     title: customer-ordering integration topic
@@ -231,7 +249,7 @@ operations:
   publishOrderSourcingEvents:
     action: send
     title: Publish order-sourcing integration events
-    summary: Publish the eight integration events through the transactional outbox.
+    summary: Publish the nine integration events through the transactional outbox.
     description: The service sends the integration events of FulfillmentAssignment to `retailnetwork.order-sourcing.events`.
       Consumers route on the full `type`.
     tags:
@@ -247,12 +265,14 @@ operations:
     - $ref: '#/channels/orderSourcingEvents/messages/FulfillmentCancelled'
     - $ref: '#/channels/orderSourcingEvents/messages/FulfillmentCancelRefused'
     - $ref: '#/channels/orderSourcingEvents/messages/FulfillmentConstraintRevised'
+    - $ref: '#/channels/orderSourcingEvents/messages/FulfillmentReleaseWithdrawn'
   publishOrderSourcingAnalytics:
     action: send
     title: Publish order-sourcing analytics events
-    summary: Publish the three analytics-only events through the transactional outbox.
-    description: 'FulfillmentQueued, FulfillmentSourcingDecided and FulfillmentDelivered are analytics only: they are
-      sent ONLY to `retailnetwork.order-sourcing.analytics`.'
+    summary: Publish the six analytics-only events through the transactional outbox.
+    description: 'FulfillmentQueued, FulfillmentSourcingDecided, FulfillmentDelivered, SourcingPolicyPublished,
+      AssignmentsConsolidated and AssignmentsDeconsolidated are analytics only: they are sent ONLY to
+      `retailnetwork.order-sourcing.analytics`.'
     tags:
     - name: assignment
     channel:
@@ -261,13 +281,16 @@ operations:
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentQueued'
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentSourcingDecided'
     - $ref: '#/channels/orderSourcingAnalytics/messages/FulfillmentDelivered'
+    - $ref: '#/channels/orderSourcingAnalytics/messages/SourcingPolicyPublished'
+    - $ref: '#/channels/orderSourcingAnalytics/messages/AssignmentsConsolidated'
+    - $ref: '#/channels/orderSourcingAnalytics/messages/AssignmentsDeconsolidated'
   projectOwnAnalyticsForAnalytics:
     action: receive
     title: Project this context's own analytics events into the analytical database
     summary: The analytics projector reads back FulfillmentQueued and FulfillmentSourcingDecided (ADR 0013).
     description: Inbound adapter internal/adapters/inbound/kafka/analytics_consumer.go, run by cmd/os-projector in
       the consumer group ANALYTICS_CONSUMER_GROUP (default order-sourcing-analytics), one reader over both own topics.
-      Dispatches on the full `type`; FulfillmentDelivered is acknowledged without projection; any other type or a
+      Dispatches on the full `type`; FulfillmentDelivered, SourcingPolicyPublished, AssignmentsConsolidated and AssignmentsDeconsolidated are acknowledged without projection; any other type or a
       non-CloudEvents message is skipped with a sampled warning. Poison only goes to
       `retailnetwork.order-sourcing.analytics.dlq`.
     tags:
@@ -281,7 +304,7 @@ operations:
     action: receive
     title: Project this context's own integration events into the analytical database
     summary: The analytics projector reads back FulfillmentUnsourceable (ADR 0013).
-    description: Same adapter, binary and consumer group as projectOwnAnalyticsForAnalytics. The other seven
+    description: Same adapter, binary and consumer group as projectOwnAnalyticsForAnalytics. The other eight
       integration events are acknowledged without projection.
     tags:
     - name: assignment
@@ -469,12 +492,21 @@ components:
         it is the purchase order''s idempotency key. `lines` is the whole group (fill-or-kill) with this node''s
         listingId. `estimatedCostCents` is the money-denominated AssignmentCost estimate of the released path in
         planner-declared cents (ADR 0011); it is omitted when the estimate is incomplete (a lane or the wave had no
-        declared cost), so consumers must decode it tolerantly — the field is additive and optional. Each line''s
+        declared cost), so consumers must decode it tolerantly — the field is additive and optional. `policyVersion`
+        is the sourcing policy version the search read (ADR 0014); it is omitted when no policy was published.
+        `effectiveCostCents` is the estimate plus the policy''s cross-region surcharge; it is omitted unless a
+        surcharge changed the cost (both fields additive and optional, decoded tolerantly). Each line''s
         optional `ownerRef` is the seller whose stock the line takes, as the OwnerChoice rule picked it at this node
         (ADR 0012: operator-owned first if it covers the line, else the covering seller with the highest availableQty,
         ties to the lowest ownerRef in byte order; a line never spans owners); it is omitted when the line is
         operator-owned. No ship-to data: the release carries no PII. Consumers: vendor-connectivity,
-        linehaul-transportation. Consumers: vendor-connectivity (lines[].ownerRef).'
+        linehaul-transportation. Consumers: vendor-connectivity (lines[].ownerRef). A MERGED release (ADR 0015) is
+        the carrier''s: `assignmentId`, `orderId` and `groupNo` stay the carrier''s, `members` lists every merged
+        group (carrier first, then ascending assignmentId) and is omitted when the release is not merged, `lines`
+        is the union in member order with listing and owner chosen on the summed quantity, each line''s optional
+        `assignmentId` names its member, `promisedDeliverByLatest` is the minimum over the members and `tier` is the
+        fulfilment class (a CONSOLIDATED group is released as STANDARD: the fifth tier never leaves this service on
+        a release). One purchase order covers the union.'
       contentType: application/cloudevents+json
       tags:
       - name: assignment
@@ -503,6 +535,8 @@ components:
             promisedDeliverByLatest: '2026-10-24T23:00:00Z'
             tier: TWO_DAY
             estimatedCostCents: 1065
+            policyVersion: 2
+            effectiveCostCents: 1315
             lines:
             - catalogItemId: cat-000123
               listingId: lst-000123-fc-ws-sor-01
@@ -511,6 +545,45 @@ components:
               listingId: lst-000456-fc-ws-sor-01-sel-0042
               ownerRef: sel-0042
               quantity: 1
+      - name: FulfillmentReleasedToNodeMerged
+        summary: A merged release of two groups of one shopper (one purchase order).
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c67
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode
+          subject: asg-7f3c2d10
+          time: '2026-10-22T19:01:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:events:FulfillmentReleasedToNode:v1
+          data:
+            assignmentId: asg-7f3c2d10
+            releaseNo: 1
+            orderId: ord-51a0c9
+            groupNo: 1
+            nodeId: node-fc-ws-sor-01
+            pickupDepartureId: dep-pk-20261022-1800-fc-ws-sor-01
+            requiredShipBy: '2026-10-22T21:00:00Z'
+            promisedDeliverByLatest: '2026-10-24T23:00:00Z'
+            tier: STANDARD
+            lines:
+            - catalogItemId: cat-000123
+              listingId: lst-000123-fc-ws-sor-01
+              quantity: 2
+              assignmentId: asg-7f3c2d10
+            - catalogItemId: cat-000123
+              listingId: lst-000123-fc-ws-sor-01
+              quantity: 3
+              assignmentId: asg-2c9d41aa
+            members:
+            - assignmentId: asg-7f3c2d10
+              orderId: ord-51a0c9
+              groupNo: 1
+              promiseId: prm-88c1
+            - assignmentId: asg-2c9d41aa
+              orderId: ord-6b2e07
+              groupNo: 1
+              promiseId: prm-91d4
     FulfillmentSourcingDecided:
       name: FulfillmentSourcingDecided
       title: The sourcing decision of one release (analytics only)
@@ -523,7 +596,12 @@ components:
         is omitted when either is unknown. `legs` counts the departures after the pickup (0 = straight to the
         station). `estimatedCostCents` follows ADR 0011 and is present exactly when `costComplete` is true. `units`
         is the sum of the line quantities; `candidateCount` the size of the ranked candidate set the release chose
-        from. Analytics only: published ONLY to retailnetwork.order-sourcing.analytics.'
+        from. `policyVersion` and `effectiveCostCents` are those of the FulfillmentReleasedToNode of the same release
+        (ADR 0014; omitted when no policy was published / no surcharge applied). In a MERGED release (ADR 0015) every
+        member raises its own fact: `units` stays the member''s own, `consolidatedCount` is the number of merged groups
+        and a follower also carries `carrierAssignmentId`; both are omitted when the release is not merged. One
+        package costs once: the analytics projection books the follower''s `estimatedCostCents` as 0 (the carrier holds it).
+        Analytics only: published ONLY to retailnetwork.order-sourcing.analytics.'
       contentType: application/cloudevents+json
       tags:
       - name: assignment
@@ -556,6 +634,8 @@ components:
             units: 3
             candidateCount: 4
             decidedAt: '2026-10-22T19:01:00Z'
+            policyVersion: 2
+            effectiveCostCents: 1315
     FulfillmentReassigned:
       name: FulfillmentReassigned
       title: The candidate node of a group changed
@@ -564,7 +644,8 @@ components:
         and key = the assignmentId; stream `events` (topic `retailnetwork.order-sourcing.events`). Raised when the
         candidate NODE changes: ReoptimiseAssignment, the release re-check, HandleNodeRefusal on another node, or
         ApplyRevisedPromise. `reason` is one of REOPTIMISED, RELEASE_RECHECK, PURCHASE_ORDER_REJECTED, PURCHASE_ORDER_EXPIRED,
-        PROMISE_REVISED. `assignmentVersion` is the version after the change, so consumers can drop stale copies.
+        PROMISE_REVISED, CONSOLIDATION_WITHDRAWN (a member re-queued after its merge was withdrawn, ADR 0015).
+        `assignmentVersion` is the version after the change, so consumers can drop stale copies.
         Consumer: linehaul-transportation.'
       contentType: application/cloudevents+json
       tags:
@@ -596,7 +677,11 @@ components:
       description: '`type` = `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked`; subject and
         key = the assignmentId; stream `events` (topic `retailnetwork.order-sourcing.events`). Raised by LockAssignment
         (RELEASED to LOCKED) on PurchaseOrderAccepted. Adds promiseId, groupNo and orderId (contracts-delta E1)
-        so delivery-promise can keep its assignmentId map. `lockReason` is PURCHASE_ORDER_ACCEPTED. Consumers: delivery-promise,
+        so delivery-promise can keep its assignmentId map. `lockReason` is PURCHASE_ORDER_ACCEPTED. In a MERGED release
+        (ADR 0015) the carrier''s acceptance locks every member: each raises its own FulfillmentLocked with the carrier''s
+        `nodeId` and `pickupDepartureId`; `mergedAssignmentIds` lists every merged assignment id, carrier included, ascending,
+        and a follower also carries `consolidatedInto` (the carrier). Both are omitted when the assignment is not merged.
+        Linehaul books ONE package, on the carrier''s lock. Consumers: delivery-promise,
         customer-ordering, linehaul-transportation.'
       contentType: application/cloudevents+json
       tags:
@@ -624,6 +709,30 @@ components:
             pickupDepartureId: dep-pk-20261022-1800-fc-ws-sor-01
             lockedAt: '2026-10-22T19:01:00Z'
             lockReason: PURCHASE_ORDER_ACCEPTED
+      - name: FulfillmentLockedFollower
+        summary: A follower of a merged release locks with its carrier.
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c41
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked
+          subject: asg-2c9d41aa
+          time: '2026-10-22T19:01:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:events:FulfillmentLocked:v1
+          data:
+            assignmentId: asg-2c9d41aa
+            orderId: ord-6b2e07
+            groupNo: 1
+            promiseId: prm-91d4
+            nodeId: node-fc-ws-sor-01
+            pickupDepartureId: dep-pk-20261022-1800-fc-ws-sor-01
+            lockedAt: '2026-10-22T19:01:00Z'
+            lockReason: PURCHASE_ORDER_ACCEPTED
+            consolidatedInto: asg-7f3c2d10
+            mergedAssignmentIds:
+            - asg-2c9d41aa
+            - asg-7f3c2d10
     FulfillmentShipped:
       name: FulfillmentShipped
       title: The vendor confirmed shipment of the group
@@ -687,6 +796,41 @@ components:
             orderId: ord-51a0c9
             groupNo: 1
             deliveredAt: '2026-10-23T14:42:00Z'
+    SourcingPolicyPublished:
+      name: SourcingPolicyPublished
+      title: A new version of the sourcing policy was published (analytics only)
+      summary: A new version of the sourcing policy was published (analytics only).
+      description: '`type` = `com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished`; subject and
+        key = `policy` (the policy is one versioned document); stream `analytics` (topic
+        `retailnetwork.order-sourcing.analytics`). Raised by `PUT /sourcing-policy` in the SAME transaction as the new
+        version row (ADR 0014). `version` is the new version number (1 for the first publish, then +1);
+        `crossRegionSurchargeCents` (0..100000) is added to the effective cost of a candidate whose node region differs
+        from the delivery area region; `maxCostDeviationPercent` (0..200) is the regional budget over the cheapest
+        effective cost, 0 = off; `consolidationMaxAssignments` (0..10) is the most groups one merged release holds,
+        0 and 1 = off (ADR 0015). Analytics only: published ONLY to retailnetwork.order-sourcing.analytics.'
+      contentType: application/cloudevents+json
+      tags:
+      - name: policy
+      payload:
+        $ref: '#/components/schemas/SourcingPolicyPublishedEvent'
+      examples:
+      - name: SourcingPolicyPublished
+        summary: A new version of the sourcing policy was published (analytics only).
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c70
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished
+          subject: policy
+          time: '2026-11-09T12:00:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:analytics:SourcingPolicyPublished:v1
+          data:
+            version: 2
+            crossRegionSurchargeCents: 250
+            maxCostDeviationPercent: 20
+            consolidationMaxAssignments: 4
+            publishedAt: '2026-11-09T12:00:00Z'
     FulfillmentUnsourceable:
       name: FulfillmentUnsourceable
       title: No node can still meet the promise; the group goes back to delivery-promise
@@ -760,8 +904,10 @@ components:
       description: '`type` = `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelRefused`; subject
         and key = the assignmentId; stream `events` (topic `retailnetwork.order-sourcing.events`). Raised instead
         of FulfillmentCancelled when the request arrives in LOCKED, SHIPPED or DELIVERED (contracts-delta E11, gap
-        G12). The state does not change. `reason` is CANCEL_AFTER_LOCK. The vendor ships and the shopper path becomes
-        a return. Consumer: customer-ordering.'
+        G12), or while the group is a member of a MERGED release that is not yet locked (ADR 0015). The state does not
+        change and nothing is withdrawn. `reason` is CANCEL_AFTER_LOCK, or CANCEL_WHILE_MERGED for the merged case,
+        where the request can be retried after the carrier''s lock or after a dissolution. The vendor ships and the
+        shopper path becomes a return. Consumer: customer-ordering.'
       contentType: application/cloudevents+json
       tags:
       - name: assignment
@@ -814,6 +960,127 @@ components:
             assignmentId: asg-7f3c2d10
             revisionNo: 1
             deliverByLatest: '2026-10-25T23:00:00Z'
+    FulfillmentReleaseWithdrawn:
+      name: FulfillmentReleaseWithdrawn
+      title: A published release was withdrawn (its merge was dissolved)
+      summary: A published release was withdrawn (its merge was dissolved).
+      description: '`type` = `com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleaseWithdrawn`; subject
+        and key = the carrier''s assignmentId; stream `events` (topic `retailnetwork.order-sourcing.events`). Raised by the
+        carrier when a promise revision moved the window of a member off the merged delivery (ADR 0015): the release
+        `releaseNo` of the carrier is taken back, every member returns to QUEUED and is re-released later, alone or merged
+        again. `reason` is PROMISE_REVISED (a cancel never withdraws: a cancel of a merged member is refused, and a vendor
+        refusal dissolves the merge without this event because the purchase order is already terminal). Consumer:
+        vendor-connectivity cancels the purchase order of (`assignmentId`, `releaseNo`) while it is still issued. The
+        window between this event and the cancel is one message hop: a purchase order the vendor acknowledges inside it
+        is acknowledged for the old union (the stale accept is counted by order-sourcing).'
+      contentType: application/cloudevents+json
+      tags:
+      - name: assignment
+      payload:
+        $ref: '#/components/schemas/FulfillmentReleaseWithdrawnEvent'
+      examples:
+      - name: FulfillmentReleaseWithdrawn
+        summary: A published release was withdrawn (its merge was dissolved).
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c68
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleaseWithdrawn
+          subject: asg-7f3c2d10
+          time: '2026-10-22T19:01:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:events:FulfillmentReleaseWithdrawn:v1
+          data:
+            assignmentId: asg-7f3c2d10
+            releaseNo: 1
+            orderId: ord-51a0c9
+            groupNo: 1
+            reason: PROMISE_REVISED
+            withdrawnAt: '2026-10-22T19:01:00Z'
+    AssignmentsConsolidated:
+      x-no-consumer-reason: 'analytics only (ADR 0015): the units-per-package and packages-per-order reports read it; there is no consumer'
+      name: AssignmentsConsolidated
+      title: Several groups were released as one package (analytics only)
+      summary: Several groups were released as one package (analytics only).
+      description: '`type` = `com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsConsolidated`; subject and
+        key = the carrier''s assignmentId; stream `analytics` (topic `retailnetwork.order-sourcing.analytics`). Raised by
+        ReleaseToNode in the SAME transaction as the carrier''s FulfillmentReleasedToNode (ADR 0015). `members` lists
+        every merged group (carrier first, then ascending assignmentId) with its own `units`; `memberCount` is at
+        least 2 and `units` the sum over the members. Analytics only: published ONLY to
+        retailnetwork.order-sourcing.analytics.'
+      contentType: application/cloudevents+json
+      tags:
+      - name: assignment
+      payload:
+        $ref: '#/components/schemas/AssignmentsConsolidatedEvent'
+      examples:
+      - name: AssignmentsConsolidated
+        summary: Several groups were released as one package (analytics only).
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c69
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsConsolidated
+          subject: asg-7f3c2d10
+          time: '2026-10-22T19:01:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:analytics:AssignmentsConsolidated:v1
+          data:
+            carrierAssignmentId: asg-7f3c2d10
+            releaseNo: 1
+            nodeId: node-fc-ws-sor-01
+            memberCount: 2
+            units: 5
+            members:
+            - assignmentId: asg-7f3c2d10
+              orderId: ord-51a0c9
+              groupNo: 1
+              promiseId: prm-88c1
+              units: 2
+            - assignmentId: asg-2c9d41aa
+              orderId: ord-6b2e07
+              groupNo: 1
+              promiseId: prm-91d4
+              units: 3
+            consolidatedAt: '2026-10-22T19:01:00Z'
+    AssignmentsDeconsolidated:
+      x-no-consumer-reason: 'analytics only (ADR 0015): no consumer'
+      name: AssignmentsDeconsolidated
+      title: A merged release was dissolved (analytics only)
+      summary: A merged release was dissolved (analytics only).
+      description: '`type` = `com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsDeconsolidated`; subject
+        and key = the carrier''s assignmentId; stream `analytics` (topic `retailnetwork.order-sourcing.analytics`). Raised by
+        the carrier when its merge is dissolved (ADR 0015). `reason` is PROMISE_REVISED (a revision moved the window of the
+        member `triggerAssignmentId` off the merged delivery; FulfillmentReleaseWithdrawn follows), PURCHASE_ORDER_REJECTED
+        or PURCHASE_ORDER_EXPIRED (the vendor refused the carrier''s release; every member excludes the node and is
+        re-searched; `triggerAssignmentId` is omitted). `memberAssignmentIds` lists the merged ids, carrier first. A
+        cancel never dissolves a merge. Analytics only: published ONLY to retailnetwork.order-sourcing.analytics.'
+      contentType: application/cloudevents+json
+      tags:
+      - name: assignment
+      payload:
+        $ref: '#/components/schemas/AssignmentsDeconsolidatedEvent'
+      examples:
+      - name: AssignmentsDeconsolidated
+        summary: A merged release was dissolved (analytics only).
+        payload:
+          specversion: '1.0'
+          id: 3f6c2a9e-8b1d-4c7a-9e55-0d2f6b7a1c6a
+          source: /retailnetwork/order-sourcing
+          type: com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsDeconsolidated
+          subject: asg-7f3c2d10
+          time: '2026-10-22T19:01:00Z'
+          datacontenttype: application/json
+          dataschema: urn:retailnetwork:order-sourcing:analytics:AssignmentsDeconsolidated:v1
+          data:
+            carrierAssignmentId: asg-7f3c2d10
+            releaseNo: 1
+            reason: PROMISE_REVISED
+            triggerAssignmentId: asg-2c9d41aa
+            memberAssignmentIds:
+            - asg-7f3c2d10
+            - asg-2c9d41aa
+            deconsolidatedAt: '2026-10-22T19:01:00Z'
     CustomerOrderPlaced:
       name: CustomerOrderPlaced
       title: A customer order was placed
@@ -890,7 +1157,9 @@ components:
       summary: A promise was revised.
       description: '`type` = `com.retailnetwork.commerce.delivery-promise.promise.PromiseRevised`, from delivery-promise.
         Fields relied on are required; every other field is ignored. Use: ApplyRevisedPromise in every non-terminal
-        state (gap G13); a revisionNo not above the applied one is ignored.'
+        state (gap G13); a revisionNo not above the applied one is ignored. The optional `deliverByEarliest` is the
+        revised window start (ADR 0015); absent means unknown. A revision of a RELEASED member of a merged release
+        that moves the window off the merged delivery dissolves the merge.'
       contentType: application/cloudevents+json
       tags:
       - name: consumed
@@ -1843,7 +2112,7 @@ components:
           type: string
         subject:
           type: string
-          description: The aggregate root id (assignmentId for published events).
+          description: The aggregate root id (assignmentId for the assignment events, `policy` for SourcingPolicyPublished).
         time: &id001
           type: string
           format: date-time
@@ -1949,12 +2218,23 @@ components:
                 - NEXT_DAY
                 - TWO_DAY
                 - STANDARD
+                - CONSOLIDATED
               estimatedCostCents:
                 type: integer
                 minimum: 0
                 description: The money-denominated AssignmentCost estimate of the released path in planner-declared
                   cents — the per-unit lane costs of every leg plus the final wave's per-stop cost (ADR 0011).
                   Optional and omitted when the estimate is incomplete (a component had no declared cost).
+              policyVersion:
+                type: integer
+                minimum: 1
+                description: The sourcing policy version the search read (ADR 0014). Optional and omitted when no
+                  policy version was published.
+              effectiveCostCents:
+                type: integer
+                minimum: 0
+                description: The estimate plus the policy's cross-region surcharge (ADR 0014). Optional and omitted
+                  unless a surcharge changed the cost, that is when it differs from the estimate's cents.
               lines:
                 type: array
                 items:
@@ -1971,6 +2251,26 @@ components:
                       description: The seller (sellerId) whose stock the line takes, chosen by the OwnerChoice rule
                         at this node (ADR 0012). Optional and omitted when the line is operator-owned.
                     quantity: *id003
+                    assignmentId:
+                      type: string
+                      description: The member of a merged release the line belongs to (ADR 0015). Optional and
+                        omitted when the release is not merged.
+              members:
+                type: array
+                description: The merged groups of a merged release, carrier first then ascending assignmentId (ADR
+                  0015). Optional and omitted when the release is a single group; the union of their lines is `lines`.
+                items:
+                  type: object
+                  required:
+                  - assignmentId
+                  - orderId
+                  - groupNo
+                  - promiseId
+                  properties:
+                    assignmentId: *id002
+                    orderId: *id002
+                    groupNo: *id003
+                    promiseId: *id002
     FulfillmentSourcingDecidedEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'
@@ -2033,6 +2333,25 @@ components:
                 description: The size of the ranked candidate set (one per node and pickup departure) the release
                   chose from.
               decidedAt: *id001
+              policyVersion:
+                type: integer
+                minimum: 1
+                description: The sourcing policy version the search read (ADR 0014). Optional and omitted when no
+                  policy version was published.
+              effectiveCostCents:
+                type: integer
+                minimum: 0
+                description: The estimate plus the policy's cross-region surcharge (ADR 0014). Optional and omitted
+                  unless a surcharge changed the cost.
+              carrierAssignmentId:
+                type: string
+                description: The carrier of the merged release this follower belongs to (ADR 0015). Optional and
+                  omitted unless the assignment is a follower.
+              consolidatedCount:
+                type: integer
+                minimum: 2
+                description: The number of merged groups of the release (ADR 0015). Optional and omitted when the
+                  release is not merged.
     FulfillmentReassignedEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'
@@ -2058,6 +2377,7 @@ components:
                 - PURCHASE_ORDER_REJECTED
                 - PURCHASE_ORDER_EXPIRED
                 - PROMISE_REVISED
+                - CONSOLIDATION_WITHDRAWN
               assignmentVersion: *id003
     FulfillmentLockedEvent:
       allOf:
@@ -2087,6 +2407,15 @@ components:
                 type: string
                 enum:
                 - PURCHASE_ORDER_ACCEPTED
+              consolidatedInto:
+                type: string
+                description: The carrier a follower of a merged release locks with (ADR 0015). Optional and omitted
+                  unless the assignment is a follower.
+              mergedAssignmentIds:
+                type: array
+                description: Every merged assignment id, carrier included, ascending (ADR 0015). Optional and omitted
+                  when the assignment is not merged.
+                items: *id002
     FulfillmentShippedEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'
@@ -2127,6 +2456,38 @@ components:
               orderId: *id002
               groupNo: *id003
               deliveredAt: *id001
+    SourcingPolicyPublishedEvent:
+      allOf:
+      - $ref: '#/components/schemas/CloudEventEnvelope'
+      - type: object
+        properties:
+          subject:
+            const: policy
+          data:
+            type: object
+            required:
+            - version
+            - crossRegionSurchargeCents
+            - maxCostDeviationPercent
+            - publishedAt
+            properties:
+              version:
+                type: integer
+                minimum: 1
+              crossRegionSurchargeCents:
+                type: integer
+                minimum: 0
+                maximum: 100000
+              maxCostDeviationPercent:
+                type: integer
+                minimum: 0
+                maximum: 200
+              consolidationMaxAssignments:
+                type: integer
+                minimum: 0
+                maximum: 10
+                description: The most groups one merged release holds; 0 and 1 mean consolidation is off (ADR 0015).
+              publishedAt: *id001
     FulfillmentUnsourceableEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'
@@ -2198,6 +2559,7 @@ components:
                 type: string
                 enum:
                 - CANCEL_AFTER_LOCK
+                - CANCEL_WHILE_MERGED
     FulfillmentConstraintRevisedEvent:
       allOf:
       - $ref: '#/components/schemas/CloudEventEnvelope'
@@ -2213,6 +2575,105 @@ components:
               assignmentId: *id002
               revisionNo: *id003
               deliverByLatest: *id001
+    FulfillmentReleaseWithdrawnEvent:
+      allOf:
+      - $ref: '#/components/schemas/CloudEventEnvelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            required:
+            - assignmentId
+            - releaseNo
+            - orderId
+            - groupNo
+            - reason
+            - withdrawnAt
+            properties:
+              assignmentId: *id002
+              releaseNo: *id003
+              orderId: *id002
+              groupNo: *id003
+              reason:
+                type: string
+                enum:
+                - PROMISE_REVISED
+              withdrawnAt: *id001
+    AssignmentsConsolidatedEvent:
+      allOf:
+      - $ref: '#/components/schemas/CloudEventEnvelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            required:
+            - carrierAssignmentId
+            - releaseNo
+            - nodeId
+            - memberCount
+            - units
+            - members
+            - consolidatedAt
+            properties:
+              carrierAssignmentId: *id002
+              releaseNo: *id003
+              nodeId: *id002
+              memberCount:
+                type: integer
+                minimum: 2
+              units:
+                type: integer
+                minimum: 2
+                description: The sum of every member's line quantities.
+              members:
+                type: array
+                items:
+                  type: object
+                  required:
+                  - assignmentId
+                  - orderId
+                  - groupNo
+                  - promiseId
+                  - units
+                  properties:
+                    assignmentId: *id002
+                    orderId: *id002
+                    groupNo: *id003
+                    promiseId: *id002
+                    units:
+                      type: integer
+                      minimum: 1
+              consolidatedAt: *id001
+    AssignmentsDeconsolidatedEvent:
+      allOf:
+      - $ref: '#/components/schemas/CloudEventEnvelope'
+      - type: object
+        properties:
+          data:
+            type: object
+            required:
+            - carrierAssignmentId
+            - releaseNo
+            - reason
+            - memberAssignmentIds
+            - deconsolidatedAt
+            properties:
+              carrierAssignmentId: *id002
+              releaseNo: *id003
+              reason:
+                type: string
+                enum:
+                - PROMISE_REVISED
+                - PURCHASE_ORDER_REJECTED
+                - PURCHASE_ORDER_EXPIRED
+              triggerAssignmentId:
+                type: string
+                description: The member whose promise revision broke the merged delivery. Optional and omitted for a
+                  purchase order refusal.
+              memberAssignmentIds:
+                type: array
+                items: *id002
+              deconsolidatedAt: *id001
     CustomerOrderPlacedEvent:
       allOf:
       - $ref: '#/components/schemas/ConsumedCloudEvent'
@@ -2227,6 +2688,11 @@ components:
             properties:
               orderId: *id002
               destinationPostalPrefix: *id002
+              consolidationKey:
+                type: string
+                pattern: ^[0-9a-f]{64}$
+                description: A keyed hash of the shopper and the ship-to, derived by customer-ordering (ADR 0015).
+                  Optional; absent means the order never merges. A malformed value is ignored (the order never merges).
               placedAt: *id001
               groups:
                 type: array
@@ -2290,6 +2756,7 @@ components:
               promiseId: *id002
               orderId: *id002
               revisionNo: *id003
+              deliverByEarliest: *id001
               deliverByLatest: *id001
               nodeId: *id002
               reason: *id002
