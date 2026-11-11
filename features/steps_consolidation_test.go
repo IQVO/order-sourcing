@@ -18,6 +18,7 @@ func shopperKey(shopper string) string {
 }
 
 func registerConsolidationSteps(sc *godog.ScenarioContext, w *world) {
+	registerTierSteps(sc, w)
 	sc.Step(`^the operator allows (\d+) assignments per merged release$`, func(n int) error {
 		w.run(func() error {
 			_, err := usecases.NewSourcingPolicies(w.deps).Publish(w.ctx(), policy.Input{ConsolidationMaxAssignments: n})
