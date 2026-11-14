@@ -91,7 +91,9 @@ Feature: Consolidation at release: who may merge, who may not, and what a dissol
     And shopper "s1" places order "ord-1" with a CONSOLIDATED group of 2 units of "cat-1" and a window from <from1> to <to1> hours
     And shopper "s1" places order "ord-2" with a CONSOLIDATED group of 3 units of "cat-1" and a window from <from2> to <to2> hours
     When I release the assignment of "ord-1" group 1
-    Then the assignment of "ord-2" group 1 is "<state>"
+    Then the command succeeds
+    And the assignment of "ord-1" group 1 is "RELEASED"
+    And the assignment of "ord-2" group 1 is "<state>"
 
     Examples:
       | from1 | to1 | from2 | to2 | state    |
@@ -106,7 +108,9 @@ Feature: Consolidation at release: who may merge, who may not, and what a dissol
     And shopper "s1" places order "ord-1" with a CONSOLIDATED group of <units1> units of "cat-1"
     And shopper "s1" places order "ord-2" with a CONSOLIDATED group of <units2> units of "cat-1"
     When I release the assignment of "ord-1" group 1
-    Then the assignment of "ord-2" group 1 is "<state>"
+    Then the command succeeds
+    And the assignment of "ord-1" group 1 is "RELEASED"
+    And the assignment of "ord-2" group 1 is "<state>"
 
     Examples:
       | units1 | units2 | state    |
