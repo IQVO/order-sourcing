@@ -1,3 +1,4 @@
+@rules
 Feature: Consolidation at release: who may merge, who may not, and what a dissolution does
   ConsolidationAtRelease and ConsolidationDissolution of warehouse-docs
   network/docs/contexts/order-sourcing (aggregate canvas, rules c1 identity, c2 node, c3 window
@@ -96,6 +97,7 @@ Feature: Consolidation at release: who may merge, who may not, and what a dissol
       | from1 | to1 | from2 | to2 | state    |
       | 10    | 30  | 20    | 60  | RELEASED |
       | 10    | 30  | 40    | 60  | QUEUED   |
+      | 30    | 60  | 10    | 30  | QUEUED   |
 
   # --- c4: stock --------------------------------------------------------------------------------------
 

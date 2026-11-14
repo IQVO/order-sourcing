@@ -124,9 +124,11 @@ func registerRulesReadModelSteps(sc *godog.ScenarioContext, w *world) {
 		d := departure("pk-"+suffix(node), node, "sc-1", hour, hour+1, hour+2)
 		return seed(w.store.ReadModels().PutDeparture(w.ctx(), d))
 	})
-	sc.Step(`^a micro-fulfilment node "([^"]*)" ships straight to the delivery station "([^"]*)"$`, func(node, station string) error {
+	sc.Step(`^a (micro-fulfilment|sortable) node "([^"]*)" ships straight to the delivery station "([^"]*)"$`, func(kind, node, station string) error {
 		n := vendorNode(node, "r1")
-		n.Subtype = network.SubtypeSubSameDay
+		if kind == "micro-fulfilment" {
+			n.Subtype = network.SubtypeSubSameDay
+		}
 		rm := w.store.ReadModels()
 		for _, err := range []error{
 			rm.PutNode(w.ctx(), n),

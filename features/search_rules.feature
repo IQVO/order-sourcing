@@ -1,3 +1,4 @@
+@rules
 Feature: The candidate search, the release point and the re-optimisation
   Rules of warehouse-docs network/docs/contexts/order-sourcing (use cases ReoptimiseAssignment and
   ReleaseToNode, aggregate canvas policies VirtualQueue and AssignmentCost, read models): which nodes
@@ -32,6 +33,12 @@ Feature: The candidate search, the release point and the re-optimisation
     And the assignment of "ord-1" group 1 has a PENDING release number 1 to "fc-m"
 
   Scenario: A SAME_DAY group that no micro node can serve is unsourceable at once
+    When order "ord-1" is placed with a SAME_DAY group of 1 units of "cat-1"
+    Then the last command published "FulfillmentQueued, FulfillmentUnsourceable"
+    And the assignment of "ord-1" group 1 is "UNSOURCEABLE"
+
+  Scenario: A SAME_DAY group needs a same-day node even when a sortable node ships straight to the station
+    Given a sortable node "fc-s" ships straight to the delivery station "ds-1"
     When order "ord-1" is placed with a SAME_DAY group of 1 units of "cat-1"
     Then the last command published "FulfillmentQueued, FulfillmentUnsourceable"
     And the assignment of "ord-1" group 1 is "UNSOURCEABLE"

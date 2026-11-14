@@ -1,3 +1,4 @@
+@rules
 Feature: Queueing, refusal, lock, shipment, delivery, cancellation and revision rules
   Rules of warehouse-docs network/docs/contexts/order-sourcing (use cases QueueAssignment,
   HandleNodeRefusal, LockAssignment, MarkShipped, MarkDelivered, CancelAssignment and
@@ -219,7 +220,7 @@ Feature: Queueing, refusal, lock, shipment, delivery, cancellation and revision 
 
   Scenario: A group this service never queued is skipped without failing the request
     Given order "ord-1" is placed with a NEXT_DAY group of 2 units of "cat-1"
-    When the customer cancels groups "1, 9" of order "ord-1"
+    When the customer cancels groups "9, 1" of order "ord-1"
     Then the command succeeds
     And the last command published "FulfillmentCancelled"
 

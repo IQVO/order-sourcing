@@ -1,3 +1,4 @@
+@rules
 Feature: The sourcing policy document: ranges, whole-document publish, defaults and the budget arithmetic
   SourcingPolicy of warehouse-docs network/docs/contexts/order-sourcing (aggregate canvas "SourcingPolicy",
   use case PublishSourcingPolicy, policy RegionalBudget): every field inside its range and refused one
