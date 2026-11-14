@@ -79,25 +79,31 @@ func (n Node) Eligible() bool {
 // declared marginal cost of moving ONE package-unit across the lane
 // (LaneCostDeclared); CostDeclaredAt zero means no declaration was seen, so
 // the lane contributes 0 to a money-denominated estimate and marks it
-// incomplete. A declaration may arrive before LaneOpened: the row is stored
+// incomplete. EmissionPerUnitG is the declared marginal emission of the same
+// crossing in grams of CO2e (LaneEmissionDeclared) under the same rule
+// (ADR 0017). A declaration may arrive before LaneOpened: the row is stored
 // keyed by laneId anyway and LaneOpened later completes it without losing the
-// cost (ADR 0003, ADR 0011).
+// cost or the emission (ADR 0003, ADR 0011, ADR 0017).
 type Lane struct {
-	ID               string
-	Origin           string
-	Destination      string
-	Mode             string
-	Closed           bool
-	CostPerUnitCents int64
-	CostDeclaredAt   time.Time
+	ID                 string
+	Origin             string
+	Destination        string
+	Mode               string
+	Closed             bool
+	CostPerUnitCents   int64
+	CostDeclaredAt     time.Time
+	EmissionPerUnitG   int64
+	EmissionDeclaredAt time.Time
 }
 
 // ApplyOpened stores the static facts of an opened lane, keeping the closed
-// flag and any declared cost (a cost that arrived first is never lost).
+// flag and any declared cost or emission (either arriving first is never lost).
 func (l *Lane) ApplyOpened(o Lane) {
-	closed, cost, at := l.Closed, l.CostPerUnitCents, l.CostDeclaredAt
+	closed, cost, costAt := l.Closed, l.CostPerUnitCents, l.CostDeclaredAt
+	emission, emissionAt := l.EmissionPerUnitG, l.EmissionDeclaredAt
 	*l = o
-	l.Closed, l.CostPerUnitCents, l.CostDeclaredAt = closed, cost, at
+	l.Closed, l.CostPerUnitCents, l.CostDeclaredAt = closed, cost, costAt
+	l.EmissionPerUnitG, l.EmissionDeclaredAt = emission, emissionAt
 }
 
 // ApplyCostDeclared stores a declared per-unit cost unless its instant is
@@ -112,6 +118,19 @@ func (l *Lane) ApplyCostDeclared(costPerUnitCents int64, at time.Time) bool {
 
 // CostDeclared reports whether a cost declaration was seen for the lane.
 func (l Lane) CostDeclared() bool { return !l.CostDeclaredAt.IsZero() }
+
+// ApplyEmissionDeclared stores a declared per-unit emission unless its instant
+// is older than the stored one; 0 is a legal declared emission (ADR 0017).
+func (l *Lane) ApplyEmissionDeclared(gCo2ePerUnit int64, at time.Time) bool {
+	if at.Before(l.EmissionDeclaredAt) {
+		return false
+	}
+	l.EmissionPerUnitG, l.EmissionDeclaredAt = gCo2ePerUnit, at
+	return true
+}
+
+// EmissionDeclared reports whether an emission declaration was seen for the lane.
+func (l Lane) EmissionDeclared() bool { return !l.EmissionDeclaredAt.IsZero() }
 
 // Departure is a row of NetworkGraphView.
 type Departure struct {
@@ -156,33 +175,39 @@ func (d Departure) Usable() bool { return d.Scheduled && !d.Cancelled && d.Remai
 // declared marginal cost of ONE delivery stop on the wave
 // (WaveCostDeclared); CostDeclaredAt zero means no declaration was seen, so
 // the wave contributes 0 to a money-denominated estimate and marks it
-// incomplete. A declaration may arrive before DeliveryWaveScheduled: the row
-// is stored keyed by waveId anyway and the schedule later completes it without
-// losing the cost (ADR 0003, ADR 0011).
+// incomplete. EmissionPerStopG is the declared marginal emission of the same
+// stop in grams of CO2e (WaveEmissionDeclared) under the same rule (ADR 0017).
+// A declaration may arrive before DeliveryWaveScheduled: the row is stored
+// keyed by waveId anyway and the schedule later completes it without losing
+// the cost or the emission (ADR 0003, ADR 0011, ADR 0017).
 type Wave struct {
-	ID               string
-	StationID        string
-	InductCutoffAt   time.Time
-	WindowStart      time.Time
-	WindowEnd        time.Time
-	Capacity         int
-	Remaining        int
-	RemainingKnown   bool
-	Scheduled        bool
-	Cancelled        bool
-	CostPerStopCents int64
-	CostDeclaredAt   time.Time
+	ID                 string
+	StationID          string
+	InductCutoffAt     time.Time
+	WindowStart        time.Time
+	WindowEnd          time.Time
+	Capacity           int
+	Remaining          int
+	RemainingKnown     bool
+	Scheduled          bool
+	Cancelled          bool
+	CostPerStopCents   int64
+	CostDeclaredAt     time.Time
+	EmissionPerStopG   int64
+	EmissionDeclaredAt time.Time
 }
 
 // ApplySchedule stores the schedule, keeping remaining stops a capacity event
-// set and any declared cost (a cost that arrived first is never lost).
+// set and any declared cost or emission (either arriving first is never lost).
 func (w *Wave) ApplySchedule(s Wave) {
 	rem, known := w.Remaining, w.RemainingKnown
 	cancelled := w.Cancelled
-	cost, at := w.CostPerStopCents, w.CostDeclaredAt
+	cost, costAt := w.CostPerStopCents, w.CostDeclaredAt
+	emission, emissionAt := w.EmissionPerStopG, w.EmissionDeclaredAt
 	*w = s
 	w.Scheduled, w.Cancelled = true, cancelled
-	w.CostPerStopCents, w.CostDeclaredAt = cost, at
+	w.CostPerStopCents, w.CostDeclaredAt = cost, costAt
+	w.EmissionPerStopG, w.EmissionDeclaredAt = emission, emissionAt
 	if known {
 		w.Remaining, w.RemainingKnown = rem, true
 		return
@@ -207,6 +232,19 @@ func (w *Wave) ApplyCostDeclared(costPerStopCents int64, at time.Time) bool {
 
 // CostDeclared reports whether a cost declaration was seen for the wave.
 func (w Wave) CostDeclared() bool { return !w.CostDeclaredAt.IsZero() }
+
+// ApplyEmissionDeclared stores a declared per-stop emission unless its instant
+// is older than the stored one; 0 is a legal declared emission (ADR 0017).
+func (w *Wave) ApplyEmissionDeclared(gCo2ePerStop int64, at time.Time) bool {
+	if at.Before(w.EmissionDeclaredAt) {
+		return false
+	}
+	w.EmissionPerStopG, w.EmissionDeclaredAt = gCo2ePerStop, at
+	return true
+}
+
+// EmissionDeclared reports whether an emission declaration was seen for the wave.
+func (w Wave) EmissionDeclared() bool { return !w.EmissionDeclaredAt.IsZero() }
 
 // Usable reports whether a stop can be assigned to the wave now.
 func (w Wave) Usable() bool { return w.Scheduled && !w.Cancelled && w.Remaining > 0 }

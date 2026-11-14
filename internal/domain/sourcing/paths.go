@@ -31,10 +31,14 @@ type path struct {
 // per-stop cost of the final wave. An undeclared component contributes 0 and
 // counts towards unknown, which marks the whole estimate incomplete (ADR 0011).
 // The comparator never looks at unknown: an incomplete estimate still competes
-// by its sum, 0s included.
+// by its sum, 0s included. grams and gUnknown are the carbon twin in
+// planner-declared grams of CO2e (ADR 0017), counted independently: a lane may
+// carry a declared cost but no declared emission, and vice versa.
 type estimate struct {
-	cents   int64
-	unknown int
+	cents    int64
+	unknown  int
+	grams    int64
+	gUnknown int
 }
 
 func (e estimate) add(cents int64, declared bool) estimate {
@@ -43,6 +47,15 @@ func (e estimate) add(cents int64, declared bool) estimate {
 		return e
 	}
 	e.cents += cents
+	return e
+}
+
+func (e estimate) addEmission(grams int64, declared bool) estimate {
+	if !declared {
+		e.gUnknown++
+		return e
+	}
+	e.grams += grams
 	return e
 }
 
@@ -93,6 +106,17 @@ func (s searcher) laneCost(d network.Departure) (int64, bool) {
 	return l.CostPerUnitCents, true
 }
 
+// laneEmission is the declared per-unit emission of a departure's lane in
+// grams of CO2e: 0 and false when the view does not know the lane or no
+// emission was declared for it (ADR 0017).
+func (s searcher) laneEmission(d network.Departure) (int64, bool) {
+	l, known := s.w.Lanes[d.LaneID]
+	if !known || !l.EmissionDeclared() {
+		return 0, false
+	}
+	return l.EmissionPerUnitG, true
+}
+
 // waveCost is the declared per-stop cost of a wave: 0 and false when no cost
 // was declared for it.
 func waveCost(w network.Wave) (int64, bool) {
@@ -102,12 +126,23 @@ func waveCost(w network.Wave) (int64, bool) {
 	return w.CostPerStopCents, true
 }
 
+// waveEmission is the declared per-stop emission of a wave in grams of CO2e:
+// 0 and false when no emission was declared for it (ADR 0017).
+func waveEmission(w network.Wave) (int64, bool) {
+	if !w.EmissionDeclared() {
+		return 0, false
+	}
+	return w.EmissionPerStopG, true
+}
+
 func (s searcher) option(n network.Node, pickup network.Departure, p path) Option {
 	// The money estimate covers every departure traversed — the pickup's lane
 	// plus the onward legs — and the final wave's per-stop cost. Per package-unit:
 	// the World and the request carry no package count, so nothing multiplies
-	// the sum (ADR 0011).
+	// the sum (ADR 0011). The carbon estimate sums the same components in
+	// declared grams of CO2e under the same rule (ADR 0017).
 	est := p.est.add(s.laneCost(pickup))
+	est = est.addEmission(s.laneEmission(pickup))
 	cost := p.cost + HourCost*int64(max(0, int(p.wave.WindowStart.Sub(pickup.DepartsAt)/time.Hour))) + s.penalties(n, pickup)
 	releaseAt := s.r.Now
 	if s.r.Tier != assignment.TierSameDay {
@@ -127,6 +162,7 @@ func (s searcher) option(n network.Node, pickup network.Departure, p path) Optio
 			DeliveryWaveID: p.wave.ID, ETA: p.wave.WindowEnd, Cost: cost,
 			EstimatedCostCents: est.cents, CostComplete: est.unknown == 0,
 			SurchargeCents: surcharge, PolicyVersion: s.r.Policy.Version,
+			EstimatedCo2eGrams: est.grams, EmissionComplete: est.gUnknown == 0,
 		},
 		ReleaseAt:   releaseAt,
 		CrossRegion: cross,
@@ -177,6 +213,7 @@ func (s searcher) explore(d network.Departure, visited map[string]bool, legs []s
 			continue
 		}
 		p.est = p.est.add(s.laneCost(next))
+		p.est = p.est.addEmission(s.laneEmission(next))
 		if !found || better(p, best) {
 			best, found = p, true
 		}
@@ -201,7 +238,9 @@ func (s searcher) finish(d network.Departure, legs []string) (path, bool) {
 		return path{}, false
 	}
 	cents, declared := waveCost(best)
-	return path{legs: slices.Clone(legs), wave: best, cost: LegCost * int64(len(legs)), est: estimate{}.add(cents, declared)}, true
+	grams, emissionDeclared := waveEmission(best)
+	return path{legs: slices.Clone(legs), wave: best, cost: LegCost * int64(len(legs)),
+		est: estimate{}.add(cents, declared).addEmission(grams, emissionDeclared)}, true
 }
 
 // better orders two paths: the lower money estimate first, then the lower

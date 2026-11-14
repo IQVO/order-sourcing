@@ -155,6 +155,18 @@ func validateLines(lines []Line) error {
 	return nil
 }
 
+// checkEstimates refuses negative estimates: the cents (ADR 0011) and the
+// grams of CO2e (ADR 0017) follow the same rule.
+func (c Candidate) checkEstimates() error {
+	if c.EstimatedCostCents < 0 {
+		return shared.Invalid("estimatedCostCents must not be negative")
+	}
+	if c.EstimatedCo2eGrams < 0 {
+		return shared.Invalid("estimatedCo2eGrams must not be negative")
+	}
+	return nil
+}
+
 // checkCandidate enforces the candidate invariants: a well-formed candidate,
 // not an excluded node (ErrNodeExcluded), eta <= deliverByLatest
 // (ErrCandidateBreaksPromise).
@@ -171,8 +183,8 @@ func (a *Assignment) checkCandidate(c *Candidate) error {
 	if c.Cost < 0 {
 		return shared.Invalid("cost must not be negative")
 	}
-	if c.EstimatedCostCents < 0 {
-		return shared.Invalid("estimatedCostCents must not be negative")
+	if err := c.checkEstimates(); err != nil {
+		return err
 	}
 	if c.SurchargeCents < 0 || c.PolicyVersion < 0 || c.PolicyVersion > MaxInt32 {
 		return shared.Invalid("surchargeCents must not be negative and policyVersion must be between 0 and %d", MaxInt32)

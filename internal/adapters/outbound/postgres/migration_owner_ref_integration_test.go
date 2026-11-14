@@ -11,10 +11,11 @@ import (
 	"github.com/claudioed/order-sourcing/internal/testing/pgtest"
 )
 
-// latestMigration is the version ceiling of the embedded migrations: 0006 adds
-// the consolidation columns of assignments (ADR 0015), 0005 sourcing_policies
-// (ADR 0014), 0004 rm_listings.owner_ref (ADR 0012). A new migration moves it.
-const latestMigration = 6
+// latestMigration is the version ceiling of the embedded migrations: 0007 adds
+// the lane and wave emission columns (ADR 0017), 0006 the consolidation
+// columns of assignments (ADR 0015), 0005 sourcing_policies (ADR 0014),
+// 0004 rm_listings.owner_ref (ADR 0012). A new migration moves it.
+const latestMigration = 7
 
 // ownerRefMigration is the migration 0004 the backfill test below exercises.
 const ownerRefMigration = 4

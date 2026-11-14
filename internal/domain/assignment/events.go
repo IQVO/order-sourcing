@@ -47,7 +47,10 @@ func (FulfillmentQueued) Stream() string { return shared.StreamAnalytics }
 // FulfillmentReleasedToNode is raised by Release. EstimatedCostCents carries
 // the money-denominated estimate of the released path in planner-declared
 // cents and is nil when the estimate is incomplete (a component had no
-// declared cost); consumers decode it tolerantly (ADR 0011). PolicyVersion is
+// declared cost); consumers decode it tolerantly (ADR 0011). EstimatedCo2eGrams
+// is the carbon estimate of the same path in planner-declared grams of CO2e,
+// nil under the same rule when a component had no declared emission, and
+// EmissionComplete reports its completeness (ADR 0017). PolicyVersion is
 // the sourcing policy version the search read, 0 (omitted on the wire) when
 // none was published; EffectiveCostCents is the estimate plus the policy
 // surcharges, nil (omitted) unless a surcharge changed the cost (ADR 0014).
@@ -65,6 +68,8 @@ type FulfillmentReleasedToNode struct {
 	EstimatedCostCents      *int64
 	PolicyVersion           int
 	EffectiveCostCents      *int64
+	EstimatedCo2eGrams      *int64
+	EmissionComplete        bool
 	// Members lists a merged release (carrier first, then ascending assignment
 	// id) and LineMembers the member each line of Lines belongs to; both are
 	// empty for a single-group release (ADR 0015).
@@ -79,7 +84,8 @@ func (FulfillmentReleasedToNode) EventName() string { return "FulfillmentRelease
 // FulfillmentReleasedToNode: the analytics-only fact of the sourcing decision
 // (ADR 0013). The regions are "" when the read model did not know them; Legs
 // are the departures after the pickup; EstimatedCostCents follows ADR 0011
-// (nil when incomplete); Units is the sum of the line quantities and
+// (nil when incomplete) and EstimatedCo2eGrams ADR 0017 (nil when incomplete);
+// Units is the sum of the line quantities and
 // CandidateCount the size of the candidate set the release chose from.
 // PolicyVersion and EffectiveCostCents follow FulfillmentReleasedToNode (ADR 0014).
 type FulfillmentSourcingDecided struct {
@@ -97,6 +103,7 @@ type FulfillmentSourcingDecided struct {
 	DecidedAt           time.Time
 	PolicyVersion       int
 	EffectiveCostCents  *int64
+	EstimatedCo2eGrams  *int64
 	// CarrierAssignmentID is set on a follower's fact and ConsolidatedCount on
 	// every member of a merge (0 when not merged), ADR 0015.
 	CarrierAssignmentID ID
@@ -120,6 +127,9 @@ func (e FulfillmentSourcingDecided) InRegion() (inRegion, known bool) {
 
 // CostComplete reports whether the estimate is complete (ADR 0011).
 func (e FulfillmentSourcingDecided) CostComplete() bool { return e.EstimatedCostCents != nil }
+
+// EmissionComplete reports whether the carbon estimate is complete (ADR 0017).
+func (e FulfillmentSourcingDecided) EmissionComplete() bool { return e.EstimatedCo2eGrams != nil }
 
 // FulfillmentReassigned is raised when the candidate node changes.
 type FulfillmentReassigned struct {
