@@ -89,7 +89,7 @@ sequenceDiagram
 Omitted: `PurchaseOrderRejected` and `PurchaseOrderExpired` are also read by `node-performance` for the scorecard. If nothing is
 feasible even at the loosest tier, `delivery-promise` sends no `PromiseRevised`; it reports the promise broken later and
 `customer-ordering` may cancel the group, which this context accepts for an `UNSOURCEABLE` assignment (`Cancel` allows it).
-`FulfillmentConstraintRevised` is drawn with no known reader (no consumer was found in the four downstream clones, see
+`FulfillmentConstraintRevised` is drawn with no known reader (no consumer was found in the six consumer clones, see
 [Integration](/docs/ecosystem/integration)). If the revised promise yields no candidate, the assignment stays `UNSOURCEABLE`
 silently, with no second `FulfillmentUnsourceable`.
 

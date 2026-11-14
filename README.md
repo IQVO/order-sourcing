@@ -99,8 +99,8 @@ CloudEvents 1.0 structured JSON, type `com.retailnetwork.commerce.order-sourcing
 
 | Topic | Events |
 |---|---|
-| `retailnetwork.order-sourcing.events` (integration) | `FulfillmentReleasedToNode`, `FulfillmentReassigned`, `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused`, `FulfillmentConstraintRevised` |
-| `retailnetwork.order-sourcing.analytics` (analytics only) | `FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered` |
+| `retailnetwork.order-sourcing.events` (integration) | `FulfillmentReleasedToNode`, `FulfillmentReassigned`, `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused`, `FulfillmentConstraintRevised`, `FulfillmentReleaseWithdrawn` |
+| `retailnetwork.order-sourcing.analytics` (analytics only) | `FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered`, `AssignmentsConsolidated`, `AssignmentsDeconsolidated`, `SourcingPolicyPublished` (entity `policy`, subject and key `policy`) |
 
 **Consumed** — 34 event types from nine producer topics, each under its own
 stable consumer group; delivery is at-least-once with a stable event id and
@@ -110,10 +110,10 @@ an inbox on the consuming side ([ADR 0005](docs/adr/0005-outbox-relay-attempt-ca
 |---|---|
 | `retailnetwork.customer-ordering.events` | `CustomerOrderPlaced`, `CustomerOrderCancelled` |
 | `retailnetwork.delivery-promise.events` | `PromiseRevised`, `PromiseBookExhausted` |
-| `retailnetwork.last-mile-delivery.events` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled` |
+| `retailnetwork.last-mile-delivery.events` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared` |
 | `retailnetwork.linehaul-transportation.events` | `DepartureScheduled`, `DepartureCapacityChanged`, `DepartureCancelled`, `BookingMoved`, `BookingFailed` |
 | `retailnetwork.node-performance.events` | `NodeScorecardUpdated` |
-| `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `ServiceAreaAssigned`, `RegionDefined` |
+| `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `ServiceAreaAssigned`, `RegionDefined` |
 | `retailnetwork.offer-availability.events` | `ListingCreated`, `ListingAvailabilityChanged`, `ListingSuppressed`, `ListingRestored`, `CatalogItemDiscontinued` |
 | `retailnetwork.shipping-and-tracking.events` | `PackageDelivered` |
 | `retailnetwork.vendor-connectivity.events` | `PurchaseOrderAccepted`, `PurchaseOrderRejected`, `PurchaseOrderExpired`, `VendorShipmentConfirmed` |
