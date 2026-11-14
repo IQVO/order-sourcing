@@ -51,7 +51,7 @@ below. Solid edges carry Kafka events; the dotted edge is the read surface.
 
 ## Upstream: what Order Sourcing consumes
 
-Nine topics, 32 types, nine consumer groups (the full list with fields is the [event catalogue](/docs/api-reference/events)).
+Nine topics, 34 types, nine consumer groups (the full list with fields is the [event catalogue](/docs/api-reference/events)).
 
 | Producer | Protocol and topic | Contract (types) | What it drives | Status |
 | --- | --- | --- | --- | --- |

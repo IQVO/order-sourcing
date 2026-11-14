@@ -39,6 +39,9 @@ type candidateDTO struct {
 	// EffectiveCostCents unless a surcharge changed the cost (ADR 0014).
 	PolicyVersion      int    `json:"policyVersion,omitempty"`
 	EffectiveCostCents *int64 `json:"effectiveCostCents,omitempty"`
+	// EstimatedCo2eGrams is the carbon estimate of the path in planner-declared
+	// grams of CO2e, omitted when incomplete (ADR 0017).
+	EstimatedCo2eGrams *int64 `json:"estimatedCo2eGrams,omitempty"`
 }
 
 type releaseDTO struct {
@@ -99,6 +102,16 @@ func estimateCentsOf(c *views.Candidate) *int64 {
 	return &cents
 }
 
+// estimateGramsOf is the wire value of a candidate's carbon estimate: the
+// grams of CO2e when complete, absent when incomplete (ADR 0017).
+func estimateGramsOf(c *views.Candidate) *int64 {
+	if !c.EmissionComplete {
+		return nil
+	}
+	grams := c.EstimatedCo2eGrams
+	return &grams
+}
+
 // effectiveCentsOf is the wire value of a candidate's effective cost: present
 // only when a surcharge changed the cost (ADR 0014).
 func effectiveCentsOf(c *views.Candidate) *int64 {
@@ -125,7 +138,7 @@ func toDTO(v views.Assignment) assignmentDTO {
 	}
 	if c := v.Candidate; c != nil {
 		d.Candidate = &candidateDTO{c.NodeID, c.PickupDepartureID, c.PickupCutoffAt.UTC(), append([]string{}, c.Legs...), c.DeliveryWaveID, c.ETA.UTC(), c.Cost,
-			estimateCentsOf(c), c.PolicyVersion, effectiveCentsOf(c)}
+			estimateCentsOf(c), c.PolicyVersion, effectiveCentsOf(c), estimateGramsOf(c)}
 	}
 	for _, r := range v.Releases {
 		d.Releases = append(d.Releases, releaseDTO{r.ReleaseNo, r.NodeID, r.ReleasedAt.UTC(), r.RequiredShipBy.UTC(), r.Outcome, r.ReasonCode})

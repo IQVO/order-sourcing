@@ -97,6 +97,8 @@ Nine consumed topics carry 32 handled event types: 10 reach a command use case (
   between departure and wave start, 1000 for a node outside the destination's region, a scorecard penalty on the 30-day window
   (A 0, B 50, C 200, D 500; no scorecard or `PROVISIONAL` adds nothing), and 500 when the promise book is under pressure for
   that node and pickup departure) are the tie-break score.
+- Carbon: `estimatedCo2eGrams` (the declared per-unit lane emissions of every departure plus the final wave's per-stop
+  emission, ADR 0017) is recorded beside the cost and NEVER ranks: the ordering is exactly the money ordering.
 - Order: with a published policy whose `maxCostDeviationPercent` is above 0, candidates within `cheapest + floor(cheapest * percent / 100)`
   come first, in-region before cross-region, then the ones over the budget; inside each group, lowest effective cents, then
   the lowest tie-break score, then the witness node, then the lower node id, then the lower pickup departure id. With the
