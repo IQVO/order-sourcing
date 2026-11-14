@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -182,7 +183,7 @@ func registerRulesPlacementSteps(sc *godog.ScenarioContext, w *world) {
 		})
 	sc.Step(`^order "([^"]*)" is placed again under a new event id$`, func(order string) error {
 		cmd := w.lastPlaced
-		cmd.Meta.EventID += "-again"
+		cmd.EventID += "-again"
 		return w.queue(cmd)
 	})
 	sc.Step(`^order "([^"]*)" is placed with these groups:$`, func(order string, table *godog.Table) error {
@@ -196,7 +197,7 @@ func registerRulesPlacementSteps(sc *godog.ScenarioContext, w *world) {
 			groups = append(groups, groupOf(order, no, row.Cells[1].Value, units, row.Cells[3].Value, time.Time{}, hours(48)))
 		}
 		cmd := w.order(order, "", "30301", groups...)
-		cmd.Meta.EventID = fmt.Sprintf("evt-%s-%dgroups", order, len(groups))
+		cmd.EventID = fmt.Sprintf("evt-%s-%dgroups", order, len(groups))
 		return w.queue(cmd)
 	})
 	sc.Step(`^order "([^"]*)" is placed with a CONSOLIDATED group of (\d+) units of "([^"]*)" under the consolidation key "([^"]*)"$`,
@@ -294,7 +295,7 @@ func registerRulesCommandSteps(sc *godog.ScenarioContext, w *world) {
 func registerRulesAssertionSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the command is refused as an illegal transition$`, func() error {
 		if !errors.Is(w.lastErr, shared.ErrIllegalTransition) {
-			return fmt.Errorf("the command returned %v, want an illegal transition", w.lastErr)
+			return fmt.Errorf("the command returned %w, want an illegal transition", w.lastErr)
 		}
 		return nil
 	})
@@ -339,58 +340,76 @@ func (w *world) wantAssignments(n int) error {
 }
 
 func registerRulesReleaseAssertions(sc *godog.ScenarioContext, w *world) {
-	sc.Step(`^the assignment of "([^"]*)" group (\d+) has (\d+) releases?$`, func(order string, group, n int) error {
-		return w.check(order, group, func(v views.Assignment) error {
-			if len(v.Releases) != n {
-				return fmt.Errorf("releases are %+v, want %d", v.Releases, n)
-			}
-			return nil
-		})
+	sc.Step(`^the assignment of "([^"]*)" group (\d+) has (\d+) releases?$`, w.wantReleaseCount)
+	sc.Step(`^the assignment of "([^"]*)" group (\d+) has release number (\d+) with the outcome "([^"]*)"$`, w.wantReleaseOutcome)
+	sc.Step(`^the assignment of "([^"]*)" group (\d+) has release number (\d+) with the reason code "([^"]*)"$`, w.wantReleaseReasonCode)
+	sc.Step(`^the assignment of "([^"]*)" group (\d+) excluded the node "([^"]*)" as "([^"]*)"$`, w.wantExcludedAs)
+	sc.Step(`^the last release event goes to node "([^"]*)" as release number (\d+) with the listing "([^"]*)" and required ship-by at hour (\d+)$`, w.wantReleaseFacts)
+}
+
+func (w *world) wantReleaseCount(order string, group, n int) error {
+	return w.check(order, group, func(v views.Assignment) error {
+		if len(v.Releases) != n {
+			return fmt.Errorf("releases are %+v, want %d", v.Releases, n)
+		}
+		return nil
 	})
-	sc.Step(`^the assignment of "([^"]*)" group (\d+) has release number (\d+) with the outcome "([^"]*)"$`, func(order string, group, no int, outcome string) error {
-		return w.check(order, group, func(v views.Assignment) error {
-			for _, r := range v.Releases {
-				if r.ReleaseNo == no {
-					if r.Outcome != outcome {
-						return fmt.Errorf("release %d is %s, want %s", no, r.Outcome, outcome)
-					}
-					return nil
-				}
-			}
-			return fmt.Errorf("releases are %+v, want a release number %d", v.Releases, no)
-		})
+}
+
+// releaseNumbered finds one release of a view by its number.
+func releaseNumbered(v views.Assignment, no int) (views.Release, error) {
+	for _, r := range v.Releases {
+		if r.ReleaseNo == no {
+			return r, nil
+		}
+	}
+	return views.Release{}, fmt.Errorf("releases are %+v, want a release number %d", v.Releases, no)
+}
+
+func (w *world) wantReleaseOutcome(order string, group, no int, outcome string) error {
+	return w.check(order, group, func(v views.Assignment) error {
+		r, err := releaseNumbered(v, no)
+		if err != nil {
+			return err
+		}
+		if r.Outcome != outcome {
+			return fmt.Errorf("release %d is %s, want %s", no, r.Outcome, outcome)
+		}
+		return nil
 	})
-	sc.Step(`^the assignment of "([^"]*)" group (\d+) has release number (\d+) with the reason code "([^"]*)"$`, func(order string, group, no int, code string) error {
-		return w.check(order, group, func(v views.Assignment) error {
-			for _, r := range v.Releases {
-				if r.ReleaseNo == no && r.ReasonCode == code {
-					return nil
-				}
-			}
-			return fmt.Errorf("releases are %+v, want release %d with reason code %q", v.Releases, no, code)
-		})
+}
+
+func (w *world) wantReleaseReasonCode(order string, group, no int, code string) error {
+	return w.check(order, group, func(v views.Assignment) error {
+		r, err := releaseNumbered(v, no)
+		if err != nil {
+			return err
+		}
+		if r.ReasonCode != code {
+			return fmt.Errorf("release %d has reason code %q, want %q", no, r.ReasonCode, code)
+		}
+		return nil
 	})
-	sc.Step(`^the assignment of "([^"]*)" group (\d+) excluded the node "([^"]*)" as "([^"]*)"$`, func(order string, group int, node, reason string) error {
-		return w.check(order, group, func(v views.Assignment) error {
-			for _, e := range v.ExcludedNodes {
-				if e.NodeID == node && e.Reason == reason {
-					return nil
-				}
-			}
+}
+
+func (w *world) wantExcludedAs(order string, group int, node, reason string) error {
+	return w.check(order, group, func(v views.Assignment) error {
+		if !slices.ContainsFunc(v.ExcludedNodes, func(e views.ExcludedNode) bool { return e.NodeID == node && e.Reason == reason }) {
 			return fmt.Errorf("excluded nodes are %+v, want %s as %q", v.ExcludedNodes, node, reason)
-		})
+		}
+		return nil
 	})
-	sc.Step(`^the last release event goes to node "([^"]*)" as release number (\d+) with the listing "([^"]*)" and required ship-by at hour (\d+)$`,
-		func(node string, no int, listing string, hour int) error {
-			rel, err := w.lastRelease()
-			if err != nil {
-				return err
-			}
-			if rel.NodeID != node || rel.ReleaseNo != no || len(rel.Lines) != 1 || rel.Lines[0].ListingID != listing || !rel.RequiredShipBy.Equal(hours(hour)) {
-				return fmt.Errorf("release = %+v, want node %s, number %d, listing %s, ship-by %s", rel, node, no, listing, hours(hour))
-			}
-			return nil
-		})
+}
+
+func (w *world) wantReleaseFacts(node string, no int, listing string, hour int) error {
+	rel, err := w.lastRelease()
+	if err != nil {
+		return err
+	}
+	if rel.NodeID != node || rel.ReleaseNo != no || len(rel.Lines) != 1 || rel.Lines[0].ListingID != listing || !rel.RequiredShipBy.Equal(hours(hour)) {
+		return fmt.Errorf("release = %+v, want node %s, number %d, listing %s, ship-by %s", rel, node, no, listing, hours(hour))
+	}
+	return nil
 }
 
 func registerRulesFactAssertions(sc *godog.ScenarioContext, w *world) {
