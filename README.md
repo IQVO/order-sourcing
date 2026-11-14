@@ -41,7 +41,7 @@ Page map (`docs/docs/`, published under <https://iqvo.github.io/order-sourcing/d
 | DDD artifacts | [Index](https://iqvo.github.io/order-sourcing/docs/ddd/ddd-artifacts), [Core domain chart](https://iqvo.github.io/order-sourcing/docs/ddd/core-domain-chart), [Bounded context canvas](https://iqvo.github.io/order-sourcing/docs/ddd/bounded-context-canvas), [Context map](https://iqvo.github.io/order-sourcing/docs/ddd/context-map), [Aggregate design canvas](https://iqvo.github.io/order-sourcing/docs/ddd/aggregate-design-canvas), [Domain message flow](https://iqvo.github.io/order-sourcing/docs/ddd/domain-message-flow), [EventStorming](https://iqvo.github.io/order-sourcing/docs/ddd/eventstorming), [Class diagram](https://iqvo.github.io/order-sourcing/docs/ddd/class-diagram), [Entity relationship](https://iqvo.github.io/order-sourcing/docs/ddd/entity-relationship), [Sequence diagrams](https://iqvo.github.io/order-sourcing/docs/ddd/sequence-diagrams), [Domain events](https://iqvo.github.io/order-sourcing/docs/ddd/domain-events) |
 | API reference | [API overview](https://iqvo.github.io/order-sourcing/docs/api-reference), [Event catalogue](https://iqvo.github.io/order-sourcing/docs/api-reference/events), generated REST reference |
 | Ecosystem | [Integration](https://iqvo.github.io/order-sourcing/docs/ecosystem/integration), [MCP tools](https://iqvo.github.io/order-sourcing/docs/mcp/tools) |
-| Decisions | [ADR index](https://iqvo.github.io/order-sourcing/docs/adr) (9 ADRs) |
+| Decisions | [ADR index](https://iqvo.github.io/order-sourcing/docs/adr) (16 ADRs) |
 
 The repository-local pages are in [`docs/docs/`](docs/docs/): [`runtime.md`](docs/docs/overview/runtime.md) (all settings, the
 probes, the shutdown order and the outbox) and the packaging checklist
@@ -269,12 +269,17 @@ on pre-commit and `make check` on pre-push. The harness itself:
 
 ## Architecture Decision Records
 
-Index: [`docs/adr/index.md`](docs/adr/index.md) — 9 ADRs (0001–0009): the
+Index: [`docs/adr/index.md`](docs/adr/index.md) — 16 ADRs (0001–0016): the
 bounded context (0001), aggregates, invariants and assumptions (0002),
 consumed contracts and local read models (0003), the CloudEvents catalogue
 (0004), outbox relay, attempt cap, sweep and shutdown (0005), the MCP server
 (0006), the console remote (0007), the fleet observability standard (0008),
-the A2A inbound adapter (0009).
+the A2A inbound adapter (0009), the fleet REST API guideline (0010), the
+money-denominated assignment cost (0011), owner-aware availability and
+sourcing (0012), the analytics read side and the sourcing-decision fact
+(0013), a versioned sourcing policy (0014), carrier and follower consolidation
+at release (0015), the consolidated delivery day, search window and
+latest-pickup hold (0016).
 
 ## License
 
