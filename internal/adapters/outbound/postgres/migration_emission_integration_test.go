@@ -23,7 +23,7 @@ func TestMigration0007AddsTheEmissionColumns(t *testing.T) {
 	if err := postgres.MigrateTo(url, emissionMigration-1); err != nil {
 		t.Fatalf("down to %d: %v", emissionMigration-1, err)
 	}
-	run, rmOld, closeOld := openAt(t, url)
+	run, _, closeOld := openAt(t, url)
 	if err := run(`INSERT INTO rm_lanes (lane_id, origin, destination, mode, closed) VALUES ('l-old', 'a', 'b', 'GROUND', false)`); err != nil {
 		t.Fatalf("a lane before 0007: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestMigration0007AddsTheEmissionColumns(t *testing.T) {
 	if err := postgres.MigrateTo(url, emissionMigration); err != nil {
 		t.Fatalf("up to %d: %v", emissionMigration, err)
 	}
-	pool, rm, closeNew := openAt(t, url)
+	run, rm, closeNew := openAt(t, url)
 	defer closeNew()
 	l, err := rm.GetLane(context.Background(), "l-old")
 	if err != nil || l.EmissionPerUnitG != 0 || l.EmissionDeclared() {
@@ -58,7 +58,7 @@ func TestMigration0007AddsTheEmissionColumns(t *testing.T) {
 	if err != nil || back.EmissionPerUnitG != 540 || !back.EmissionDeclared() || back.CostPerUnitCents != 320 {
 		t.Fatalf("round-trip lane = %+v %v", back, err)
 	}
-	if _, err := pool.Exec(context.Background(), `UPDATE rm_waves SET emission_per_stop_g = 300, emission_declared_at = now()`); err != nil {
+	if err := run(`UPDATE rm_waves SET emission_per_stop_g = 300, emission_declared_at = now()`); err != nil {
 		t.Fatalf("the new wave column stores: %v", err)
 	}
 	if err := rm.PutWave(context.Background(), network.Wave{ID: "w-old", StationID: "s1", Scheduled: true, Capacity: 10, Remaining: 10, RemainingKnown: true, EmissionPerStopG: 300, EmissionDeclaredAt: at}); err != nil {
