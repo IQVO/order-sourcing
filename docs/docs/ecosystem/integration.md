@@ -10,9 +10,9 @@ description: "How Order Sourcing fits with the rest of the retail network: every
 How `order-sourcing` fits with the rest of the fleet, with the **status of every edge**. Three words are used strictly:
 
 - **Built**: code on this repository's `develop` that does the job.
-- **Verified**: the other side was read on its own local `origin/develop` and names the same type. The clones were read at
-  `vendor-connectivity` `1cea903`, `linehaul-transportation` `1c190ff`, `delivery-promise` `3e73d84` and `customer-ordering`
-  `22353fb` (a local `git grep` of the handler files; the clones were not fetched by this run).
+- **Verified**: the other side was read on its own local `origin/develop` and names the same type. The clones were fetched and read at
+  `vendor-connectivity` `a413d73`, `linehaul-transportation` `6435eb2`, `delivery-promise` `edfcd56`, `customer-ordering` `6fd1f88`,
+  `seller-inbound` `70dff25` and `customer-payments` `e5aef0c` (a local `git grep` of the handler files).
 - **Not read**: the producer side of the nine upstream topics was not re-read for this page; the types come from this service's
   handlers and `apis/asyncapi.yaml`.
 
@@ -46,12 +46,12 @@ flowchart LR
 ```
 
 Source: `internal/adapters/inbound/kafka/handlers.go` (consumed side), `internal/adapters/outbound/kafka/encoder.go` and
-`internal/domain/assignment/events.go` (published side), `apis/asyncapi.yaml`, and the four downstream handler files named
+`internal/domain/assignment/events.go` (published side), `apis/asyncapi.yaml`, and the six downstream handler files named
 below. Solid edges carry Kafka events; the dotted edge is the read surface.
 
 ## Upstream: what Order Sourcing consumes
 
-Nine topics, 32 types, nine consumer groups (the full list with fields is the [event catalogue](/docs/api-reference/events)).
+Nine topics, 34 types, nine consumer groups (the full list with fields is the [event catalogue](/docs/api-reference/events)).
 
 | Producer | Protocol and topic | Contract (types) | What it drives | Status |
 | --- | --- | --- | --- | --- |
@@ -60,8 +60,8 @@ Nine topics, 32 types, nine consumer groups (the full list with fields is the [e
 | vendor-connectivity | Kafka, `retailnetwork.vendor-connectivity.events` | `PurchaseOrderAccepted`, `PurchaseOrderRejected`, `PurchaseOrderExpired`, `VendorShipmentConfirmed` | `LockAssignment`, `HandleNodeRefusal`, `MarkShipped` | **Built.** Each outcome carries `assignmentId` and, for the purchase-order ones, `releaseNo`. |
 | shipping-and-tracking | Kafka, `retailnetwork.shipping-and-tracking.events` | `PackageDelivered` | `MarkDelivered` | **Built.** One event per package; the group delivers on the last. |
 | linehaul-transportation | Kafka, `retailnetwork.linehaul-transportation.events` | `DepartureScheduled`, `DepartureCapacityChanged`, `DepartureCancelled`, `BookingMoved`, `BookingFailed` | departures read model; `RecordPickupMoved`; `RecordProcessed` | **Built.** `BookingFailed` is only recorded as processed. |
-| last-mile-delivery | Kafka, `retailnetwork.last-mile-delivery.events` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled` | waves read model | **Built.** |
-| node-topology | Kafka, `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `ServiceAreaAssigned`, `RegionDefined` | nodes, lanes, service areas, regions | **Built.** Upserts; newer `profileRevision` / `assignmentVersion` wins. |
+| last-mile-delivery | Kafka, `retailnetwork.last-mile-delivery.events` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared` | waves read model | **Built.** |
+| node-topology | Kafka, `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `ServiceAreaAssigned`, `RegionDefined` | nodes, lanes, service areas, regions | **Built.** Upserts; newer `profileRevision` / `assignmentVersion` wins. |
 | offer-availability | Kafka, `retailnetwork.offer-availability.events` | `ListingCreated`, `ListingAvailabilityChanged`, `ListingSuppressed`, `ListingRestored`, `CatalogItemDiscontinued` | listings and discontinued items | **Built.** An older `asOf` is ignored. |
 | node-performance | Kafka, `retailnetwork.node-performance.events` | `NodeScorecardUpdated` | scorecards | **Built.** An older `computedAt` is ignored. |
 
@@ -91,11 +91,13 @@ context's own `cmd/os-projector` (ADR 0013) consumes both topics into its analyt
 
 | Consumer | Protocol and topic | Contract | Status |
 | --- | --- | --- | --- |
-| vendor-connectivity | Kafka, `retailnetwork.order-sourcing.events` | `FulfillmentReleasedToNode` (becomes a purchase order, idempotent on `assignmentId` + `releaseNo`), `FulfillmentCancelled` | **Built + verified.** `internal/adapters/inbound/kafka/consumers.go` on its `origin/develop` handles exactly these two types. |
+| vendor-connectivity | Kafka, `retailnetwork.order-sourcing.events` | `FulfillmentReleasedToNode` (becomes a purchase order, idempotent on `assignmentId` + `releaseNo`), `FulfillmentCancelled`, `FulfillmentReleaseWithdrawn` (a merged release is dissolved before the vendor acknowledged it, ADR 0015) | **Built + verified.** `internal/adapters/inbound/kafka/consumers.go` on its `origin/develop` handles exactly these three types. |
 | linehaul-transportation | same | `FulfillmentReleasedToNode`, `FulfillmentReassigned`, `FulfillmentLocked`, `FulfillmentCancelled` | **Built + verified.** `internal/adapters/inbound/kafka/handlers.go` handles these four. |
-| delivery-promise | same | `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable` | **Built + verified.** `internal/adapters/inbound/kafka/dispatch.go` handles these three; `FulfillmentUnsourceable` is what asks for a re-promise, and its `PromiseRevised` answer comes back as upstream traffic. |
+| delivery-promise | same | `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable` | **Built + verified.** `internal/adapters/inbound/kafka/dispatch.go` handles these three; `FulfillmentUnsourceable` is what asks for a re-promise, and its `PromiseRevised` answer comes back as upstream traffic. `FulfillmentLocked` also moves the promise's capacity charge to the locked node and pickup departure when that differs from the quoted one (`rehomeOnLock` in `internal/application/usecases/rehome.go`). |
 | customer-ordering | same | `FulfillmentLocked`, `FulfillmentShipped`, `FulfillmentUnsourceable`, `FulfillmentCancelled`, `FulfillmentCancelRefused` | **Built + verified.** `internal/adapters/inbound/kafka/handlers.go` handles these five. |
-| any consumer | same | `FulfillmentConstraintRevised` | **Published, no consumer found** in the four clones above. |
+| seller-inbound | same | `FulfillmentReleasedToNode`, `FulfillmentCancelled` | **Built + verified.** `internal/adapters/inbound/kafka/consumers.go` (`SourcingHandlers`) handles these two; they feed its demand view. |
+| customer-payments | same | `FulfillmentShipped`, `FulfillmentCancelled`, `FulfillmentUnsourceable` | **Built + verified.** `internal/adapters/inbound/kafka/handlers.go` (`orderSourcingHandlers`) handles these three as facts on the payment authorization. |
+| any consumer | same | `FulfillmentConstraintRevised` | **Published, no consumer found** in the six clones above. |
 | analytics read side | Kafka, `retailnetwork.order-sourcing.analytics` | `FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered` | Consumed in this repository by `cmd/os-projector` (ADR 0013), which projects `FulfillmentQueued` and `FulfillmentSourcingDecided` into the analytical database (the decoder `internal/adapters/inbound/kafka/analytics_decode.go` maps only `FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentUnsourceable`, so `FulfillmentDelivered` is not projected); no domain consumer is known. |
 | network-ops planner, console, agents | REST `GET /assignments`, `GET /assignments/{id}`, `POST /assignments/{id}/reoptimisations`; MCP; A2A | `apis/openapi.yaml`, [MCP tools](/docs/mcp/tools), [API overview](/docs/api-reference#a2a) | **Built.** The web remote `order_sourcing_mfe` (`web/`, [ADR 0007](/docs/adr/0007-console-remote)) calls only this context's own `/api/order-sourcing`. |
 
