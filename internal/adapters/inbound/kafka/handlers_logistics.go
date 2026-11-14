@@ -44,6 +44,13 @@ func (h Handlers) LastMileDelivery() map[string]HandlerFunc {
 	}) error {
 		return h.UC.Project.WaveCostDeclared(ctx, meta(e), d.WaveID, d.CostPerStopCents, d.DeclaredAt)
 	})
+	typed(m, p+"WaveEmissionDeclared", func(ctx context.Context, e ce.Event, d struct {
+		WaveID       string    `json:"waveId"`
+		GCo2ePerStop int64     `json:"gCo2ePerStop"`
+		DeclaredAt   time.Time `json:"declaredAt"`
+	}) error {
+		return h.UC.Project.WaveEmissionDeclared(ctx, meta(e), d.WaveID, d.GCo2ePerStop, d.DeclaredAt)
+	})
 	return m
 }
 
@@ -148,6 +155,13 @@ func (h Handlers) NodeTopology() map[string]HandlerFunc {
 		DeclaredAt       time.Time `json:"declaredAt"`
 	}) error {
 		return h.UC.Project.LaneCostDeclared(ctx, meta(e), d.LaneID, d.CostPerUnitCents, d.DeclaredAt)
+	})
+	typed(m, p+"lane.LaneEmissionDeclared", func(ctx context.Context, e ce.Event, d struct {
+		LaneID       string    `json:"laneId"`
+		GCo2ePerUnit int64     `json:"gCo2ePerUnit"`
+		DeclaredAt   time.Time `json:"declaredAt"`
+	}) error {
+		return h.UC.Project.LaneEmissionDeclared(ctx, meta(e), d.LaneID, d.GCo2ePerUnit, d.DeclaredAt)
 	})
 	typed(m, p+"servicearea.ServiceAreaAssigned", func(ctx context.Context, e ce.Event, d struct {
 		PostalPrefix          string `json:"postalPrefix"`

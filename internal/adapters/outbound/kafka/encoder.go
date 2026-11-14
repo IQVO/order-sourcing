@@ -74,6 +74,11 @@ type releasedData struct {
 	// EffectiveCostCents unless a surcharge changed the cost (ADR 0014).
 	PolicyVersion      int    `json:"policyVersion,omitempty"`
 	EffectiveCostCents *int64 `json:"effectiveCostCents,omitempty"`
+	// EstimatedCo2eGrams is the carbon estimate of the same path in
+	// planner-declared grams of CO2e, and EmissionComplete its completeness
+	// flag; both are omitted when the estimate is incomplete (ADR 0017).
+	EstimatedCo2eGrams *int64 `json:"estimatedCo2eGrams,omitempty"`
+	EmissionComplete   bool   `json:"emissionComplete,omitempty"`
 	// Members is present only on a merged release: carrier first, then ascending
 	// assignment id. Absent means a single-group release (ADR 0015).
 	Members []releasedMember `json:"members,omitempty"`
@@ -99,6 +104,11 @@ type decidedData struct {
 	DecidedAt           time.Time `json:"decidedAt"`
 	PolicyVersion       int       `json:"policyVersion,omitempty"`
 	EffectiveCostCents  *int64    `json:"effectiveCostCents,omitempty"`
+	// EstimatedCo2eGrams is the carbon estimate of the same path in
+	// planner-declared grams of CO2e, and EmissionComplete its completeness
+	// flag; both are omitted when the estimate is incomplete (ADR 0017).
+	EstimatedCo2eGrams *int64 `json:"estimatedCo2eGrams,omitempty"`
+	EmissionComplete   bool   `json:"emissionComplete,omitempty"`
 	// CarrierAssignmentID (followers only) and ConsolidatedCount (merged members
 	// only) are omitted when the release is not merged (ADR 0015).
 	CarrierAssignmentID string `json:"carrierAssignmentId,omitempty"`
@@ -115,6 +125,7 @@ func decided(e assignment.FulfillmentSourcingDecided) decidedData {
 		NodeRegionID: e.NodeRegionID, DestinationRegionID: e.DestinationRegionID, InRegion: inRegion, Legs: e.Legs,
 		EstimatedCostCents: e.EstimatedCostCents, CostComplete: e.CostComplete(), Units: e.Units, CandidateCount: e.CandidateCount,
 		DecidedAt: utc(e.DecidedAt), PolicyVersion: e.PolicyVersion, EffectiveCostCents: e.EffectiveCostCents,
+		EstimatedCo2eGrams: e.EstimatedCo2eGrams, EmissionComplete: e.EmissionComplete(),
 		CarrierAssignmentID: string(e.CarrierAssignmentID), ConsolidatedCount: e.ConsolidatedCount,
 	}
 }

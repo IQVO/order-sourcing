@@ -50,6 +50,39 @@ func TestTheSourcingDecisionCarriesACompleteEstimate(t *testing.T) {
 	}
 }
 
+// TestTheSourcingDecisionCarriesTheCarbonEstimate: the grams follow the same
+// rule as the cents — carried when complete, nil when a component had no
+// declared emission, independently of the money estimate (ADR 0017).
+func TestTheSourcingDecisionCarriesTheCarbonEstimate(t *testing.T) {
+	c := cand("node-a")
+	c.EstimatedCo2eGrams, c.EmissionComplete = 760, true
+	a := mustQueue(t)
+	events, err := a.Release(c, releaseLines(), facts(), at(2))
+	wantNoErr(t, err)
+	d := decisionOf(t, events)
+	if d.EstimatedCo2eGrams == nil || *d.EstimatedCo2eGrams != 760 || !d.EmissionComplete() || d.CostComplete() {
+		t.Fatalf("decision = %+v", d)
+	}
+	rel := events[len(events)-2].(FulfillmentReleasedToNode)
+	if rel.EstimatedCo2eGrams == nil || *rel.EstimatedCo2eGrams != 760 || !rel.EmissionComplete {
+		t.Fatalf("release = %+v", rel)
+	}
+	// The incomplete twin: no declared emission anywhere, the field is nil.
+	incomplete := cand("node-b")
+	incomplete.EstimatedCostCents, incomplete.CostComplete = 450, true
+	a2 := mustQueue(t)
+	events2, err := a2.Release(incomplete, releaseLines(), facts(), at(2))
+	wantNoErr(t, err)
+	d2 := decisionOf(t, events2)
+	if d2.EstimatedCo2eGrams != nil || d2.EmissionComplete() || !d2.CostComplete() {
+		t.Fatalf("decision = %+v", d2)
+	}
+	rel2 := events2[len(events2)-2].(FulfillmentReleasedToNode)
+	if rel2.EstimatedCo2eGrams != nil || rel2.EmissionComplete {
+		t.Fatalf("release = %+v", rel2)
+	}
+}
+
 func TestSourcingDecisionInRegion(t *testing.T) {
 	cases := []struct {
 		node, dest      string

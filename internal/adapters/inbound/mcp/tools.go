@@ -63,6 +63,9 @@ type candidateView struct {
 	ETA                string   `json:"eta"`
 	Cost               int64    `json:"cost"`
 	EstimatedCostCents *int64   `json:"estimatedCostCents,omitempty"`
+	// EstimatedCo2eGrams is the carbon estimate of the path in planner-declared
+	// grams of CO2e, omitted when incomplete (ADR 0017).
+	EstimatedCo2eGrams *int64 `json:"estimatedCo2eGrams,omitempty"`
 }
 
 type releaseView struct {
@@ -141,7 +144,7 @@ func toCandidate(c *views.Candidate) *candidateView {
 	return &candidateView{
 		NodeID: c.NodeID, PickupDepartureID: c.PickupDepartureID, PickupCutoffAt: instant(c.PickupCutoffAt),
 		Legs: append([]string{}, c.Legs...), DeliveryWaveID: c.DeliveryWaveID, ETA: instant(c.ETA), Cost: c.Cost,
-		EstimatedCostCents: estimateCents(c),
+		EstimatedCostCents: estimateCents(c), EstimatedCo2eGrams: estimateGrams(c),
 	}
 }
 
@@ -153,6 +156,16 @@ func estimateCents(c *views.Candidate) *int64 {
 	}
 	cents := c.EstimatedCostCents
 	return &cents
+}
+
+// estimateGrams is the wire value of a candidate's carbon estimate: the grams
+// of CO2e when complete, absent when incomplete (ADR 0017).
+func estimateGrams(c *views.Candidate) *int64 {
+	if !c.EmissionComplete {
+		return nil
+	}
+	grams := c.EstimatedCo2eGrams
+	return &grams
 }
 
 func toReleases(releases []views.Release) []releaseView {

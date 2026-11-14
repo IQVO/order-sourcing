@@ -185,6 +185,87 @@ func wantWaveCostRules(t *testing.T, w Wave) {
 	}
 }
 
+func TestLaneEmissionMerge(t *testing.T) {
+	var l Lane
+	if l.EmissionDeclared() {
+		t.Fatal("a lane without a declaration is not emission-declared")
+	}
+	if !l.ApplyEmissionDeclared(540, t0) || l.EmissionPerUnitG != 540 || !l.EmissionDeclaredAt.Equal(t0) || !l.EmissionDeclared() {
+		t.Fatalf("lane = %+v", l)
+	}
+	wantLaneEmissionRules(t, l)
+	wantOpenedKeepsEmission(t)
+	wantCostAndEmissionMergeIndependently(t)
+}
+
+func wantLaneEmissionRules(t *testing.T, l Lane) {
+	t.Helper()
+	if l.ApplyEmissionDeclared(700, t0.Add(-time.Minute)) || l.EmissionPerUnitG != 540 {
+		t.Fatal("an older emission declaration is ignored")
+	}
+	if !l.ApplyEmissionDeclared(610, t0) || l.EmissionPerUnitG != 610 {
+		t.Fatal("an emission declaration at the same instant applies (equal instants are not older)")
+	}
+	if !l.ApplyEmissionDeclared(0, t1) || l.EmissionPerUnitG != 0 || !l.EmissionDeclared() {
+		t.Fatal("0 is a legal declared emission, not an undeclared one")
+	}
+}
+
+func wantOpenedKeepsEmission(t *testing.T) {
+	t.Helper()
+	// LaneOpened after the declaration keeps the emission.
+	var l Lane
+	l.ApplyEmissionDeclared(610, t0)
+	l.ApplyOpened(Lane{ID: "l1", Origin: "a", Destination: "b", Mode: "GROUND"})
+	if l.EmissionPerUnitG != 610 || !l.EmissionDeclared() || l.Origin != "a" || l.Closed {
+		t.Fatalf("open after emission keeps the emission: %+v", l)
+	}
+}
+
+// wantCostAndEmissionMergeIndependently: a cost declaration does not declare
+// an emission, and both survive an open on the same row.
+func wantCostAndEmissionMergeIndependently(t *testing.T) {
+	t.Helper()
+	var twin Lane
+	twin.ApplyCostDeclared(320, t0)
+	if twin.EmissionDeclared() {
+		t.Fatal("a cost declaration does not declare an emission")
+	}
+	twin.ApplyEmissionDeclared(540, t1)
+	twin.ApplyOpened(Lane{ID: "l2", Origin: "a", Destination: "c", Mode: "AIR"})
+	if twin.CostPerUnitCents != 320 || twin.EmissionPerUnitG != 540 || twin.Origin != "a" || twin.Mode != "AIR" {
+		t.Fatalf("cost and emission survive the open: %+v", twin)
+	}
+}
+
+func TestWaveEmissionMerge(t *testing.T) {
+	var w Wave
+	w.ApplyEmissionDeclared(610, t0)
+	if w.EmissionPerStopG != 610 || !w.EmissionDeclared() || w.Usable() {
+		t.Fatalf("a wave emission alone is a stub: %+v", w)
+	}
+	// The schedule completes the row without losing the emission.
+	w.ApplySchedule(Wave{ID: "w1", StationID: "s1", Capacity: 50, WindowEnd: t1})
+	if w.EmissionPerStopG != 610 || !w.EmissionDeclared() || !w.Scheduled || w.StationID != "s1" || !w.Usable() {
+		t.Fatalf("schedule after emission keeps the emission: %+v", w)
+	}
+	wantWaveEmissionRules(t, w)
+}
+
+func wantWaveEmissionRules(t *testing.T, w Wave) {
+	t.Helper()
+	if w.ApplyEmissionDeclared(800, t0.Add(-time.Hour)) || w.EmissionPerStopG != 610 {
+		t.Fatal("an older emission declaration is ignored")
+	}
+	if !w.ApplyEmissionDeclared(500, t0) || w.EmissionPerStopG != 500 || !w.Scheduled || !w.Usable() {
+		t.Fatalf("a newer emission over a scheduled wave keeps the schedule: %+v", w)
+	}
+	var zero Wave
+	if !zero.ApplyEmissionDeclared(0, t0) || zero.EmissionPerStopG != 0 || !zero.EmissionDeclared() {
+		t.Fatal("0 is a legal declared wave emission")
+	}
+}
+
 func TestServiceAreaScorecardListing(t *testing.T) {
 	if !(ServiceArea{Version: 2}).Newer(ServiceArea{Version: 1}) || (ServiceArea{Version: 2}).Newer(ServiceArea{Version: 2}) {
 		t.Fatal("only a higher assignment version replaces")

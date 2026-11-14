@@ -786,6 +786,13 @@ components:
             Optional, absent unless a surcharge changed the cost, that is when it
             differs from the estimate's cents; present even when the estimate is
             incomplete (a surcharge applies to an incomplete estimate too).
+        estimatedCo2eGrams:
+          type: integer
+          minimum: 0
+          description: 'The carbon estimate of the path in planner-declared grams of CO2e: the
+            per-unit lane emissions of every leg plus the final wave''s per-stop emission
+            (ADR 0017). Optional: absent when the estimate is incomplete (a lane or the
+            wave had no declared emission); ranking never uses it.'
     Release:
       type: object
       required: [releaseNo, nodeId, releasedAt, requiredShipBy, outcome]

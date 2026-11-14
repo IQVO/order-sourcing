@@ -58,8 +58,11 @@ type Line struct {
 // Candidate is the current best node and path. Cost is the legacy ordinal
 // score; EstimatedCostCents is the money-denominated estimate in
 // planner-declared cents, carried only when CostComplete (ADR 0011).
-// SurchargeCents and PolicyVersion are what the sourcing policy added and the
-// version it was read at (ADR 0014); EffectiveCostCents is derived.
+// EstimatedCo2eGrams is the carbon estimate of the same path in
+// planner-declared grams of CO2e, carried only when EmissionComplete
+// (ADR 0017). SurchargeCents and PolicyVersion are what the sourcing policy
+// added and the version it was read at (ADR 0014); EffectiveCostCents is
+// derived.
 type Candidate struct {
 	NodeID             string
 	PickupDepartureID  string
@@ -72,6 +75,8 @@ type Candidate struct {
 	CostComplete       bool
 	SurchargeCents     int64
 	PolicyVersion      int
+	EstimatedCo2eGrams int64
+	EmissionComplete   bool
 }
 
 // EffectiveCostCents is the estimate plus the surcharges (ADR 0014).
@@ -116,6 +121,7 @@ func AssignmentFrom(a *assignment.Assignment) Assignment {
 			Legs: append([]string{}, c.Legs...), DeliveryWaveID: c.DeliveryWaveID, ETA: c.ETA, Cost: c.Cost,
 			EstimatedCostCents: c.EstimatedCostCents, CostComplete: c.CostComplete,
 			SurchargeCents: c.SurchargeCents, PolicyVersion: c.PolicyVersion,
+			EstimatedCo2eGrams: c.EstimatedCo2eGrams, EmissionComplete: c.EmissionComplete,
 		}
 	}
 	for _, r := range a.Releases() {
