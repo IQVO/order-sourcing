@@ -81,7 +81,7 @@ func TestGoldenSourcingDecidedWithUnknownFacts(t *testing.T) {
 	if !bytes.Equal(want, got) {
 		t.Errorf("unknown-facts decision differs from its golden file\n got:\n%s\nwant:\n%s", got, want)
 	}
-	for _, absent := range []string{"nodeRegionId", "inRegion", "estimatedCostCents"} {
+	for _, absent := range []string{"nodeRegionId", "inRegion", "estimatedCostCents", "estimatedCo2eGrams", "emissionComplete"} {
 		if bytes.Contains(got, []byte(`"`+absent+`"`)) {
 			t.Errorf("%s must be omitted when unknown:\n%s", absent, got)
 		}

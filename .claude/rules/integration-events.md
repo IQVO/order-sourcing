@@ -8,7 +8,7 @@ paths:
 # Cross-service integration events (Kafka)
 
 order-sourcing PUBLISHES fifteen events (nine integration events to `retailnetwork.order-sourcing.events`, six
-analytics-only events to `retailnetwork.order-sourcing.analytics`, ADR 0013 for `FulfillmentSourcingDecided`, ADR 0014 for `SourcingPolicyPublished`, ADR 0015 for the consolidation events) and CONSUMES 32 event types from nine sibling topics
+analytics-only events to `retailnetwork.order-sourcing.analytics`, ADR 0013 for `FulfillmentSourcingDecided`, ADR 0014 for `SourcingPolicyPublished`, ADR 0015 for the consolidation events) and CONSUMES 34 event types from nine sibling topics
 (ADR 0003, ADR 0004). Never produce or consume a `warehouse.*` topic.
 
 ## Events: CloudEvents 1.0 is MANDATORY
@@ -79,6 +79,7 @@ The exact `type` strings of the producers' catalogues; the handlers are in
 | `com.retailnetwork.logistics.last-mile-delivery.wave.DeliveryWaveCancelled` | `retailnetwork.last-mile-delivery.events` | last-mile-delivery |
 | `com.retailnetwork.logistics.last-mile-delivery.wave.DeliveryWaveCapacityChanged` | `retailnetwork.last-mile-delivery.events` | last-mile-delivery |
 | `com.retailnetwork.logistics.last-mile-delivery.wave.DeliveryWaveScheduled` | `retailnetwork.last-mile-delivery.events` | last-mile-delivery |
+| `com.retailnetwork.logistics.last-mile-delivery.wave.WaveEmissionDeclared` | `retailnetwork.last-mile-delivery.events` | last-mile-delivery |
 | `com.retailnetwork.logistics.linehaul-transportation.departure.BookingFailed` | `retailnetwork.linehaul-transportation.events` | linehaul-transportation |
 | `com.retailnetwork.logistics.linehaul-transportation.departure.BookingMoved` | `retailnetwork.linehaul-transportation.events` | linehaul-transportation |
 | `com.retailnetwork.logistics.linehaul-transportation.departure.DepartureCancelled` | `retailnetwork.linehaul-transportation.events` | linehaul-transportation |
@@ -86,6 +87,7 @@ The exact `type` strings of the producers' catalogues; the handlers are in
 | `com.retailnetwork.logistics.linehaul-transportation.departure.DepartureScheduled` | `retailnetwork.linehaul-transportation.events` | linehaul-transportation |
 | `com.retailnetwork.partner.node-performance.scorecard.NodeScorecardUpdated` | `retailnetwork.node-performance.events` | node-performance |
 | `com.retailnetwork.logistics.node-topology.lane.LaneClosed` | `retailnetwork.node-topology.events` | node-topology |
+| `com.retailnetwork.logistics.node-topology.lane.LaneEmissionDeclared` | `retailnetwork.node-topology.events` | node-topology |
 | `com.retailnetwork.logistics.node-topology.lane.LaneOpened` | `retailnetwork.node-topology.events` | node-topology |
 | `com.retailnetwork.logistics.node-topology.node.NodeActivated` | `retailnetwork.node-topology.events` | node-topology |
 | `com.retailnetwork.logistics.node-topology.node.NodeOperationalProfileDeclared` | `retailnetwork.node-topology.events` | node-topology |

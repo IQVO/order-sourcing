@@ -78,6 +78,7 @@ func released(e assignment.FulfillmentReleasedToNode) releasedData {
 		PickupDepartureID: e.PickupDepartureID, RequiredShipBy: utc(e.RequiredShipBy), PromisedDeliverByLatest: utc(e.PromisedDeliverByLatest),
 		Tier: string(e.Tier), Lines: releasedLines(e.Lines), EstimatedCostCents: e.EstimatedCostCents, PolicyVersion: e.PolicyVersion,
 		EffectiveCostCents: e.EffectiveCostCents,
+		EstimatedCo2eGrams: e.EstimatedCo2eGrams, EmissionComplete: e.EmissionComplete,
 	}
 	for i := range d.Lines {
 		if i < len(e.LineMembers) {

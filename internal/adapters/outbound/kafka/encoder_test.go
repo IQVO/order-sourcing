@@ -30,10 +30,10 @@ func allEvents() []shared.Event {
 		assignment.FulfillmentQueued{Base: base(), OrderID: "ord-1", GroupNo: 1, PromiseID: "prm-1", DeliverByLatest: at, Lines: lines},
 		assignment.FulfillmentReleasedToNode{Base: base(), ReleaseNo: 1, OrderID: "ord-1", GroupNo: 1, NodeID: "n1", PickupDepartureID: "dep-1",
 			RequiredShipBy: at, PromisedDeliverByLatest: at, Tier: assignment.TierTwoDay, Lines: lines, EstimatedCostCents: &complete,
-			PolicyVersion: 2, EffectiveCostCents: &effective},
+			PolicyVersion: 2, EffectiveCostCents: &effective, EstimatedCo2eGrams: &grams, EmissionComplete: true},
 		assignment.FulfillmentSourcingDecided{Base: base(), OrderID: "ord-1", GroupNo: 1, ReleaseNo: 1, NodeID: "n1", NodeRegionID: "reg-se",
 			DestinationRegionID: "reg-se", Legs: 1, EstimatedCostCents: &complete, Units: 2, CandidateCount: 3, DecidedAt: at,
-			PolicyVersion: 2, EffectiveCostCents: &effective},
+			PolicyVersion: 2, EffectiveCostCents: &effective, EstimatedCo2eGrams: &grams},
 		assignment.FulfillmentReassigned{Base: base(), FromNodeID: "n1", ToNodeID: "n2", Reason: "REJECTED"},
 		assignment.FulfillmentLocked{Base: base(), OrderID: "ord-1", GroupNo: 1, PromiseID: "prm-1", NodeID: "n1", PickupDepartureID: "dep-1", LockedAt: at, LockReason: "ACCEPTED"},
 		assignment.FulfillmentShipped{Base: base(), OrderID: "ord-1", GroupNo: 1, NodeID: "n1", TrackingNumbers: []string{"TRK1"}, ShippedAt: at},
@@ -86,6 +86,9 @@ var complete = int64(1065)
 
 // effective is the estimate plus a surcharge of 250 cents (ADR 0014).
 var effective = int64(1315)
+
+// grams is a complete carbon estimate: every emission component was declared (ADR 0017).
+var grams = int64(760)
 
 func TestEncoderMatchesThePublishedContract(t *testing.T) {
 	want := publishedKeys(t)

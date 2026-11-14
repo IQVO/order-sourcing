@@ -20,10 +20,10 @@ data is an event-fed local read model.
 | delivery-promise | Customer/Supplier | `PromiseRevised`, `PromiseBookExhausted` |
 | vendor-connectivity | Customer/Supplier | `PurchaseOrderAccepted`, `PurchaseOrderRejected`, `PurchaseOrderExpired`, `VendorShipmentConfirmed` |
 | shipping-and-tracking | Conformist | `PackageDelivered` |
-| node-topology | Conformist | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `ServiceAreaAssigned`, `RegionDefined` |
+| node-topology | Conformist | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `LaneEmissionDeclared`, `ServiceAreaAssigned`, `RegionDefined` |
 | offer-availability | Conformist | `ListingCreated`, `ListingAvailabilityChanged`, `ListingSuppressed`, `ListingRestored`, `CatalogItemDiscontinued` |
 | linehaul-transportation | Conformist | `DepartureScheduled`, `DepartureCapacityChanged`, `DepartureCancelled`, `BookingMoved`, `BookingFailed` |
-| last-mile-delivery | Conformist | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared` |
+| last-mile-delivery | Conformist | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared`, `WaveEmissionDeclared` |
 | node-performance | Conformist | `NodeScorecardUpdated` |
 
 The planner (UI) is the REST client of the three routes.
@@ -46,7 +46,10 @@ never reserving or deciding anything:
   `declaredAt` wins, and a declaration for an unknown lane or wave is stored
   keyed by its id anyway — the later `LaneOpened` / `DeliveryWaveScheduled`
   completes the row without losing the cost, exactly like the capacity stubs.
-  The costs feed the money-denominated AssignmentCost (ADR 0011).
+  The costs feed the money-denominated AssignmentCost (ADR 0011). The declared
+  emissions (`LaneEmissionDeclared`, `WaveEmissionDeclared`, grams of CO2e)
+  are columns of the same rows under the same merge rules and feed the carbon
+  estimate beside the cost (ADR 0017, migration 0007).
 - `AvailabilityView` (`rm_listings`, `rm_discontinued_items`): an availability
   with an older `asOf` is ignored.
 - `ScorecardView` (`rm_scorecards`): by (`nodeId`, `window`); an older
