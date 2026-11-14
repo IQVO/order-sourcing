@@ -52,8 +52,8 @@ and speed protector*, evolution *custom-built* ([Subdomain classification](/docs
 
 - One aggregate, but a rich one: seven states, eleven aggregate commands (`Queue`, `Reoptimise`, `Release`, `RefuseRelease`,
   `Lock`, `MarkShipped`, `MarkDelivered`, `Cancel`, `RefuseCancel`, `ApplyRevisedPromise`, `MovePickup`) and six model invariants
-  plus two consumer-facing ones (`ErrReleaseNotPending`, `ErrStaleRevision`), ten published events.
-- It reacts to 32 consumed event types from nine topics and keeps five event-fed views in ten `rm_*` tables, because it calls no
+  plus two consumer-facing ones (`ErrReleaseNotPending`, `ErrStaleRevision`), fourteen published aggregate events (fifteen counting the sourcing policy's).
+- It reacts to 34 consumed event types from nine topics and keeps five event-fed views in ten `rm_*` tables, because it calls no
   sibling.
 - Two loops cross context boundaries: release, purchase order, acceptance, rejection or expiry with `vendor-connectivity`;
   unsourceable, re-promise, re-queue with `delivery-promise`. Each has races (a stale purchase-order outcome, a cancellation that

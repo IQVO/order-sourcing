@@ -2,7 +2,7 @@
 id: class-diagram
 title: Class diagram
 sidebar_label: Class diagram
-description: "UML class diagrams of Order Sourcing as built: the FulfillmentAssignment aggregate with its value objects and enumerations, the ten domain events, the search and read-model types, and the hexagonal ports and adapters."
+description: "UML class diagrams of Order Sourcing as built: the FulfillmentAssignment aggregate with its value objects and enumerations, the eleven domain events of `events.go`, the search and read-model types, and the hexagonal ports and adapters."
 ---
 
 # Class diagram
@@ -275,7 +275,9 @@ classDiagram
 Source: `internal/domain/shared/shared.go` (`Event`), `internal/domain/assignment/events.go`. Every event embeds `Base`
 (`assignmentId`, the aggregate version after the change and the instant); `SubjectID()` returns the `assignmentId`, which becomes
 the CloudEvents `subject` and the Kafka key. Only `FulfillmentQueued`, `FulfillmentSourcingDecided` and `FulfillmentDelivered` override `Stream()` to the
-analytics stream. Wire field names are on the [event catalogue](/docs/api-reference/events).
+analytics stream. Not drawn: `FulfillmentReleaseWithdrawn`, `AssignmentsConsolidated` and `AssignmentsDeconsolidated`
+(`events_consolidation.go`, ADR 0015; the last two are analytics-only) and the policy aggregate's `SourcingPolicyPublished`
+(`internal/domain/policy/events.go`), which makes fifteen published events. Wire field names are on the [event catalogue](/docs/api-reference/events).
 
 ## 3. The search, the read-model types and the use cases
 

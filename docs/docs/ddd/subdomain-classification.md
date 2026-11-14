@@ -60,6 +60,6 @@ Generic verdict. For this context the two axes read: tier `commerce`, class Core
 ## Discrepancy with the aggregator
 
 The aggregator's chart and canvas pages count 29 consumed event types, 9 commands and 8 published events. The code on `develop`
-consumes 34 types and publishes 12 (eight integration events, four analytics-only), including `BookingMoved`, `BookingFailed`,
+consumes 34 types and publishes 15 (nine on the events topic, six analytics-only), including `BookingMoved`, `BookingFailed`,
 `DeliveryWaveCancelled`, `FulfillmentCancelRefused` and `FulfillmentConstraintRevised`
 ([Event catalogue](/docs/api-reference/events)). The verdict does not depend on the count.

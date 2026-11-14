@@ -2,7 +2,7 @@
 id: events
 title: Event catalogue
 sidebar_label: Event catalogue
-description: "Every Kafka event Order Sourcing publishes (ten, entity assignment) and consumes (34 types from nine topics): types, topics, data fields, producers and consumers."
+description: "Every Kafka event Order Sourcing publishes (fifteen: fourteen of entity assignment, one of entity policy) and consumes (34 types from nine topics): types, topics, data fields, producers and consumers."
 ---
 
 # Event catalogue
@@ -32,8 +32,8 @@ are always present. A breaking payload change would be a new `.v2` type; every s
 
 ## Published
 
-Twelve events, written through the transactional outbox in the same transaction as the aggregate and drained by the always-on
-relay in `cmd/api` (at least once). Eight go to `retailnetwork.order-sourcing.events`; the four analytics-only events go **only**
+Fifteen events, written through the transactional outbox in the same transaction as the aggregate and drained by the always-on
+relay in `cmd/api` (at least once). Nine go to `retailnetwork.order-sourcing.events`; the six analytics-only events go **only**
 to `retailnetwork.order-sourcing.analytics`. `FulfillmentSourcingDecided` is written in the same transaction as every
 `FulfillmentReleasedToNode`, with its own `id` (ADR 0013); its optional fields are omitted when unknown (`inRegion` when either
 region is unknown, `estimatedCostCents` when the estimate is incomplete, so `costComplete` is `false`).
@@ -54,8 +54,8 @@ analytics only. Every merge field is optional and omitted when the release is no
 | Event (`type` suffix after `assignment.`) | Topic | Raised by | `data` |
 | --- | --- | --- | --- |
 | `FulfillmentQueued` | analytics | `QueueAssignment` | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `deliverByLatest`, `lines[{lineNo, catalogItemId, quantity}]` |
-| `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` (`SAME_DAY`) | `assignmentId`, `releaseNo`, `orderId`, `groupNo`, `nodeId`, `pickupDepartureId`, `requiredShipBy`, `promisedDeliverByLatest`, `tier`, `lines[{catalogItemId, listingId, ownerRef (optional), quantity, assignmentId (optional)}]`, `estimatedCostCents` (optional), `policyVersion` (optional), `effectiveCostCents` (optional), `estimatedCo2eGrams` (optional), `emissionComplete` (optional), `members` (optional, merged release only) |
-| `FulfillmentSourcingDecided` | analytics | with every `FulfillmentReleasedToNode` | `assignmentId`, `orderId`, `groupNo` (optional), `releaseNo`, `nodeId`, `nodeRegionId` (optional), `destinationRegionId` (optional), `inRegion` (optional), `legs`, `estimatedCostCents` (optional), `costComplete`, `estimatedCo2eGrams` (optional), `emissionComplete` (optional), `units`, `candidateCount`, `decidedAt`, `policyVersion` (optional), `effectiveCostCents` (optional), `carrierAssignmentId` (optional), `consolidatedCount` (optional) |
+| `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` (`SAME_DAY`) | `assignmentId`, `releaseNo`, `orderId`, `groupNo`, `nodeId`, `pickupDepartureId`, `requiredShipBy`, `promisedDeliverByLatest`, `tier`, `lines[{catalogItemId, listingId, ownerRef (optional), quantity, assignmentId (optional)}]`, `estimatedCostCents` (optional), `policyVersion` (optional), `effectiveCostCents` (optional), `members` (optional, merged release only) |
+| `FulfillmentSourcingDecided` | analytics | with every `FulfillmentReleasedToNode` | `assignmentId`, `orderId`, `groupNo` (optional), `releaseNo`, `nodeId`, `nodeRegionId` (optional), `destinationRegionId` (optional), `inRegion` (optional), `legs`, `estimatedCostCents` (optional), `costComplete`, `units`, `candidateCount`, `decidedAt`, `policyVersion` (optional), `effectiveCostCents` (optional), `carrierAssignmentId` (optional), `consolidatedCount` (optional) |
 | `FulfillmentReassigned` | events | `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` (node changed) | `assignmentId`, `fromNodeId`, `toNodeId`, `reason`, `assignmentVersion` |
 | `FulfillmentLocked` | events | `LockAssignment` (every member of a merged release) | `assignmentId`, `orderId`, `groupNo`, `promiseId`, `nodeId`, `pickupDepartureId`, `lockedAt`, `lockReason`, `consolidatedInto` (optional), `mergedAssignmentIds` (optional) |
 | `FulfillmentShipped` | events | `MarkShipped` | `assignmentId`, `orderId`, `groupNo`, `nodeId`, `trackingNumbers`, `shippedAt` |
@@ -94,11 +94,9 @@ ignored. The **Effect** column names the use case; the rest feed the five local 
 | `retailnetwork.linehaul-transportation.events` | `logistics.linehaul-transportation.departure.BookingMoved` | `RecordPickupMoved` |
 | | `logistics.linehaul-transportation.departure.BookingFailed` | `RecordProcessed` (inbox only) |
 | | `logistics.linehaul-transportation.departure.DepartureScheduled`, `DepartureCapacityChanged`, `DepartureCancelled` | departures (`rm_departures`) |
-| `retailnetwork.last-mile-delivery.events` | `logistics.last-mile-delivery.wave.DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled` | waves (`rm_waves`) |
-| | `logistics.last-mile-delivery.wave.WaveCostDeclared`, `WaveEmissionDeclared` | wave cost and emission columns (`rm_waves`, ADR 0011 / ADR 0017) |
+| `retailnetwork.last-mile-delivery.events` | `logistics.last-mile-delivery.wave.DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared` | waves (`rm_waves`) |
 | `retailnetwork.node-topology.events` | `logistics.node-topology.node.NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired` | nodes (`rm_nodes`) |
-| | `logistics.node-topology.lane.LaneOpened`, `LaneClosed` | lanes (`rm_lanes`) |
-| | `logistics.node-topology.lane.LaneCostDeclared`, `LaneEmissionDeclared` | lane cost and emission columns (`rm_lanes`, ADR 0011 / ADR 0017) |
+| | `logistics.node-topology.lane.LaneOpened`, `LaneClosed`, `LaneCostDeclared` | lanes (`rm_lanes`) |
 | | `logistics.node-topology.servicearea.ServiceAreaAssigned` | service areas (`rm_service_areas`) |
 | | `logistics.node-topology.region.RegionDefined` | regions (`rm_regions`) |
 | `retailnetwork.offer-availability.events` | `commerce.offer-availability.listing.ListingCreated`, `ListingAvailabilityChanged`, `ListingSuppressed`, `ListingRestored` | listings (`rm_listings`) |
@@ -127,15 +125,13 @@ Source: `internal/adapters/inbound/kafka/handlers.go` (`Handlers.Topics` and one
 | `DeliveryWaveScheduled` | `waveId`, `stationNodeId`, `inductCutoffAt`, `windowStart`, `windowEnd`, `stopCapacity` |
 | `DeliveryWaveCapacityChanged` | `waveId`, `remainingStops` |
 | `DeliveryWaveCancelled` | `waveId` |
-| `WaveCostDeclared` | `waveId`, `costPerStopCents`, `declaredAt` (ADR 0011) |
-| `WaveEmissionDeclared` | `waveId`, `gCo2ePerStop`, `declaredAt` (ADR 0017) |
-| `LaneCostDeclared` | `laneId`, `costPerUnitCents`, `declaredAt` (ADR 0011) |
-| `LaneEmissionDeclared` | `laneId`, `gCo2ePerUnit`, `declaredAt` (ADR 0017) |
+| `WaveCostDeclared` | `waveId`, `costPerStopCents`, `declaredAt` |
 | `NodeRegistered` | `nodeId`, `nodeType`, `subtype`, `operator`, `regionId` |
 | `NodeOperationalProfileDeclared` | `nodeId`, `profileRevision`, `handlingTimeMinutes` |
 | `NodeActivated`, `NodeSuspended`, `NodeRetired` | `nodeId` and `activatedAt` / `suspendedAt` / `retiredAt` (falls back to the event `time`) |
 | `LaneOpened` | `laneId`, `originNodeId`, `destinationNodeId`, `mode` |
 | `LaneClosed` | `laneId` |
+| `LaneCostDeclared` | `laneId`, `costPerUnitCents`, `declaredAt` |
 | `ServiceAreaAssigned` | `postalPrefix`, `deliveryStationNodeId`, `regionId`, `assignmentVersion` |
 | `RegionDefined` | `regionId`, `code`, `name` |
 | `ListingCreated` | `listingId`, `catalogItemId`, `nodeId` |

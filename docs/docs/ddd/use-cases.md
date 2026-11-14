@@ -40,7 +40,7 @@ Kafka types below are the CloudEvents `type` suffix; the full type is
 | 10 | `ApplyRevisedPromise` (`cancel_revise.go`) | `PromiseRevised` | Kafka, `retailnetwork.delivery-promise.events` |
 | 11 | `RecordProcessed` (`commands.go`) | `BookingFailed` | Kafka, `retailnetwork.linehaul-transportation.events` |
 | 12 | `SweepQueue` (`sweep.go`) | timer, `SWEEP_INTERVAL` (default 15 s) | `startSweep` in `cmd/api/main.go` |
-| 13 | `Projector` (`projector.go`) | 22 sibling event types, see below | Kafka, seven topics |
+| 13 | `Projector` (`projector.go`) | 24 sibling event types, see below | Kafka, six topics |
 | 14 | `Queries.ListAssignments` (`queries.go`) | `GET /assignments`; MCP `list_assignments`; A2A `find_assignments` | REST, MCP, A2A |
 | 15 | `Queries.GetAssignment` (`queries.go`) | `GET /assignments/{id}`; MCP `get_assignment`; A2A `assignment_detail` | REST, MCP, A2A |
 | 16 | `SourcingPolicies.Current` (`policy.go`) | `GET /sourcing-policy` | REST |
@@ -62,26 +62,26 @@ Kafka types below are the CloudEvents `type` suffix; the full type is
 | 10 | `promiseId`, `revisionNo`, `deliverByLatest`, `nodeId` (becomes the witness when not empty) | Looked up by `promiseId` (`FindByPromise`). `deliverByLatest` is required. A revision not above the applied `revisionNo` is `ErrStaleRevision` and is ignored. `DELIVERED` and `CANCELLED` are `ErrIllegalTransition`. In every other state the revision is applied and the exclusion list is reset; only in `QUEUED` and `UNSOURCEABLE` is the search re-run under the new constraint (an `UNSOURCEABLE` group with a candidate goes back to `QUEUED`; a `QUEUED` one with none becomes `UNSOURCEABLE`). | `FulfillmentConstraintRevised`; then `FulfillmentReassigned` (`PROMISE_REVISED`) or `FulfillmentUnsourceable` where the search changes the outcome |
 | 11 | CloudEvents id and type | Only claims the inbox row: `BookingFailed` needs no state change because the departure's own cancellation or capacity events drive re-optimisation. | none |
 | 12 | `after` cursor, `limit` (page of 100 in `cmd/api`) | One pass: up to `limit` due releases (`QUEUED` with `releaseAt <= now`), then up to `limit` re-optimisations after the cursor. Rows another writer changed (`ErrConcurrentUpdate`), rows gone (`ErrNotFound`), and rows that moved on (`ErrAssignmentLocked`, `ErrReleaseInFlight`) count as skipped; other errors are collected, logged and the tick continues. | those of use cases 2 and 3 |
-| 13 | one of the 22 projected event types | Each method is one unit of work: inbox claim plus one row change. Newer revision wins (`profileRevision`, `assignmentVersion`), older instants are ignored (`asOf`, `computedAt`), any arrival order converges. No domain rule beyond that, so no event is raised. | none |
+| 13 | one of the 24 projected event types | Each method is one unit of work: inbox claim plus one row change. Newer revision wins (`profileRevision`, `assignmentVersion`), older instants are ignored (`asOf`, `computedAt`), any arrival order converges. No domain rule beyond that, so no event is raised. | none |
 | 14 | optional `state`, `nodeId`, `orderId`, `limit`, `after` (the REST `cursor` decodes to it) | `state` must be one of the seven states; `limit` 1 to 500 (default 100; REST fetches one extra row to learn whether a next page exists), ordered by id ascending, strictly after `after`; anything else is `shared.ErrValidation` (422 over REST; a bad `limit`, `cursor` or query parameter is answered 400 by the REST adapter before the use case runs). | none |
 | 15 | assignment id | Unknown id is `ports.ErrNotFound` (404 over REST). | none |
 
 Which events go to which topic is on [Domain events](/docs/ddd/domain-events) and the
-[event catalogue](/docs/api-reference/events). Eight of the twelve events are on `retailnetwork.order-sourcing.events`;
-`FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered` and `SourcingPolicyPublished` are analytics-only (`Stream()` in `internal/domain/assignment/events.go`).
+[event catalogue](/docs/api-reference/events). Nine of the fifteen events are on `retailnetwork.order-sourcing.events`;
+`FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered`, `AssignmentsConsolidated`, `AssignmentsDeconsolidated` and `SourcingPolicyPublished` are analytics-only (`Stream()` in `internal/domain/assignment/events.go`, `events_consolidation.go` and `internal/domain/policy/events.go`).
 
 ## The projected events (use case 13)
 
 | Topic | Event types projected |
 | --- | --- |
-| `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `ServiceAreaAssigned`, `RegionDefined` |
+| `retailnetwork.node-topology.events` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `ServiceAreaAssigned`, `RegionDefined` |
 | `retailnetwork.linehaul-transportation.events` | `DepartureScheduled`, `DepartureCapacityChanged`, `DepartureCancelled` |
-| `retailnetwork.last-mile-delivery.events` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled` |
+| `retailnetwork.last-mile-delivery.events` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared` |
 | `retailnetwork.offer-availability.events` | `ListingCreated`, `ListingAvailabilityChanged`, `ListingSuppressed`, `ListingRestored`, `CatalogItemDiscontinued` |
 | `retailnetwork.node-performance.events` | `NodeScorecardUpdated` |
 | `retailnetwork.delivery-promise.events` | `PromiseBookExhausted` |
 
-Nine consumed topics carry 32 handled event types: 10 reach a command use case (rows 1, 4 to 11 above) and 22 are projected.
+Nine consumed topics carry 34 handled event types: 10 reach a command use case (rows 1, 4 to 11 above) and 24 are projected.
 
 ## How a candidate is chosen
 

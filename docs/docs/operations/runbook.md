@@ -60,8 +60,8 @@ analytical database, and the read-only `cmd/os-reports`; neither opens the OLTP 
 | consumes | `retailnetwork.offer-availability.events` | `OFFER_AVAILABILITY_CONSUMER_GROUP`, `order-sourcing-offer-availability` |
 | consumes | `retailnetwork.shipping-and-tracking.events` | `SHIPPING_AND_TRACKING_CONSUMER_GROUP`, `order-sourcing-shipping-and-tracking` |
 | consumes | `retailnetwork.vendor-connectivity.events` | `VENDOR_CONNECTIVITY_CONSUMER_GROUP`, `order-sourcing-vendor-connectivity` |
-| produces | `retailnetwork.order-sourcing.events` | integration events (8 types) |
-| produces | `retailnetwork.order-sourcing.analytics` | analytics-only events (`FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered`) |
+| produces | `retailnetwork.order-sourcing.events` | integration events (9 types: the eight integration events and `FulfillmentReleaseWithdrawn`) |
+| produces | `retailnetwork.order-sourcing.analytics` | analytics-only events (`FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered`, `AssignmentsConsolidated`, `AssignmentsDeconsolidated`, `SourcingPolicyPublished`) |
 | consumes (`cmd/os-projector`, ADR 0013) | `retailnetwork.order-sourcing.events` and `retailnetwork.order-sourcing.analytics` (its own topics) | `ANALYTICS_CONSUMER_GROUP`, `order-sourcing-analytics`; poison only to `retailnetwork.order-sourcing.analytics.dlq`, transient failures retry forever |
 | dead letter | `<consumed topic>.dlq` | written by the consumers, read by no one in this service |
 

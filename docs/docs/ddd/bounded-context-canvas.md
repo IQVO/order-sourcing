@@ -51,7 +51,7 @@ flowchart LR
     in4 ==>|"evt - Kafka<br/>Node*, Lane*, ServiceAreaAssigned, RegionDefined"| BC
     in5 ==>|"evt - Kafka<br/>Listing*, CatalogItemDiscontinued"| BC
     in6 ==>|"evt - Kafka<br/>Departure*, BookingMoved, BookingFailed"| BC
-    in7 ==>|"evt - Kafka<br/>DeliveryWave*"| BC
+    in7 ==>|"evt - Kafka<br/>DeliveryWave*, WaveCostDeclared"| BC
     in8 ==>|"evt - Kafka<br/>NodeScorecardUpdated"| BC
     in9 -.->|"qry - REST, MCP, A2A<br/>list and get assignments"| BC
     in9 -->|"cmd - REST<br/>ReoptimiseAssignment"| BC
@@ -76,17 +76,21 @@ flowchart LR
         out1["linehaul-transportation"]:::ctx
         out2["delivery-promise"]:::ctx
         out3["customer-ordering"]:::ctx
+        out5["seller-inbound"]:::ctx
+        out6["customer-payments"]:::ctx
         out4["analytics only<br/>no domain consumer"]:::none
     end
-    BC ==>|"evt - Kafka<br/>FulfillmentReleasedToNode, Cancelled"| out0
+    BC ==>|"evt - Kafka<br/>FulfillmentReleasedToNode, Cancelled,<br/>FulfillmentReleaseWithdrawn"| out0
     BC ==>|"evt - Kafka<br/>Released, Reassigned, Locked, Cancelled"| out1
     BC ==>|"evt - Kafka<br/>Unsourceable, Locked, Shipped"| out2
     BC ==>|"evt - Kafka<br/>Locked, Shipped, Unsourceable,<br/>Cancelled, CancelRefused"| out3
-    BC ==>|"evt - Kafka<br/>FulfillmentQueued, FulfillmentDelivered"| out4
+    BC ==>|"evt - Kafka<br/>the six analytics-only events"| out4
+    BC ==>|"evt - Kafka<br/>FulfillmentReleasedToNode, Cancelled"| out5
+    BC ==>|"evt - Kafka<br/>Shipped, Cancelled, Unsourceable"| out6
 ```
 
 Source: `internal/adapters/outbound/kafka/encoder.go`, `internal/domain/assignment/events.go`; the consumer lists are read from the
-four downstream handler files named on [Integration](/docs/ecosystem/integration). There are no outbound commands or queries: this
+six downstream handler files named on [Integration](/docs/ecosystem/integration). There are no outbound commands or queries: this
 context calls no other context synchronously.
 
 ## Name
@@ -125,10 +129,10 @@ unsourceable. It holds no PII and calls no other context synchronously.
 | `delivery-promise` | `PromiseRevised`, `PromiseBookExhausted` | Event | Kafka `retailnetwork.delivery-promise.events` | Customer/Supplier |
 | `vendor-connectivity` | `PurchaseOrderAccepted`, `PurchaseOrderRejected`, `PurchaseOrderExpired`, `VendorShipmentConfirmed` | Event | Kafka `retailnetwork.vendor-connectivity.events` | Customer/Supplier |
 | `shipping-and-tracking` | `PackageDelivered` | Event | Kafka `retailnetwork.shipping-and-tracking.events` | Conformist |
-| `node-topology` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `ServiceAreaAssigned`, `RegionDefined` | Event | Kafka `retailnetwork.node-topology.events` | Conformist |
+| `node-topology` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired`, `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `ServiceAreaAssigned`, `RegionDefined` | Event | Kafka `retailnetwork.node-topology.events` | Conformist |
 | `offer-availability` | `ListingCreated`, `ListingAvailabilityChanged`, `ListingSuppressed`, `ListingRestored`, `CatalogItemDiscontinued` | Event | Kafka `retailnetwork.offer-availability.events` | Conformist |
 | `linehaul-transportation` | `DepartureScheduled`, `DepartureCapacityChanged`, `DepartureCancelled`, `BookingMoved`, `BookingFailed` | Event | Kafka `retailnetwork.linehaul-transportation.events` | Conformist |
-| `last-mile-delivery` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled` | Event | Kafka `retailnetwork.last-mile-delivery.events` | Conformist |
+| `last-mile-delivery` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared` | Event | Kafka `retailnetwork.last-mile-delivery.events` | Conformist |
 | `node-performance` | `NodeScorecardUpdated` | Event | Kafka `retailnetwork.node-performance.events` | Conformist |
 | Network-ops planner, agents | `ListAssignments`, `GetAssignment` | Query | REST `GET /assignments`, `GET /assignments/{id}`; MCP `list_assignments`, `get_assignment`; A2A `find_assignments`, `assignment_detail` | Open Host (UI) |
 | Network-ops planner | `ReoptimiseAssignment` | Command | REST `POST /assignments/{id}/reoptimisations` | Open Host (UI) |
@@ -141,14 +145,15 @@ All events: source `/retailnetwork/order-sourcing`, subject and Kafka key `assig
 
 | Collaborator | Message | Topic | Relationship |
 | --- | --- | --- | --- |
-| none (analytics only) | `FulfillmentQueued`, `FulfillmentDelivered` | `retailnetwork.order-sourcing.analytics` | Published Language |
-| `vendor-connectivity`, `linehaul-transportation` | `FulfillmentReleasedToNode` | `retailnetwork.order-sourcing.events` | Customer/Supplier |
+| none (analytics only) | `FulfillmentQueued`, `FulfillmentSourcingDecided`, `FulfillmentDelivered`, `AssignmentsConsolidated`, `AssignmentsDeconsolidated`, `SourcingPolicyPublished` | `retailnetwork.order-sourcing.analytics` | Published Language |
+| `vendor-connectivity`, `linehaul-transportation`, `seller-inbound` | `FulfillmentReleasedToNode` | `retailnetwork.order-sourcing.events` | Customer/Supplier; not declared (`seller-inbound`) |
 | `linehaul-transportation` | `FulfillmentReassigned` | events | Customer/Supplier |
 | `delivery-promise`, `customer-ordering`, `linehaul-transportation` | `FulfillmentLocked` | events | Customer/Supplier; Conformist (`customer-ordering`) |
-| `delivery-promise`, `customer-ordering` | `FulfillmentShipped` | events | Conformist |
-| `delivery-promise`, `customer-ordering` | `FulfillmentUnsourceable` | events | Customer/Supplier (`delivery-promise`); Conformist (`customer-ordering`) |
-| `vendor-connectivity`, `linehaul-transportation`, `customer-ordering` | `FulfillmentCancelled` | events | Customer/Supplier |
+| `delivery-promise`, `customer-ordering`, `customer-payments` | `FulfillmentShipped` | events | Conformist |
+| `delivery-promise`, `customer-ordering`, `customer-payments` | `FulfillmentUnsourceable` | events | Customer/Supplier (`delivery-promise`); Conformist (`customer-ordering`, `customer-payments`) |
+| `vendor-connectivity`, `linehaul-transportation`, `customer-ordering`, `seller-inbound`, `customer-payments` | `FulfillmentCancelled` | events | Customer/Supplier; Conformist (`customer-payments`); not declared (`seller-inbound`) |
 | `customer-ordering` | `FulfillmentCancelRefused` | events | Conformist |
+| `vendor-connectivity` | `FulfillmentReleaseWithdrawn` | events | Customer/Supplier |
 | none found | `FulfillmentConstraintRevised` | events | Published Language |
 | none | no synchronous call | n/a | n/a |
 
@@ -203,13 +208,16 @@ Resolved by the build (the aggregator's earlier canvas listed them as gaps):
 - An `UNSOURCEABLE` assignment can be cancelled; a cancel after the lock is refused with `FulfillmentCancelRefused`.
 - A group with no candidate is `UNSOURCEABLE` at once, so there is no `releaseAt` without a candidate.
 - A multi-package group is `DELIVERED` when its last package is.
+- The promise-book capacity charge no longer stays on the witness node: when `FulfillmentLocked` names another node or pickup
+  departure, `delivery-promise` moves the charge there (`rehomeOnLock`, `internal/application/usecases/rehome.go` in that repository).
+  It keeps the charge on the quoted node, logged and not retried, when the departure is unknown, the locked node's book is full
+  or closed, or no single owner there covers the lines.
 - Reason vocabularies are fixed in [ADR 0004](/docs/adr/0004-cloudevents-envelope-and-type-catalogue).
 
 Still open:
 
 - **Acceptance after cancellation.** A `PurchaseOrderAccepted` for a `CANCELLED` assignment is `ErrIllegalTransition`; the consumer
   logs it and acknowledges. Nothing undoes the vendor's acceptance, so the vendor may still ship a cancelled group.
-- **Promise-book capacity stays on the witness node.** When the assignment moves, nothing moves the hold.
 - **Book pressure only rises.** No event says a book has room again; the penalty applies until the departure passes.
 - **A cancelled pickup departure after the lock.** `BookingMoved` repoints a locked assignment; nothing handles a cancelled
   departure for a locked one.
