@@ -35,7 +35,7 @@ info:
     single-group release; absent `consolidationKey` on CustomerOrderPlaced means the order never merges.
 
 
-    **Consumed.** Thirty-two event types from nine producers (ADR 0003): commands that drive the aggregate (CustomerOrderPlaced,
+    **Consumed.** Thirty-four event types from nine producers (ADR 0003): commands that drive the aggregate (CustomerOrderPlaced,
     CustomerOrderCancelled, PromiseRevised, the purchase-order outcomes, VendorShipmentConfirmed, PackageDelivered,
     BookingMoved) and the events that feed the five local read models (NodeProfileView, NetworkGraphView, AvailabilityView,
     ScorecardView, PromiseBookPressureView). Every consumer is idempotent on the CloudEvents `id` and dispatches
