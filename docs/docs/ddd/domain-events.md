@@ -2,12 +2,12 @@
 id: domain-events
 title: Domain events
 sidebar_label: Domain events
-description: "Every CloudEvents type Order Sourcing publishes (ten, entity assignment) with topic, key, typed data fields, producing command and consumers, and every event it consumes with what it does and how it stays idempotent."
+description: "Every CloudEvents type Order Sourcing publishes (fifteen: fourteen of entity assignment, one of entity policy) with topic, key, typed data fields, producing command and consumers, and every event it consumes with what it does and how it stays idempotent."
 ---
 
 # Domain events
 
-The envelope rules, the topic-by-topic list of all 42 types and the delivery guarantees are on the
+The envelope rules, the topic-by-topic list of all 49 types and the delivery guarantees are on the
 [event catalogue](/docs/api-reference/events). This page adds, per published event, the typed `data` fields, the producing command
 and the consumers, and, per consumed event, what the handler does and how it stays idempotent. Source:
 `internal/domain/assignment/events.go`, `internal/adapters/outbound/kafka/encoder.go` (the wire structs),
@@ -37,21 +37,21 @@ Every event leaves through the transactional outbox, written in the same transac
 | Event | Topic | Producing command | Consumers (read on their `origin/develop`) |
 | --- | --- | --- | --- |
 | `FulfillmentQueued` | analytics | `QueueAssignment` | none known |
-| `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` for `SAME_DAY` | `vendor-connectivity`, `linehaul-transportation` |
+| `FulfillmentReleasedToNode` | events | `ReleaseToNode`, `QueueAssignment` for `SAME_DAY` | `vendor-connectivity`, `linehaul-transportation`, `seller-inbound` |
 | `FulfillmentSourcingDecided` | analytics | `ReleaseToNode`, `QueueAssignment` for `SAME_DAY` (with every `FulfillmentReleasedToNode`) | this context's `cmd/os-projector` (ADR 0013) |
 | `FulfillmentReassigned` | events | `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` (node changed) | `linehaul-transportation` |
 | `FulfillmentLocked` | events | `LockAssignment` | `delivery-promise`, `customer-ordering`, `linehaul-transportation` |
-| `FulfillmentShipped` | events | `MarkShipped` | `delivery-promise`, `customer-ordering` |
+| `FulfillmentShipped` | events | `MarkShipped` | `delivery-promise`, `customer-ordering`, `customer-payments` |
 | `FulfillmentDelivered` | analytics | `MarkDelivered` (last package) | none known |
-| `FulfillmentUnsourceable` | events | `QueueAssignment`, `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` | `delivery-promise`, `customer-ordering` |
-| `FulfillmentCancelled` | events | `CancelAssignment` | `vendor-connectivity`, `linehaul-transportation`, `customer-ordering` |
+| `FulfillmentUnsourceable` | events | `QueueAssignment`, `ReoptimiseAssignment`, `ReleaseToNode`, `HandleNodeRefusal`, `ApplyRevisedPromise` | `delivery-promise`, `customer-ordering`, `customer-payments` |
+| `FulfillmentCancelled` | events | `CancelAssignment` | `vendor-connectivity`, `linehaul-transportation`, `customer-ordering`, `seller-inbound`, `customer-payments` |
 | `FulfillmentCancelRefused` | events | `CancelAssignment` (after the lock, or while a merged release is not yet locked, ADR 0015) | `customer-ordering` |
 | `FulfillmentConstraintRevised` | events | `ApplyRevisedPromise` | none found |
 | `FulfillmentReleaseWithdrawn` | events | `ApplyRevisedPromise` (a revision breaks a merged window, ADR 0015) | `vendor-connectivity` (cancels the purchase order) |
 | `AssignmentsConsolidated` | analytics | `ReleaseToNode` (a merged release, ADR 0015) | none |
 | `AssignmentsDeconsolidated` | analytics | `HandleNodeRefusal`, `ApplyRevisedPromise` (ADR 0015) | none |
 
-The consumer column is from the handler files named on [Integration](/docs/ecosystem/integration).
+The consumer column is from the handler files of the six consumer repositories named on [Integration](/docs/ecosystem/integration).
 
 ### FulfillmentQueued
 
@@ -216,9 +216,9 @@ per row below.
 | --- | --- | --- | --- |
 | `delivery-promise` | `PromiseBookExhausted` | `PromiseBookPressureView` (`rm_book_pressure`) | upsert by `bookId` |
 | `node-topology` | `NodeRegistered`, `NodeOperationalProfileDeclared`, `NodeActivated`, `NodeSuspended`, `NodeRetired` | `NodeProfileView` (`rm_nodes`) | upsert by `nodeId`; a lower `profileRevision` is ignored; a status with an older instant is ignored |
-| `node-topology` | `LaneOpened`, `LaneClosed`, `ServiceAreaAssigned`, `RegionDefined` | `NetworkGraphView` | upsert by `laneId`, `postalPrefix` (newer `assignmentVersion` wins), `regionId` |
+| `node-topology` | `LaneOpened`, `LaneClosed`, `LaneCostDeclared`, `ServiceAreaAssigned`, `RegionDefined` | `NetworkGraphView` | upsert by `laneId`, `postalPrefix` (newer `assignmentVersion` wins), `regionId`; a lane cost with a newer `declaredAt` wins and is kept even if `LaneOpened` arrives later |
 | `linehaul-transportation` | `DepartureScheduled`, `DepartureCapacityChanged`, `DepartureCancelled` | `NetworkGraphView` (`rm_departures`) | upsert by `departureId`; any arrival order converges |
-| `last-mile-delivery` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled` | `NetworkGraphView` (`rm_waves`) | upsert by `waveId` |
+| `last-mile-delivery` | `DeliveryWaveScheduled`, `DeliveryWaveCapacityChanged`, `DeliveryWaveCancelled`, `WaveCostDeclared` | `NetworkGraphView` (`rm_waves`) | upsert by `waveId`; a wave cost with a newer `declaredAt` wins and is kept even if `DeliveryWaveScheduled` arrives later |
 | `offer-availability` | `ListingCreated`, `ListingAvailabilityChanged`, `ListingSuppressed`, `ListingRestored`, `CatalogItemDiscontinued` | `AvailabilityView` | upsert by `listingId` / `catalogItemId`; an older `asOf` is ignored |
 | `node-performance` | `NodeScorecardUpdated` | `ScorecardView` (`rm_scorecards`) | upsert by `(nodeId, window)`; an older `computedAt` is ignored |
 

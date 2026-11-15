@@ -166,3 +166,11 @@ release; the consumer records it and moves on) and wraps `ErrValidation` and
 
 - Every rule above has a table-driven test; `Restore` re-validates all of them.
 - `model.yaml` is not edited; the orchestrator back-fills the model from the final report.
+
+## Addendum 2026-11-13: current state
+
+- A18 gives `SWEEP_INTERVAL` a default of 30 s. The code default is 15 s: `defaultSweepInterval = 15 * time.Second` in
+  `cmd/api/main.go`, used by `parseSweepInterval` in `cmd/api/main_workers.go`. It has been 15 s since the composition root
+  was added (commit 405dce8, 2026-10-23).
+- ADR 0005 (item 4, queue sweep), `README.md` and `docs/docs/operations/configuration.md` state the 15 s default. The Helm
+  value `config.sweepInterval` renders nothing when empty, so the binary default applies (`charts/order-sourcing/values.yaml`).

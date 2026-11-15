@@ -126,6 +126,51 @@ func TestProjectorDeclaredCosts(t *testing.T) {
 	}
 }
 
+// TestProjectorDeclaredEmissions: the emission declarations merge exactly like
+// the cost ones — any order of arrival, the newer declaredAt wins, and a
+// redelivery changes nothing (ADR 0003, ADR 0017).
+func TestProjectorDeclaredEmissions(t *testing.T) {
+	e := newEnv(t)
+	p := usecases.NewProjector(e.deps)
+	ctx := context.Background()
+	rm := e.store.ReadModels()
+
+	// An emission before LaneOpened: stored keyed by laneId anyway, the later
+	// open keeps it; the cost and the emission sit on the same row.
+	e.must(p.LaneEmissionDeclared(ctx, meta("e1"), "lane-c", 540, h(2)))
+	e.must(p.LaneCostDeclared(ctx, meta("e2"), "lane-c", 320, h(2)))
+	e.must(p.LaneOpened(ctx, meta("e3"), network.Lane{ID: "lane-c", Origin: "a", Destination: "b", Mode: "GROUND"}))
+	if l, _ := rm.GetLane(ctx, "lane-c"); l.Origin != "a" || l.EmissionPerUnitG != 540 || !l.EmissionDeclared() || l.CostPerUnitCents != 320 {
+		t.Fatalf("open after declarations = %+v", l)
+	}
+	// The other order, with an older declaration ignored.
+	e.must(p.LaneOpened(ctx, meta("e4"), network.Lane{ID: "lane-o", Origin: "a", Destination: "c", Mode: "AIR"}))
+	e.must(p.LaneEmissionDeclared(ctx, meta("e5"), "lane-o", 610, h(5)))
+	e.must(p.LaneEmissionDeclared(ctx, meta("e6"), "lane-o", 900, h(4))) // older: ignored
+	if l, _ := rm.GetLane(ctx, "lane-o"); l.EmissionPerUnitG != 610 || l.Mode != "AIR" || l.CostDeclared() {
+		t.Fatalf("emission after open = %+v", l)
+	}
+
+	// The wave twin: before the schedule and a newer declaration after it.
+	e.must(p.WaveEmissionDeclared(ctx, meta("e7"), "wave-c", 300, h(3)))
+	e.must(p.WaveScheduled(ctx, meta("e8"), network.Wave{ID: "wave-c", StationID: "s1", InductCutoffAt: h(5), WindowEnd: h(9), Capacity: 40}))
+	if w, _ := rm.GetWave(ctx, "wave-c"); w.EmissionPerStopG != 300 || !w.Scheduled || !w.Usable() {
+		t.Fatalf("schedule after emission = %+v", w)
+	}
+	e.must(p.WaveEmissionDeclared(ctx, meta("e9"), "wave-c", 260, h(6)))
+	if w, _ := rm.GetWave(ctx, "wave-c"); w.EmissionPerStopG != 260 || !w.Scheduled {
+		t.Fatalf("newer emission over schedule = %+v", w)
+	}
+	// A redelivery changes nothing.
+	before := e.store.Counts()
+	e.must(p.LaneEmissionDeclared(ctx, meta("e5"), "lane-o", 1, h(1)))
+	e.must(p.WaveEmissionDeclared(ctx, meta("e7"), "wave-c", 1, h(1)))
+	e.wantUnchanged(before)
+	if l, _ := rm.GetLane(ctx, "lane-o"); l.EmissionPerUnitG != 610 {
+		t.Fatal("redelivery applied twice")
+	}
+}
+
 func TestProjectorAvailabilityScorecardsAndPressure(t *testing.T) {
 	e := newEnv(t)
 	p := usecases.NewProjector(e.deps)

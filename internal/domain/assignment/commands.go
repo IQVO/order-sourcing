@@ -159,6 +159,7 @@ func (a *Assignment) releasedToNode(rel Release, best *Candidate, lines []Line, 
 		PickupDepartureID: best.PickupDepartureID, RequiredShipBy: rel.RequiredShipBy,
 		PromisedDeliverByLatest: a.promise.DeliverByLatest, Tier: a.promise.Tier.FulfilmentClass(), Lines: cloneLines(lines),
 		EstimatedCostCents: estimateOf(*best), PolicyVersion: best.PolicyVersion, EffectiveCostCents: best.EffectiveCostOnWire(),
+		EstimatedCo2eGrams: emissionOf(*best), EmissionComplete: best.EmissionComplete,
 	}
 	if merge != nil {
 		e.Members, e.Lines, e.LineMembers = merge.members, merge.lines, merge.lineMembers
@@ -174,6 +175,7 @@ func (a *Assignment) sourcingDecided(rel Release, best Candidate, facts Sourcing
 		NodeRegionID: facts.NodeRegionID, DestinationRegionID: facts.DestinationRegionID, Legs: len(best.Legs),
 		EstimatedCostCents: estimateOf(best), Units: unitsOf(a.lines), CandidateCount: facts.CandidateCount,
 		DecidedAt: rel.ReleasedAt, PolicyVersion: best.PolicyVersion, EffectiveCostCents: best.EffectiveCostOnWire(),
+		EstimatedCo2eGrams: emissionOf(best),
 	}
 }
 
@@ -202,6 +204,16 @@ func estimateOf(c Candidate) *int64 {
 	}
 	cents := c.EstimatedCostCents
 	return &cents
+}
+
+// emissionOf is the wire value of a candidate's carbon estimate: the grams of
+// CO2e when complete, nil when a component had no declared emission (ADR 0017).
+func emissionOf(c Candidate) *int64 {
+	if !c.EmissionComplete {
+		return nil
+	}
+	grams := c.EstimatedCo2eGrams
+	return &grams
 }
 
 // checkReleaseLines requires the same lines as the group, each with a listing.

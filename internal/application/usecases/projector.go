@@ -87,6 +87,19 @@ func (p *Projector) LaneCostDeclared(ctx context.Context, m Meta, laneID string,
 	})
 }
 
+// LaneEmissionDeclared applies LaneEmissionDeclared: the newer declaredAt
+// wins, and a lane the view does not know is stored keyed by laneId anyway
+// (ADR 0003, ADR 0017).
+func (p *Projector) LaneEmissionDeclared(ctx context.Context, m Meta, laneID string, gCo2ePerUnit int64, declaredAt time.Time) error {
+	return p.project(ctx, m, func(ctx context.Context) error {
+		return upsert(ctx, func(ctx context.Context) (network.Lane, error) { return p.ReadModels.GetLane(ctx, laneID) }, p.ReadModels.PutLane,
+			func(row *network.Lane) bool {
+				row.ID = laneID
+				return row.ApplyEmissionDeclared(gCo2ePerUnit, declaredAt)
+			})
+	})
+}
+
 // LaneClosed applies LaneClosed.
 func (p *Projector) LaneClosed(ctx context.Context, m Meta, laneID string) error {
 	return p.project(ctx, m, func(ctx context.Context) error {
@@ -176,6 +189,19 @@ func (p *Projector) WaveCostDeclared(ctx context.Context, m Meta, waveID string,
 			func(row *network.Wave) bool {
 				row.ID = waveID
 				return row.ApplyCostDeclared(costPerStopCents, declaredAt)
+			})
+	})
+}
+
+// WaveEmissionDeclared applies WaveEmissionDeclared: the newer declaredAt
+// wins, and a wave the view does not know is stored keyed by waveId anyway
+// (ADR 0003, ADR 0017).
+func (p *Projector) WaveEmissionDeclared(ctx context.Context, m Meta, waveID string, gCo2ePerStop int64, declaredAt time.Time) error {
+	return p.project(ctx, m, func(ctx context.Context) error {
+		return upsert(ctx, func(ctx context.Context) (network.Wave, error) { return p.ReadModels.GetWave(ctx, waveID) }, p.ReadModels.PutWave,
+			func(row *network.Wave) bool {
+				row.ID = waveID
+				return row.ApplyEmissionDeclared(gCo2ePerStop, declaredAt)
 			})
 	})
 }

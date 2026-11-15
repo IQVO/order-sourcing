@@ -23,7 +23,7 @@ table, not recalled.
   ([Use cases](/docs/ddd/use-cases#how-a-candidate-is-chosen)). Buying it would mean conforming to someone else's idea of this
   network.
 - **Model complexity.** One aggregate, but a rich one: seven states, a release history with at most one pending release, an
-  exclusion list that resets with each promise revision, and per-package delivery. It reacts to 32 consumed event types from nine
+  exclusion list that resets with each promise revision, and per-package delivery. It reacts to 34 consumed event types from nine
   topics and keeps five event-fed views in ten `rm_*` tables, because it calls no sibling. Two loops cross a context boundary
   (release, purchase order, acceptance or refusal with `vendor-connectivity`; unsourceable, re-promise, re-queue with
   `delivery-promise`).
@@ -60,6 +60,6 @@ Generic verdict. For this context the two axes read: tier `commerce`, class Core
 ## Discrepancy with the aggregator
 
 The aggregator's chart and canvas pages count 29 consumed event types, 9 commands and 8 published events. The code on `develop`
-consumes 32 types and publishes 12 (eight integration events, four analytics-only), including `BookingMoved`, `BookingFailed`,
+consumes 34 types and publishes 15 (nine on the events topic, six analytics-only), including `BookingMoved`, `BookingFailed`,
 `DeliveryWaveCancelled`, `FulfillmentCancelRefused` and `FulfillmentConstraintRevised`
 ([Event catalogue](/docs/api-reference/events)). The verdict does not depend on the count.

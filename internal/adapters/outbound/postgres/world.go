@@ -89,12 +89,12 @@ func loadNodes(ctx context.Context, db querier) (map[string]network.Node, error)
 }
 
 func loadLanes(ctx context.Context, db querier) (map[string]network.Lane, error) {
-	rows, err := collect(ctx, db, `SELECT lane_id, origin, destination, mode, closed, cost_per_unit_cents, cost_declared_at FROM rm_lanes`,
+	rows, err := collect(ctx, db, `SELECT lane_id, origin, destination, mode, closed, cost_per_unit_cents, cost_declared_at, emission_per_unit_g, emission_declared_at FROM rm_lanes`,
 		func(r pgx.Rows) (network.Lane, error) {
 			var l network.Lane
-			var at *time.Time
-			err := r.Scan(&l.ID, &l.Origin, &l.Destination, &l.Mode, &l.Closed, &l.CostPerUnitCents, &at)
-			l.CostDeclaredAt = orZero(at)
+			var at, emissionAt *time.Time
+			err := r.Scan(&l.ID, &l.Origin, &l.Destination, &l.Mode, &l.Closed, &l.CostPerUnitCents, &at, &l.EmissionPerUnitG, &emissionAt)
+			l.CostDeclaredAt, l.EmissionDeclaredAt = orZero(at), orZero(emissionAt)
 			return l, err
 		})
 	out := make(map[string]network.Lane, len(rows))

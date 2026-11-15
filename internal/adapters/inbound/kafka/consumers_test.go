@@ -109,8 +109,8 @@ func bytesOf(t *testing.T, e map[string]any) []byte {
 func TestEveryConsumedExampleIsRoutedAndApplied(t *testing.T) {
 	f := newFixture()
 	examples := consumedExamples(t)
-	if len(examples) != 34 {
-		t.Fatalf("the contract has %d consumed examples, want 34", len(examples))
+	if len(examples) != 36 {
+		t.Fatalf("the contract has %d consumed examples, want 36", len(examples))
 	}
 	for _, ex := range examples {
 		if _, ok := f.route()[ex.Topic][ex.Event["type"].(string)]; !ok {

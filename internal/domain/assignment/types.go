@@ -166,6 +166,11 @@ type Candidate struct {
 	CostComplete       bool
 	SurchargeCents     int64
 	PolicyVersion      int
+	// EstimatedCo2eGrams is the carbon estimate of the same path in
+	// planner-declared grams of CO2e, carried only when EmissionComplete
+	// (ADR 0017).
+	EstimatedCo2eGrams int64
+	EmissionComplete   bool
 }
 
 // EffectiveCostCents is the estimate plus the surcharges (ADR 0014); the sum
@@ -193,7 +198,8 @@ func (c Candidate) Same(o Candidate) bool {
 	return c.NodeID == o.NodeID && c.PickupDepartureID == o.PickupDepartureID && c.PickupCutoffAt.Equal(o.PickupCutoffAt) &&
 		slices.Equal(c.Legs, o.Legs) && c.DeliveryWaveID == o.DeliveryWaveID && c.ETA.Equal(o.ETA) && c.Cost == o.Cost &&
 		c.EstimatedCostCents == o.EstimatedCostCents && c.CostComplete == o.CostComplete &&
-		c.SurchargeCents == o.SurchargeCents && c.PolicyVersion == o.PolicyVersion
+		c.SurchargeCents == o.SurchargeCents && c.PolicyVersion == o.PolicyVersion &&
+		c.EstimatedCo2eGrams == o.EstimatedCo2eGrams && c.EmissionComplete == o.EmissionComplete
 }
 
 // Release is one release of the group to a node.

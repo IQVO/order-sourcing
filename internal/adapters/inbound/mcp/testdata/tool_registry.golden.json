@@ -41,6 +41,12 @@
             "deliveryWaveId": {
               "type": "string"
             },
+            "estimatedCo2eGrams": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
             "estimatedCostCents": {
               "type": [
                 "null",
@@ -327,6 +333,12 @@
                   },
                   "deliveryWaveId": {
                     "type": "string"
+                  },
+                  "estimatedCo2eGrams": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
                   },
                   "estimatedCostCents": {
                     "type": [

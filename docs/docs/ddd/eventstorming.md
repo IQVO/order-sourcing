@@ -58,7 +58,6 @@ flowchart TB
     E2["FulfillmentReassigned"]:::event
     LH["linehaul-transportation"]:::external
     H3["Hotspot: cross-region is a<br/>penalty, not a filter"]:::hotspot
-    H1["Hotspot: promise-book hold<br/>stays on the witness node"]:::hotspot
     CO --> E0 --> P0 --> C1 --> A1 --> E1
     A1 --> E1b
     A1 --> P1
@@ -74,11 +73,10 @@ flowchart TB
     C2 --> A1
     A1 --> E2 --> LH
     P2 -.- H3
-    E2 -.- H1
 ```
 
 Source: `internal/adapters/inbound/kafka/handlers.go` (`CustomerOrdering`), `usecases/queue.go`, `usecases/search.go`,
-`domain/sourcing/sourcing.go`, `domain/assignment/commands.go` (`Queue`, `Reoptimise`). Omitted: the 22 events that feed the five
+`domain/sourcing/sourcing.go`, `domain/assignment/commands.go` (`Queue`, `Reoptimise`). Omitted: the 24 events that feed the five
 read models ([Use cases](/docs/ddd/use-cases#the-projected-events-use-case-13)); a re-optimisation that keeps the same candidate,
 which raises nothing.
 
@@ -230,12 +228,12 @@ Resolved by the build (the aggregator's earlier boards listed them as open):
 | Multi-package delivery | The group delivers when the last package does; each `PackageDelivered` is remembered |
 | Revision of an assignment that is not `UNSOURCEABLE` | Applied in every non-terminal state; the node is only re-searched in `QUEUED` and `UNSOURCEABLE` |
 | Destination not on the aggregate | `destinationPostalPrefix` is on the aggregate and in the table |
+| Promise-book hold stays on the witness node | `delivery-promise` moves the capacity charge when `FulfillmentLocked` names another node or pickup departure (`rehomeOnLock`, `internal/application/usecases/rehome.go` in that repository). It keeps the charge on the quoted node, logged and not retried, if the locked departure is unknown, the locked node's book is full or closed, or no single owner there covers the lines |
 
 Still open:
 
 | Hotspot | Where it comes from |
 | --- | --- |
-| Promise-book hold stays on the witness node | The assigned node may differ from the witness, but nothing moves the capacity hold on the `delivery-promise` side |
 | Cross-region as penalty versus rule | Business decision 5 reads as a filter; `CrossRegionPenalty` is 1000 points |
 | Acceptance after cancellation | A `PurchaseOrderAccepted` for a `CANCELLED` assignment is `ErrIllegalTransition` and only logged; the vendor may still ship |
 | Pickup departure cancelled after the lock | `DepartureCancelled` updates the read model; no transition handles a locked assignment whose departure is gone |

@@ -46,7 +46,7 @@ pick, so the acceptance is the first moment the vendor commits.
 | Follow the group through `SHIPPED` and `DELIVERED`, record a moved pickup departure | `MarkShipped`, `MarkDelivered`, `RecordPickupMoved` |
 | Decide cancels (`FulfillmentCancelled` before the lock, `FulfillmentCancelRefused` after it) and apply revised promises in every non-terminal state | `CancelAssignment`, `ApplyRevisedPromise` |
 | Maintain local read models of the network (five views stored in ten `rm_*` tables: nodes, lanes, departures, waves, service areas, regions, listings, discontinued items, scorecards, book pressure) from nine sibling topics | `Projector`, [Integration](/docs/ecosystem/integration) |
-| Publish eight integration events and four analytics-only events through a transactional outbox | [Events](/docs/api-reference/events) |
+| Publish nine events on the events topic and six analytics-only events through a transactional outbox | [Events](/docs/api-reference/events) |
 | Serve a read-only REST, MCP and A2A surface plus one planner action | [API overview](/docs/api-reference), [MCP tools](/docs/mcp/tools) |
 | A small read-only operator remote (`web/`, `order_sourcing_mfe`) mounted by the warehouse console | `web/`, [ADR 0007](/docs/adr/0007-console-remote) |
 
@@ -70,7 +70,7 @@ client to any sibling over REST, MCP or A2A.
 | Interface | Port | Detail |
 | --- | --- | --- |
 | REST (`cmd/api`) | 8080 | `GET /assignments`, `GET /assignments/{assignmentId}`, `POST /assignments/{assignmentId}/reoptimisations`, `GET /healthz`, `GET /readyz`; no authentication; errors are RFC 9457 `application/problem+json` |
-| Kafka (`cmd/api`) | n/a | consumes 32 event types from nine topics, publishes 8 types on `retailnetwork.order-sourcing.events` and 3 on `retailnetwork.order-sourcing.analytics`, CloudEvents 1.0 |
+| Kafka (`cmd/api`) | n/a | consumes 34 event types from nine topics, publishes 9 types on `retailnetwork.order-sourcing.events` and 6 on `retailnetwork.order-sourcing.analytics`, CloudEvents 1.0 |
 | MCP (`cmd/mcp`) | 8090 | Streamable HTTP, read-only, tools `list_assignments` and `get_assignment` |
 | A2A (`cmd/a2a`) | 8093 | JSON-RPC 2.0 on `/` and `/a2a`, Agent Card at `/.well-known/agent-card.json`, read-only skills `find_assignments` and `assignment_detail` |
 
