@@ -73,9 +73,7 @@ func NewRouter(s *Server, logger *slog.Logger, serviceName string) http.Handler 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, notFound, "no resource matches the requested path")
 	})
-	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		writeProblem(w, r, methodNotAllowed, "the reports are read-only: only GET is supported")
-	})
+	r.MethodNotAllowed(methodNotAllowedFor(r, "the reports are read-only: only GET is supported"))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, statusBody{Status: "ok"}) })
 	r.Get("/readyz", s.handleReadyz)
 	r.Get("/reports/sourcing-mix", s.handleSourcingMix)

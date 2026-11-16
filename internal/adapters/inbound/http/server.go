@@ -92,9 +92,7 @@ func (s *Server) Handler() http.Handler {
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, notFoundResource, "no resource matches the requested path")
 	})
-	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		writeProblem(w, r, methodNotAllowed, "the method is not allowed on this path")
-	})
+	r.MethodNotAllowed(methodNotAllowedFor(r, "the method is not allowed on this path"))
 	return r
 }
 
