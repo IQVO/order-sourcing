@@ -38,7 +38,9 @@ type decisionKey struct {
 
 type memDecision struct {
 	report.Decision
-	at time.Time
+	assignment string
+	order      string
+	at         time.Time
 }
 
 // NewMemoryStore returns an empty twin.
@@ -75,7 +77,7 @@ func (m *MemoryStore) Apply(_ context.Context, e report.Event) (bool, error) {
 			m.queued[e.AssignmentID] = memQueued{order: e.OrderID, groupNo: e.GroupNo, at: e.OccurredAt.UTC()}
 		}
 	case report.KindFulfillmentDecided:
-		m.decisions[decisionKey{e.AssignmentID, e.Decision.ReleaseNo}] = memDecision{Decision: e.Decision, at: e.OccurredAt.UTC()}
+		m.decisions[decisionKey{e.AssignmentID, e.Decision.ReleaseNo}] = memDecision{Decision: e.Decision, assignment: e.AssignmentID, order: e.OrderID, at: e.OccurredAt.UTC()}
 	default: // Validate admitted only the three kinds
 		m.unsourceable = append(m.unsourceable, e.OccurredAt.UTC())
 	}

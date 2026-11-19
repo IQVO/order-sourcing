@@ -26,6 +26,7 @@ func runContract(t *testing.T, newStore func(t *testing.T) store) {
 	t.Run("a republished decision keeps one row", func(t *testing.T) { contractRepublish(t, newStore(t)) })
 	t.Run("sourcing mix per day", func(t *testing.T) { contractMix(t, newStore(t)) })
 	t.Run("order splits per day", func(t *testing.T) { contractSplits(t, newStore(t)) })
+	t.Run("split shipment per day over the shipments of the last releases", func(t *testing.T) { contractSplitShipment(t, newStore(t)) })
 	t.Run("cost to serve per day over the last decisions", func(t *testing.T) { contractCost(t, newStore(t)) })
 	t.Run("the freshness basis is the newest CloudEvents time", func(t *testing.T) { contractLastEvent(t, newStore(t)) })
 	t.Run("an invalid fact is rejected and leaves nothing", func(t *testing.T) { contractRejected(t, newStore(t)) })
@@ -131,8 +132,9 @@ func contractEmpty(t *testing.T, s store) {
 	mix, err1 := s.SourcingMix(ctx, fullRange)
 	splits, err2 := s.OrderSplits(ctx, fullRange)
 	cost, err3 := s.CostToServe(ctx, fullRange)
-	if err := errors.Join(err1, err2, err3); err != nil || mix == nil || splits == nil || cost == nil || len(mix)+len(splits)+len(cost) != 0 {
-		t.Fatalf("reports = %#v %#v %#v, %v; want empty non-nil", mix, splits, cost, err)
+	ships, err4 := s.SplitShipment(ctx, fullRange)
+	if err := errors.Join(err1, err2, err3, err4); err != nil || mix == nil || splits == nil || cost == nil || ships == nil || len(mix)+len(splits)+len(cost)+len(ships) != 0 {
+		t.Fatalf("reports = %#v %#v %#v %#v, %v; want empty non-nil", mix, splits, cost, ships, err)
 	}
 	if last, err := s.LastEventAt(ctx); err != nil || last != nil {
 		t.Fatalf("last = %v, %v; want nil", last, err)
@@ -216,6 +218,61 @@ func contractSplits(t *testing.T, s store) {
 		if !got[i].Day.Equal(want[i].Day) || got[i].Orders != want[i].Orders || got[i].Groups != want[i].Groups || got[i].SplitOrders != want[i].SplitOrders {
 			t.Errorf("row %d = %+v, want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+// shipped is one sourcing decision of the shipment fixture: the assignment of an
+// order released to a node at an instant, a follower when carrier is not "".
+func (sd *seeder) shipped(order, assignment string, releaseNo int, carrier string, at time.Time) {
+	sd.apply(report.Event{Kind: report.KindFulfillmentDecided, AssignmentID: assignment, OrderID: order, OccurredAt: at,
+		Decision: report.Decision{ReleaseNo: releaseNo, NodeID: "n-" + assignment, Units: 1, CandidateCount: 1, CarrierAssignmentID: carrier}})
+}
+
+// contractSplitShipment pins ADR 0018: the shipment groups of an order are the
+// distinct shipments of the LAST release of each assignment (a follower shares
+// its carrier's), counted on the UTC day of the order's FIRST decision.
+func contractSplitShipment(t *testing.T, s store) {
+	sd := &seeder{t: t, s: s}
+	sd.shipped("O1", "a1", 1, "", nov3.Add(10*time.Hour))
+	sd.shipped("O1", "a2", 1, "", nov4.Add(2*time.Hour)) // a later day: the order stays on its first
+	sd.shipped("O2", "a3", 1, "", nov3.Add(11*time.Hour))
+	sd.shipped("O3", "b1", 1, "", nov3.Add(12*time.Hour)) // a carrier and its follower: one shipment
+	sd.shipped("O3", "b2", 1, "b1", nov3.Add(12*time.Hour))
+	sd.shipped("O4", "c2", 1, "", nov3.Add(13*time.Hour)) // c1 first ships alone, then follows c2
+	sd.shipped("O4", "c1", 1, "", nov3.Add(13*time.Hour))
+	sd.shipped("O4", "c1", 2, "c2", nov4.Add(5*time.Hour))
+	sd.shipped("O11", "k2", 1, "", nov4.Add(6*time.Hour)) // seen first, decided later: the day is the earliest
+	sd.shipped("O11", "k1", 1, "", nov3.Add(14*time.Hour))
+	sd.shipped("O10", "f1", 1, "a1", nov4.Add(7*time.Hour)) // follows O1's carrier: one shipment for O10, O1 unchanged
+	for _, n := range []int{3, 4, 5} {
+		for i := 1; i <= n; i++ {
+			sd.shipped(fmt.Sprintf("N%d", n), fmt.Sprintf("n%d-%d", n, i), 1, "", nov4.Add(8*time.Hour))
+		}
+	}
+	sd.shipped("OB", "x1", 1, "", nov3.Add(-time.Second)) // began before the range: never counted ...
+	sd.shipped("OB", "x2", 1, "", nov3.Add(time.Hour))    // ... even for a decision inside it
+	sd.shipped("OE", "y1", 1, "", fullRange.To)           // exactly at To: excluded
+	sd.shipped("O2", "a3", 1, "", nov3.Add(11*time.Hour)) // a republished decision changes nothing
+
+	got, err := s.SplitShipment(ctx, fullRange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []report.ShipmentCount{
+		{Day: nov3, Groups: 1, Decisions: 3}, {Day: nov3, Groups: 2, Decisions: 2},
+		{Day: nov4, Groups: 1, Decisions: 1}, {Day: nov4, Groups: 3, Decisions: 1}, {Day: nov4, Groups: 4, Decisions: 1}, {Day: nov4, Groups: 5, Decisions: 1},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("split shipment = %+v\nwant %+v", got, want)
+	}
+	for i := range want {
+		if !got[i].Day.Equal(want[i].Day) || got[i].Day.Location() != time.UTC || got[i].Groups != want[i].Groups || got[i].Decisions != want[i].Decisions {
+			t.Errorf("row %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	one, err := s.SplitShipment(ctx, report.Range{From: nov4, To: fullRange.To})
+	if err != nil || len(one) != 4 || !one[0].Day.Equal(nov4) {
+		t.Fatalf("a one-day range = %+v, %v; want the four rows of the day", one, err)
 	}
 }
 

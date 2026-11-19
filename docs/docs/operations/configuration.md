@@ -98,7 +98,7 @@ Writes ONLY the separate analytical database; never opens the OLTP database. Rea
 
 ## `cmd/os-reports` (read-only analytics reports, ADR 0013)
 
-`GET /reports/sourcing-mix`, `/reports/order-splits`, `/reports/cost-to-serve`, `/reports/freshness`, `/healthz`, `/readyz` over a read-only pool (15s statement timeout). No Kafka, no OLTP database.
+`GET /reports/sourcing-mix`, `/reports/order-splits`, `/reports/cost-to-serve`, `/reports/freshness`, `/healthz`, `/readyz` over a read-only pool (15s statement timeout). No Kafka, no OLTP database. `GET /reports/sourcing-mix` reads `sourcing_decisions.carrier_assignment_id` (analytics migration `0002`, ADR 0018), which the projector applies at its boot: roll the projector out BEFORE the reports binary, or the sourcing-mix report answers 500 until the projector has restarted.
 
 | Variable | Default | Required | Meaning | Chart value |
 | --- | --- | --- | --- | --- |

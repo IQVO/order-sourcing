@@ -124,9 +124,22 @@ func serveRange[T any](s *Server, w http.ResponseWriter, r *http.Request, query 
 	writeJSON(w, http.StatusOK, body(rg, days))
 }
 
+// mixFacts is what the sourcing-mix report reads: the day counts and the
+// shipment counts of the split-shipment block (ADR 0018).
+type mixFacts struct {
+	days      []report.MixDay
+	shipments []report.ShipmentCount
+}
+
 func (s *Server) handleSourcingMix(w http.ResponseWriter, r *http.Request) {
-	serveRange(s, w, r, func(rg report.Range) ([]report.MixDay, error) { return s.Reader.SourcingMix(r.Context(), rg) },
-		func(rg report.Range, days []report.MixDay) any { return mixBody(rg, report.SourcingMix(days)) })
+	serveRange(s, w, r, func(rg report.Range) (mixFacts, error) {
+		days, err := s.Reader.SourcingMix(r.Context(), rg)
+		if err != nil {
+			return mixFacts{}, err
+		}
+		shipments, err := s.Reader.SplitShipment(r.Context(), rg)
+		return mixFacts{days: days, shipments: shipments}, err
+	}, func(rg report.Range, f mixFacts) any { return mixBody(rg, report.SourcingMix(f.days, f.shipments)) })
 }
 
 func (s *Server) handleOrderSplits(w http.ResponseWriter, r *http.Request) {

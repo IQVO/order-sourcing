@@ -88,6 +88,43 @@ func (r *Reader) OrderSplits(ctx context.Context, rg report.Range) ([]report.Spl
 	}, rg.From, rg.To, report.SingleGroup())
 }
 
+// shipmentsSQL: every order on the instant of its first sourcing decision, with
+// the distinct shipments of the LAST release of each of its assignments (a
+// follower of a merged release shares its carrier's shipment, ADR 0018), then
+// per UTC day the orders by number of shipments.
+//
+//	$1 from, $2 to
+const shipmentsSQL = `
+	WITH last AS (
+		SELECT DISTINCT ON (assignment_id) assignment_id, order_id, COALESCE(carrier_assignment_id, assignment_id) AS shipment
+		FROM sourcing_decisions
+		ORDER BY assignment_id, release_no DESC
+	), per_order AS (
+		SELECT order_id, count(DISTINCT shipment) AS shipments
+		FROM last
+		GROUP BY order_id
+	), first_decision AS (
+		SELECT order_id, min(decided_at) AS first_at
+		FROM sourcing_decisions
+		GROUP BY order_id
+	)
+	SELECT (f.first_at AT TIME ZONE 'UTC')::date AS day, p.shipments::int, count(*)
+	FROM per_order p
+	JOIN first_decision f USING (order_id)
+	WHERE f.first_at >= $1 AND f.first_at < $2
+	GROUP BY 1, 2
+	ORDER BY 1, 2`
+
+// SplitShipment implements report.Reader.
+func (r *Reader) SplitShipment(ctx context.Context, rg report.Range) ([]report.ShipmentCount, error) {
+	return collect(ctx, r.pool, shipmentsSQL, func(rows pgx.Rows) (report.ShipmentCount, error) {
+		var c report.ShipmentCount
+		err := rows.Scan(&c.Day, &c.Groups, &c.Decisions)
+		c.Day = c.Day.UTC()
+		return c, err
+	}, rg.From, rg.To)
+}
+
 // costSQL: the LAST decision of every assignment (highest releaseNo), then per
 // UTC day of its decidedAt the decisions, the complete ones, their cents and
 // units, and the two cost percentiles over the complete ones.

@@ -14,7 +14,7 @@ func TestSourcingMixDerivesTheKPIs(t *testing.T) {
 	day := utcDay(2026, 11, 3)
 	got := report.SourcingMix([]report.MixDay{
 		{Day: day, Releases: 4, InRegion: 2, OutOfRegion: 1, UnknownRegion: 1, Legs: 6, Reassignments: 1, Unsourceable: 2},
-	})
+	}, nil)
 	want := []report.MixRow{{
 		MixDay:        report.MixDay{Day: day, Releases: 4, InRegion: 2, OutOfRegion: 1, UnknownRegion: 1, Legs: 6, Reassignments: 1, Unsourceable: 2},
 		InRegionShare: f(2.0 / 3), MeanLegs: f(1.5), ReassignmentRate: f(0.25),
@@ -25,15 +25,15 @@ func TestSourcingMixDerivesTheKPIs(t *testing.T) {
 }
 
 func TestSourcingMixOfADayWithoutReleases(t *testing.T) {
-	got := report.SourcingMix([]report.MixDay{{Day: utcDay(2026, 11, 4), Unsourceable: 3}})
+	got := report.SourcingMix([]report.MixDay{{Day: utcDay(2026, 11, 4), Unsourceable: 3}}, nil)
 	if got[0].InRegionShare != nil || got[0].MeanLegs != nil || got[0].ReassignmentRate != nil || got[0].Unsourceable != 3 {
 		t.Fatalf("row = %+v", got[0])
 	}
-	unknown := report.SourcingMix([]report.MixDay{{Day: utcDay(2026, 11, 4), Releases: 2, UnknownRegion: 2, Legs: 0}})
+	unknown := report.SourcingMix([]report.MixDay{{Day: utcDay(2026, 11, 4), Releases: 2, UnknownRegion: 2, Legs: 0}}, nil)
 	if unknown[0].InRegionShare != nil || unknown[0].MeanLegs == nil || *unknown[0].MeanLegs != 0 {
 		t.Fatalf("only unknown regions: %+v", unknown[0])
 	}
-	if empty := report.SourcingMix(nil); empty == nil || len(empty) != 0 {
+	if empty := report.SourcingMix(nil, nil); empty == nil || len(empty) != 0 {
 		t.Fatalf("nil input must yield an empty, non-nil slice, got %#v", empty)
 	}
 }

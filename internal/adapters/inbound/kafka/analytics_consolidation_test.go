@@ -31,6 +31,10 @@ func TestAnalyticsProjectionCountsAMergedPackageOnce(t *testing.T) {
 	if d.EstimatedCostCents == nil || *d.EstimatedCostCents != 0 || !d.CostComplete || d.Units != 4 {
 		t.Fatalf("a follower books 0 cents and its own units: %+v", d)
 	}
+	// ADR 0018: the follower's projected decision names its carrier (its shipment), the carrier's does not.
+	if d.CarrierAssignmentID != "asg-1" || p.events[0].Decision.CarrierAssignmentID != "" {
+		t.Fatalf("carrier ids = follower %q, carrier %q; want %q and none", d.CarrierAssignmentID, p.events[0].Decision.CarrierAssignmentID, "asg-1")
+	}
 }
 
 // TestAnalyticsConsumerAcknowledgesTheConsolidationFactsSilently: the three new

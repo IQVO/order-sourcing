@@ -35,6 +35,9 @@ integration payloads, the OLTP tables or the `cmd/api` routes from here.
   reassignment/split rules, range rules and the freshness lag live there, as functions (not package variables), in
   `make mutation` and in the coverage scope. One contract suite (`analyticsstore/contract_test.go`) runs against
   `MemoryStore` and Postgres: change both twins together.
+- The split-shipment block of `sourcing-mix` (ADR 0018) counts per order the distinct shipments of the LAST release of each
+  assignment (`report.ShipmentKey`: a follower shares its carrier's), on the day of the order's first decision, buckets
+  1/2/3/4+; no collection-point counter (the fact carries no such indicator). Reader port: `SplitShipment`.
 - `analytics/migrations` is embedded (`analytics/migrations.go`), additive, with down files; never edit an applied
   migration, add the next number.
 - Reports are unauthenticated, read-only GETs under `/reports/...` (plus `/healthz`, `/readyz`), camelCase, UTC days,

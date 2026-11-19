@@ -61,6 +61,9 @@ type Decision struct {
 	CostComplete        bool
 	Units               int
 	CandidateCount      int
+	// CarrierAssignmentID names the carrier of a merged release on a
+	// follower's fact (ADR 0015), "" otherwise: the shipment key of ADR 0018.
+	CarrierAssignmentID string
 }
 
 // Projection is the WRITER port: Apply records the event id and projects the
@@ -83,6 +86,10 @@ type Reader interface {
 	SourcingMix(ctx context.Context, r Range) ([]MixDay, error)
 	OrderSplits(ctx context.Context, r Range) ([]SplitDay, error)
 	CostToServe(ctx context.Context, r Range) ([]CostDay, error)
+	// SplitShipment counts, per UTC day of an order's FIRST sourcing decision
+	// and per number of shipment groups, the orders (ADR 0018). Ordered by day
+	// then groups.
+	SplitShipment(ctx context.Context, r Range) ([]ShipmentCount, error)
 	// LastEventAt is the CloudEvents time of the newest event the projection
 	// applied (nil while it applied none): the basis of the freshness lag.
 	LastEventAt(ctx context.Context) (*time.Time, error)

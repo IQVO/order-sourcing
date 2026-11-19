@@ -31,3 +31,4 @@ The *Status* column is copied from each ADR's own `## Status` section.
 | [0015](./0015-carrier-and-follower-consolidation-at-release.md) | carrier and follower consolidation at release (CONSOLIDATED groups only, cancel refused while merged) | Accepted (2026-11-10) |
 | [0016](./0016-consolidated-delivery-day-search-and-latest-pickup-hold.md) | the CONSOLIDATED delivery day: window start bounds the search, latest-pickup hold | Accepted (2026-11-10) |
 | [0017](./0017-carbon-emission-estimate.md) | the carbon estimate of a released path (planner-declared gCO2e beside the cents, ranking unchanged) | Accepted (2026-11-14) |
+| [0018](./0018-split-shipment-rate-on-the-sourcing-mix-report.md) | the split-shipment rate on the sourcing-mix report (shipment groups per sourced order, bounded 1/2/3/4+; no collection-point counter) | Accepted (2026-11-18) |

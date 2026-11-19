@@ -98,6 +98,52 @@ func (m *MemoryStore) lastDecisions() []memDecision {
 	return out
 }
 
+// SplitShipment implements report.Reader: per order, the distinct shipments of
+// the LAST release of each of its assignments, on the day of its first decision.
+func (m *MemoryStore) SplitShipment(_ context.Context, r report.Range) ([]report.ShipmentCount, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	type order struct {
+		first     time.Time
+		shipments map[string]bool
+	}
+	orders := map[string]*order{}
+	for _, d := range m.decisions {
+		o := orders[d.order]
+		if o == nil {
+			o = &order{first: d.at, shipments: map[string]bool{}}
+			orders[d.order] = o
+		}
+		if d.at.Before(o.first) {
+			o.first = d.at
+		}
+	}
+	for _, d := range m.lastDecisions() {
+		orders[d.order].shipments[report.ShipmentKey(d.assignment, d.CarrierAssignmentID)] = true
+	}
+	type bucket struct {
+		day    time.Time
+		groups int
+	}
+	counts := map[bucket]int{}
+	for _, o := range orders {
+		if inRange(r, o.first) {
+			counts[bucket{utcDay(o.first), len(o.shipments)}]++
+		}
+	}
+	out := make([]report.ShipmentCount, 0, len(counts))
+	for b, n := range counts {
+		out = append(out, report.ShipmentCount{Day: b.day, Groups: b.groups, Decisions: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Day.Equal(out[j].Day) {
+			return out[i].Day.Before(out[j].Day)
+		}
+		return out[i].Groups < out[j].Groups
+	})
+	return out, nil
+}
+
 // CostToServe implements report.Reader.
 func (m *MemoryStore) CostToServe(_ context.Context, r report.Range) ([]report.CostDay, error) {
 	m.mu.Lock()
