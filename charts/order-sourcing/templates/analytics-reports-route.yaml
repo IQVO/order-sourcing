@@ -17,6 +17,9 @@ metadata:
     # /api/<context> prefix into regex paths of equal priority and picks between
     # them in no fixed order; the reports prefix must outrank the API prefix.
     konghq.com/regex-priority: "10"
+    {{- with include "order-sourcing.kongPluginNames" . }}
+    konghq.com/plugins: {{ . | quote }}
+    {{- end }}
 spec:
   parentRefs:
     {{- range .Values.analytics.reports.route.parentRefs }}
