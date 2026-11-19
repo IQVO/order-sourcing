@@ -369,8 +369,13 @@ paths:
         known, with unknownRegionCount = releases with an unknown region;
         meanLegs = the departures after the pickup per release;
         reassignmentRate = releases with releaseNo > 1 / groupsReleased;
-        unsourceableCount = the FulfillmentUnsourceable events of that day. A
-        day appears when it has a release or an unsourceable declaration.
+        unsourceableCount = the FulfillmentUnsourceable events of that day;
+        splitShipment = the split-shipment rate of the day (ADR 0018): the
+        sourced orders whose first sourcing decision is on that day, those
+        released as 2 or more shipment groups (a follower merged into its
+        carrier shares the carrier's shipment) and the distribution of shipment
+        groups per order over the buckets 1, 2, 3 and 4+. A day appears when it
+        has a release or an unsourceable declaration.
       parameters:
         - $ref: '#/components/parameters/ReportFrom'
         - $ref: '#/components/parameters/ReportTo'
@@ -560,7 +565,7 @@ components:
             $ref: '#/components/schemas/SourcingMixDay'
     SourcingMixDay:
       type: object
-      required: [day, groupsReleased, inRegionShare, unknownRegionCount, meanLegs, reassignmentRate, unsourceableCount]
+      required: [day, groupsReleased, inRegionShare, unknownRegionCount, meanLegs, reassignmentRate, unsourceableCount, splitShipment]
       properties:
         day:
           type: string
@@ -594,6 +599,51 @@ components:
           type: integer
           minimum: 0
           description: FulfillmentUnsourceable events of the day.
+        splitShipment:
+          $ref: '#/components/schemas/SplitShipment'
+    SplitShipment:
+      type: object
+      description: >-
+        The split-shipment rate of one day (ADR 0018). A decision is a sourced
+        order, on the UTC day of its first sourcing decision; its shipment
+        groups are the distinct shipments of the current releases of its
+        assignments, a follower of a merged release sharing its carrier's
+        shipment. All zero and splitShare null on a day without such an order.
+      required: [decisions, splitDecisions, splitShare, groupsPerDecision]
+      properties:
+        decisions:
+          type: integer
+          minimum: 0
+          description: The sourced orders of the day.
+        splitDecisions:
+          type: integer
+          minimum: 0
+          description: The decisions with 2 or more shipment groups (the sum of the buckets 2, 3 and 4+).
+        splitShare:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: splitDecisions / decisions; null without a decision.
+        groupsPerDecision:
+          type: array
+          minItems: 4
+          maxItems: 4
+          description: The shipment groups per decision, always the four buckets 1, 2, 3 and 4+ in this order; the counts sum to decisions.
+          items:
+            $ref: '#/components/schemas/ShipmentGroupBucket'
+    ShipmentGroupBucket:
+      type: object
+      required: [bucket, decisions]
+      properties:
+        bucket:
+          type: string
+          enum: ["1", "2", "3", "4+"]
+          description: The number of shipment groups; 4+ holds 4 or more.
+        decisions:
+          type: integer
+          minimum: 0
+          description: The decisions in this bucket.
     OrderSplitsReport:
       type: object
       required: [from, to, days]

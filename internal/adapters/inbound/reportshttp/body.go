@@ -21,6 +21,28 @@ type mixDayBody struct {
 	MeanLegs           *float64 `json:"meanLegs"`
 	ReassignmentRate   *float64 `json:"reassignmentRate"`
 	UnsourceableCount  int      `json:"unsourceableCount"`
+	// SplitShipment is additive (ADR 0018).
+	SplitShipment splitShipmentBody `json:"splitShipment"`
+}
+
+type splitShipmentBody struct {
+	Decisions         int                  `json:"decisions"`
+	SplitDecisions    int                  `json:"splitDecisions"`
+	SplitShare        *float64             `json:"splitShare"`
+	GroupsPerDecision []shipmentBucketBody `json:"groupsPerDecision"`
+}
+
+type shipmentBucketBody struct {
+	Bucket    string `json:"bucket"`
+	Decisions int    `json:"decisions"`
+}
+
+func splitShipmentOf(s report.SplitShipment) splitShipmentBody {
+	buckets := make([]shipmentBucketBody, 0, report.ShipmentBuckets)
+	for i, n := range s.Buckets {
+		buckets = append(buckets, shipmentBucketBody{Bucket: report.BucketLabel(i), Decisions: n})
+	}
+	return splitShipmentBody{Decisions: s.Decisions, SplitDecisions: s.SplitDecisions, SplitShare: s.SplitShare, GroupsPerDecision: buckets}
 }
 
 type mixReportBody struct {
@@ -35,6 +57,7 @@ func mixBody(rg report.Range, rows []report.MixRow) mixReportBody {
 		out.Days = append(out.Days, mixDayBody{
 			Day: report.FormatDay(r.Day), GroupsReleased: r.Releases, InRegionShare: r.InRegionShare, UnknownRegionCount: r.UnknownRegion,
 			MeanLegs: r.MeanLegs, ReassignmentRate: r.ReassignmentRate, UnsourceableCount: r.Unsourceable,
+			SplitShipment: splitShipmentOf(r.SplitShipment),
 		})
 	}
 	return out

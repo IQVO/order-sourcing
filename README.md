@@ -269,7 +269,7 @@ on pre-commit and `make check` on pre-push. The harness itself:
 
 ## Architecture Decision Records
 
-Index: [`docs/adr/index.md`](docs/adr/index.md) — 16 ADRs (0001–0016): the
+Index: [`docs/adr/index.md`](docs/adr/index.md) — 18 ADRs (0001–0018): the
 bounded context (0001), aggregates, invariants and assumptions (0002),
 consumed contracts and local read models (0003), the CloudEvents catalogue
 (0004), outbox relay, attempt cap, sweep and shutdown (0005), the MCP server
@@ -279,7 +279,8 @@ money-denominated assignment cost (0011), owner-aware availability and
 sourcing (0012), the analytics read side and the sourcing-decision fact
 (0013), a versioned sourcing policy (0014), carrier and follower consolidation
 at release (0015), the consolidated delivery day, search window and
-latest-pickup hold (0016).
+latest-pickup hold (0016), the carbon estimate of a released path (0017), the
+split-shipment rate on the sourcing-mix report (0018).
 
 ## License
 

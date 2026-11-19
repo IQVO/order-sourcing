@@ -267,7 +267,11 @@ func TestAnalyticsReadSide_EndToEnd(t *testing.T) {
 	pgtest.WaitAllPublished(t, oltp)
 
 	wantMix := []map[string]any{{"day": "2026-10-22", "groupsReleased": 4.0, "inRegionShare": 0.25, "unknownRegionCount": 0.0,
-		"meanLegs": 1.0, "reassignmentRate": 0.25, "unsourceableCount": 1.0}}
+		"meanLegs": 1.0, "reassignmentRate": 0.25, "unsourceableCount": 1.0,
+		// ADR 0018: two sourced orders, one released as two groups, one (released twice) as one.
+		"splitShipment": map[string]any{"decisions": 2.0, "splitDecisions": 1.0, "splitShare": 0.5, "groupsPerDecision": []any{
+			map[string]any{"bucket": "1", "decisions": 1.0}, map[string]any{"bucket": "2", "decisions": 1.0},
+			map[string]any{"bucket": "3", "decisions": 0.0}, map[string]any{"bucket": "4+", "decisions": 0.0}}}}}
 	if got := days("/reports/sourcing-mix"); !reflect.DeepEqual(got, wantMix) {
 		t.Errorf("sourcing-mix = %v\nwant %v", got, wantMix)
 	}

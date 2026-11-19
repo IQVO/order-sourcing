@@ -57,7 +57,7 @@ func TestSpecReportsPathsMatchTheRouter(t *testing.T) {
 // Every JSON field the wire bodies write is a property name in the spec.
 func TestSpecDocumentsEveryWireField(t *testing.T) {
 	spec := specText(t)
-	for _, v := range []any{mixDayBody{}, mixReportBody{}, splitDayBody{}, splitsReportBody{}, costDayBody{}, costReportBody{}, freshnessBody{}} {
+	for _, v := range []any{mixDayBody{}, splitShipmentBody{}, shipmentBucketBody{}, mixReportBody{}, splitDayBody{}, splitsReportBody{}, costDayBody{}, costReportBody{}, freshnessBody{}} {
 		typ := reflect.TypeOf(v)
 		for i := range typ.NumField() {
 			name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
