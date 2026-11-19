@@ -5,6 +5,10 @@ metadata:
   name: {{ include "order-sourcing.fullname" . }}
   labels:
     {{- include "order-sourcing.labels" . | nindent 4 }}
+  {{- with include "order-sourcing.kongPluginNames" . }}
+  annotations:
+    konghq.com/plugins: {{ . | quote }}
+  {{- end }}
 spec:
   parentRefs:
     {{- range .Values.gatewayApi.parentRefs }}
