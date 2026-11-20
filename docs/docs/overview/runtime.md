@@ -101,7 +101,7 @@ after the handler returned (there is no auto-commit), so delivery is at-least-on
   table with `attempts` and `last_error`. Fix the cause, then re-arm it:
   `UPDATE outbox_events SET attempts = 0 WHERE id = <id>;`. While a row is skipped, later events of the same assignment can
   overtake it.
-- Idempotency keys older than 24 h are ignored on lookup (the row is overwritten on the next use of the same key). Nothing in
+- Idempotency keys older than 24 h are ignored on lookup (the row is overwritten on the next use of the same key). What a retry under a key gets depends on the replay class of the first answer (ADR 0019, `internal/adapters/inbound/http/errors.go`): a 2xx and a FINAL refusal (`malformed-request`, `assignment-locked`) are stored and replayed; a RETRYABLE refusal (`release-in-flight`, `node-excluded`, `stale-assignment-version`, `candidate-breaks-promise`, `not-found`, `concurrent-update`, `illegal-transition`, `validation-failed`), an answer with no class, a 5xx and a panic roll everything back, key row included, and store nothing, so the same key runs the request again and a different body under it is a new request. A concurrent duplicate waits on the key (advisory lock); when the first ends RETRYABLE it finds no row and runs the request itself. Nothing in
   the code deletes rows from `idempotency_keys`, `processed_events` or published `outbox_events`; they grow until an operator
   prunes them.
 - Every Postgres connection has `statement_timeout = 5s` and the pool holds at most 10 connections per process

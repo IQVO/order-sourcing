@@ -31,11 +31,17 @@ not by REST (ADR 0002).
   is an opaque 500 `internal-error`. A new `Err` needs a catalogue row and a row in
   `TestEveryTypedErrorHasItsProblem` (`handlers_test.go`).
 - **Idempotency-Key** is required on every POST/PATCH (`idempotency.go`): the key is GLOBAL (looked up alone,
-  fingerprint = method + path + body hash); same key + same request replays the stored answer
+  fingerprint = method + path + body hash); same key + same request replays the stored answer when it is final
   (`Idempotency-Replayed: true`), same key + other request is 409 `idempotency-key-reused`,
   missing key 400 `idempotency-key-required`, a key outside 1-128 printable ASCII 400
-  `idempotency-key-invalid`; keys live 24 h in `idempotency_keys`. A new keyed route
-  goes inside the `r.Group` that `Server.Handler` wraps with `s.Idempotency`.
+  `idempotency-key-invalid`; keys live 24 h in `idempotency_keys`. The handler runs in a SAVEPOINT.
+  Every catalogue entry declares a replay class (`errors.go`, ADR 0019; no class fails
+  `TestEveryCatalogueEntryDeclaresAReplayClass`): a 2xx and a FINAL refusal (`malformed-request`,
+  `assignment-locked`) are stored and replayed, an OUTCOME refusal commits its writes with the stored answer
+  (none today), a RETRYABLE refusal, an unclassified one, a 5xx and a panic release the key (rollback, nothing
+  stored, a retry under the same key executes, another body under it is a new request). Classify a new `Err` in
+  its catalogue row, ADR 0019's table and the `release the key (RETRYABLE)` sentence of `apis/openapi.yaml`. A new
+  keyed route goes inside the `r.Group` that `Server.Handler` wraps with `s.Idempotency`.
 - **NUL** (U+0000) is rejected before anything else (`nul.go`).
 - **Handlers hold no business logic**: decode, call a use case, encode the view.
 - **Auth**: none. REST is unauthenticated, as in the rest of the network

@@ -139,6 +139,10 @@ in [Troubleshooting](/docs/operations/troubleshooting#rest-problem-types). Probl
 | bad `limit`, bad `cursor`, undeclared query parameter on `GET /assignments` | 400 | `invalid-limit`, `invalid-cursor`, `unknown-query-parameter` |
 | anything else | 500 | `internal-error` |
 
+Each catalogue entry also declares the replay class of its problem (ADR 0019): `malformed-request` and `assignment-locked` are FINAL
+(stored and replayed under the same `Idempotency-Key`); every other entry is RETRYABLE (nothing is stored, the key is released and a retry
+executes again); no entry is OUTCOME, because no refusal commits state first.
+
 `assignment.ErrCancelAfterLock`, `ErrReleaseNotPending` and `ErrStaleRevision` have no REST route that can raise them; they
 only occur on the Kafka path.
 
