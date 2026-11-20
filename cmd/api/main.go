@@ -213,7 +213,9 @@ func run(ctx context.Context) error {
 		return err
 	}
 	sweep, closeSweep := startSweep(svc.sweep, logger)
-	return serveUntilSignal(ctx, logger, httpServer, readiness, append(consumers, sweep), closeConsumers, closeSweep, relay, closeRelay)
+	purge, closePurge := startIdempotencyPurge(svc.pool, logger)
+	return serveUntilSignal(ctx, logger, httpServer, readiness, append(consumers, sweep, purge), closeConsumers,
+		func() { closeSweep(); closePurge() }, relay, closeRelay)
 }
 
 func newLogger(level string) *slog.Logger {
