@@ -15,6 +15,7 @@ import (
 	"github.com/claudioed/order-sourcing/internal/application/repository"
 	"github.com/claudioed/order-sourcing/internal/application/views"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
+	"github.com/claudioed/order-sourcing/internal/domain/policy"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
@@ -183,6 +184,7 @@ func TestEveryTypedErrorHasItsProblem(t *testing.T) {
 		{ports.ErrConcurrentUpdate, 409, "concurrent-update"},
 		{shared.ErrIllegalTransition, 409, "illegal-transition"},
 		{shared.Invalid("x"), 422, "validation-failed"},
+		{policy.ErrVersionNotNext, 409, "policy-version-not-next"},
 		{fmt.Errorf("wrapped: %w", assignment.ErrAssignmentLocked), 409, "assignment-locked"},
 		{errors.New("pq: password=hunter2"), 500, "internal-error"},
 	}

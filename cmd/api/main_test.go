@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	outboxrelay "github.com/claudioed/order-sourcing/internal/adapters/outbound/outbox"
 )
 
@@ -136,4 +138,61 @@ func TestWorkersAreWatchedAndAwaited(t *testing.T) {
 	if _, _, err := startOutboxRelay(nil, nil, l); !errors.Is(err, errMissingBrokers) {
 		t.Fatalf("a relay without brokers refuses to start: %v", err)
 	}
+}
+
+func TestThePurgeRunsBatchesUntilOneComesBackShort(t *testing.T) {
+	var limits []int
+	left := 1100
+	purge := func(_ context.Context, limit int) (int, error) {
+		limits = append(limits, limit)
+		n := min(left, limit)
+		left -= n
+		return n, nil
+	}
+	if got := purgeOnce(context.Background(), purge, 500, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))); got != 1100 || len(limits) != 3 {
+		t.Fatalf("purged %d rows in batches %v, want 1100 in 3 batches of at most 500", got, limits)
+	}
+}
+
+func TestAFailedPurgeIsLoggedAndEndsThePass(t *testing.T) {
+	var logs bytes.Buffer
+	calls := 0
+	purge := func(context.Context, int) (int, error) {
+		calls++
+		if calls == 1 {
+			return 2, nil
+		}
+		return 0, errors.New("db down")
+	}
+	got := purgeOnce(context.Background(), purge, 2, slog.New(slog.NewTextHandler(&logs, nil)))
+	if got != 2 || calls != 2 || !strings.Contains(logs.String(), "db down") {
+		t.Fatalf("purged %d in %d calls, log %q: want 2 rows, the failure logged and the pass ended", got, calls, logs.String())
+	}
+}
+
+func TestACancelledPurgeStopsWithoutLoggingAFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var logs bytes.Buffer
+	purge := func(context.Context, int) (int, error) { cancel(); return 0, context.Canceled }
+	purgeOnce(ctx, purge, 10, slog.New(slog.NewTextHandler(&logs, nil)))
+	if strings.Contains(logs.String(), "failed") {
+		t.Fatalf("a shutdown is not a failure: %q", logs.String())
+	}
+}
+
+func TestThePurgeWorkerStopsWhenItsStopIsCalled(t *testing.T) {
+	db := noopExec{}
+	w, stop := startIdempotencyPurge(db, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	stop()
+	select {
+	case <-w.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the purge worker did not stop")
+	}
+}
+
+type noopExec struct{}
+
+func (noopExec) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag("DELETE 0"), nil
 }

@@ -118,4 +118,4 @@ Built from the data that exists, not shipped as rules:
 | Unsourceable share | `sourcing_groups_sourced_total{outcome="unsourceable"}` against the total | a rising share means stock, lanes or service areas are missing for what is promised |
 | Service failing | `sourcing_groups_sourced_total{outcome="failed",reason="internal-error"}` | any sustained rate: orders are not being sourced |
 | Readiness | `GET /readyz` 503 `dependency-unavailable`; WARN `readiness: dependency is not ready` | not ready for more than a minute |
-| Table growth | row counts of `outbox_events`, `idempotency_keys`, `processed_events` (nothing deletes them) | capacity planning |
+| Table growth | row counts of `outbox_events`, `idempotency_keys`, `processed_events` (nothing deletes `outbox_events` or `processed_events`; expired `idempotency_keys` rows are purged hourly) | capacity planning |

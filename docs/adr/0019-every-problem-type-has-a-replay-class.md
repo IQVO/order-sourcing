@@ -152,3 +152,61 @@ just read, so it cannot occur on a keyed route today; it would answer 500). 10 c
 - Out of scope, found and not changed: nothing deletes expired `idempotency_keys` rows (they are overwritten on the
   next use of the same key and ignored on lookup after 24 hours); ADR 0010's migration 0002 comment and the runbook
   still say so.
+
+## Addendum 2026-11-20: retention purge and `policy-version-not-next`
+
+The Decision text above is unchanged. Two things it records as open are closed here. This addendum supersedes Decision 8
+("Nothing deletes expired rows"), the last bullet of Consequences ("out of scope: nothing deletes expired
+`idempotency_keys` rows") and the sentence of the problems paragraph that says `policy.ErrVersionNotNext` is not a
+catalogue entry; the entry count there (10 entries, 8 RETRYABLE) is now 11 entries, 11 slugs: 2 FINAL, 9 RETRYABLE,
+0 OUTCOME.
+
+### Retention
+
+1. **A background purge deletes the expired rows.** `PurgeExpiredIdempotencyKeys` (`idempotency_retention.go`) deletes
+   `created_at <= now() - IdempotencyTTL`, the exact complement of the read check (`replay`: `created_at > now() - ttl`).
+   `IdempotencyTTL` (24 h, `idempotency.go`) is the one constant both use; the purge takes it as the same interval
+   argument. Expiry is still enforced at read, so a purge that is late or fails changes no answer: it only bounds the table.
+2. **Bounded and never waiting.** One statement deletes at most `IdempotencyPurgeBatch` (500) rows, picked
+   `ORDER BY created_at LIMIT n FOR UPDATE SKIP LOCKED`; `cmd/api` (`main_purge.go`) runs it at once and then every hour,
+   repeating a pass until a batch comes back short, and logs `idempotency purge` (`purged`) or, at ERROR,
+   `idempotency purge failed` (retried at the next tick). It is a worker like the sweep and the relay: always on, awaited
+   at shutdown. Chosen over a purge on the keyed write (the way linehaul-transportation does it) because the hot path then
+   stays one lookup and one upsert, and over a whole-table `DELETE` (customer-returns) because a long delete after an
+   outage would hold locks.
+3. **It cannot race a request holding the key.** A request takes `pg_advisory_xact_lock(key)`, reads (an expired row is a
+   miss) and only last upserts the row (`ON CONFLICT (key) DO UPDATE ... created_at = now()`), holding the row lock until
+   the commit. The purge never takes that advisory lock and never waits on a row lock: a row the request already upserted
+   is locked and skipped (and it is live now, so the predicate would not match it anyway, which is re-checked once a lock is
+   taken). A row the purge deletes before the upsert only turns the upsert into an `INSERT`; a purge that holds the row
+   while the upsert arrives makes the upsert wait for that single statement and then insert. A request therefore always
+   answers as a fresh request on an expired key, once, and leaves exactly one live row.
+   `TestPurgeNeverDeletesARowARequestHoldsAndNeverWaitsForIt` and
+   `TestPurgeRacingARequestOnAnExpiredKeyKeepsTheRequestCorrect` (Postgres) prove it; the expired-deleted /
+   live-kept / batch-bounded cases are `TestPurgeDeletesExpiredKeysAndKeepsLiveOnes` and
+   `TestPurgeDeletesAtMostOneBatchPerCall`.
+
+### `policy-version-not-next`
+
+`policy.ErrVersionNotNext` is raised in one place, `policy.Publish` (`policy.go`): `current < 0 || current >= MaxVersion`,
+where `current` is the stored highest version that `SourcingPolicies.Publish` (`usecases/policy.go`) just read in the same
+transaction. `PUT /sourcing-policy` is the only route that reaches it, it takes no version from the caller, and the
+version is computed server-side, so the error is not a caller that sent a stale number: the stored version cannot be
+incremented (it is at the 2^31 - 1 ceiling the wire and the column hold, or it is out of range). It cannot happen in normal operation, but
+it is a state fact about the policy, not a server fault, and before this addendum it would have answered an opaque 500.
+
+It is now a catalogue entry: **409 `policy-version-not-next`** (a conflict with the current state of the target resource),
+title "The policy version cannot be incremented", class **RETRYABLE**. The class follows the rule "when unsure,
+RETRYABLE": nothing was committed, the answer is a function of stored state and not of the request, and the state is not
+guaranteed terminal (an operator can repair `sourcing_policies`); a retry costs one rolled-back transaction and cannot pin a
+false 409 under the key for 24 hours. This differs from a first reading of the error as "fetch the current version and
+retry": there is no caller version to fix, `GET /sourcing-policy` only shows the stored one.
+
+| Problem type | Class | Status | Reason |
+| --- | --- | --- | --- |
+| `policy-version-not-next` | RETRYABLE | 409 | `policy.Publish` (`policy.go` 77-79): the stored version is at `MaxVersion` or out of range, so n+1 does not exist; a state of the policy that an operator can repair, nothing committed |
+
+`TestEveryTypedErrorHasItsProblem` and `TestPutSourcingPolicyMapsTheDomainErrorsToProblems` pin the 409 and its slug;
+`TestTheADRDeclaresTheClassOfEveryProblem` holds the row above equal to the catalogue and
+`TestTheSpecListsTheRetryableProblemTypes` the RETRYABLE sentence of `apis/openapi.yaml`. No route, status code or
+response of the spec is added: `PUT /sourcing-policy` already documents 409.
