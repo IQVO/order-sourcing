@@ -215,7 +215,7 @@ func TestReplayQueryFiltersByKeyAndTTL(t *testing.T) {
 	if len(tx.queryArgs) != 2 || tx.queryArgs[0] != "k2" {
 		t.Fatalf("args = %v", tx.queryArgs)
 	}
-	if d, ok := tx.queryArgs[1].(string); !ok || d != idempotencyTTL.String() {
+	if d, ok := tx.queryArgs[1].(string); !ok || d != IdempotencyTTL.String() {
 		t.Fatalf("ttl arg = %v, want the 24h idempotency window", tx.queryArgs[1])
 	}
 }

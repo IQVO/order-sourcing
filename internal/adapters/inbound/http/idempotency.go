@@ -22,10 +22,11 @@ const (
 	IdempotencyReplayedHeader = "Idempotency-Replayed"
 )
 
-const (
-	maxKeyLen      = 128
-	idempotencyTTL = 24 * time.Hour
-)
+const maxKeyLen = 128
+
+// IdempotencyTTL is how long a stored key answers replays: the one constant the read check
+// (replay) and the retention purge (PurgeExpiredIdempotencyKeys) both use.
+const IdempotencyTTL = 24 * time.Hour
 
 // TxBinder returns a child context carrying tx, so the use case's own unit of
 // work JOINS the transaction the middleware opened. cmd wires the outbound
@@ -188,7 +189,7 @@ func replay(ctx context.Context, tx pgx.Tx, w http.ResponseWriter, key, fingerpr
 		stored string
 	)
 	err = tx.QueryRow(ctx, `SELECT fingerprint, status, body, headers FROM idempotency_keys WHERE key = $1 AND created_at > now() - $2::interval`,
-		key, idempotencyTTL.String()).Scan(&stored, &status, &body, &raw)
+		key, IdempotencyTTL.String()).Scan(&stored, &status, &body, &raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, nil
 	}
