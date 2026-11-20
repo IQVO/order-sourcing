@@ -100,7 +100,13 @@ func newReplayWorld(t *testing.T) *replayWorld {
 
 var base = time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 
-func (w *replayWorld) seed(id string, release bool) {
+const (
+	stageQueued = iota
+	stageReleased
+	stageLocked
+)
+
+func (w *replayWorld) seed(id string, stage int) {
 	w.t.Helper()
 	in := assignment.New{
 		ID: assignment.ID(id), OrderID: "ord-" + id, GroupNo: 1, DestinationPostalPrefix: "30301",
@@ -118,7 +124,7 @@ func (w *replayWorld) seed(id string, release bool) {
 	if err := w.store.Save(context.Background(), a); err != nil {
 		w.t.Fatalf("save %s: %v", id, err)
 	}
-	if !release {
+	if stage == stageQueued {
 		return
 	}
 	lines := []assignment.Line{{LineNo: 1, CatalogItemID: "cat-1", ListingID: "lst-1", OwnerRef: "sel-1", Quantity: 2}}
@@ -128,6 +134,14 @@ func (w *replayWorld) seed(id string, release bool) {
 	}
 	if err := w.store.Save(context.Background(), a); err != nil {
 		w.t.Fatalf("save released %s: %v", id, err)
+	}
+	if stage == stageLocked {
+		if _, err := a.Lock(1, base.Add(3*time.Hour), base.Add(3*time.Hour)); err != nil {
+			w.t.Fatalf("lock %s: %v", id, err)
+		}
+		if err := w.store.Save(context.Background(), a); err != nil {
+			w.t.Fatalf("save locked %s: %v", id, err)
+		}
 	}
 }
 
@@ -163,7 +177,7 @@ func replayed(h http.Header) bool { return h.Get("Idempotency-Replayed") == "tru
 
 func TestAnOptimisticLockLossIsNotStoredAndItsKeyRetriesTheWork(t *testing.T) {
 	w := newReplayWorld(t)
-	w.seed("asg-race", false)
+	w.seed("asg-race", stageQueued)
 	w.repo.losses.Store(2) // the load, then the in-use-case retry on fresh state: both lose
 
 	code, h, body := w.reoptimise("asg-race", "k-race", `{}`)
@@ -200,7 +214,7 @@ func TestANotFoundIsNotStoredSoTheKeyWorksOnceTheEventArrives(t *testing.T) {
 	if code, _, body := w.reoptimise("asg-late", "k-late", `{"assignmentVersion":0}`); code != 404 || strings.Contains(body, "idempotency-key-reused") {
 		t.Fatalf("another body under the released key = %d %s, want a new request (404 again)", code, body)
 	}
-	w.seed("asg-late", false) // FulfillmentQueued: the assignment arrives from the event
+	w.seed("asg-late", stageQueued) // CustomerOrderPlaced: the assignment arrives from the event
 	code, h, first := w.reoptimise("asg-late", "k-late", `{}`)
 	if code != 200 || replayed(h) || w.keyRows("k-late") != 1 {
 		t.Fatalf("after the event = %d replayed=%v rows=%d %s, want a fresh stored 200", code, replayed(h), w.keyRows("k-late"), first)
@@ -212,7 +226,7 @@ func TestANotFoundIsNotStoredSoTheKeyWorksOnceTheEventArrives(t *testing.T) {
 
 func TestAStateRefusalLeavesNoTraceAndIsNotStored(t *testing.T) {
 	w := newReplayWorld(t)
-	w.seed("asg-rel", true)
+	w.seed("asg-rel", stageReleased)
 	versionBefore := w.count(`SELECT version FROM assignments WHERE assignment_id = 'asg-rel'`)
 	outboxBefore := w.count(`SELECT count(*) FROM outbox_events`)
 
@@ -228,6 +242,18 @@ func TestAStateRefusalLeavesNoTraceAndIsNotStored(t *testing.T) {
 	}
 	if code, h, _ := w.reoptimise("asg-rel", "k-rel", `{}`); code != 409 || replayed(h) {
 		t.Fatalf("the retry = %d replayed=%v, want the refusal executed again, not replayed", code, replayed(h))
+	}
+}
+
+func TestALockedAssignmentRefusalIsFinalSoItIsStoredAndReplayed(t *testing.T) {
+	w := newReplayWorld(t)
+	w.seed("asg-lock", stageLocked)
+	code, _, first := w.reoptimise("asg-lock", "k-lock", `{}`)
+	if code != 409 || slugOf(t, first) != "assignment-locked" || w.keyRows("k-lock") != 1 {
+		t.Fatalf("a LOCKED assignment = %d %s rows=%d, want 409 assignment-locked stored", code, first, w.keyRows("k-lock"))
+	}
+	if code, h, again := w.reoptimise("asg-lock", "k-lock", `{}`); code != 409 || !replayed(h) || again != first {
+		t.Fatalf("replay = %d replayed=%v, want the stored 409", code, replayed(h))
 	}
 }
 
@@ -262,7 +288,7 @@ func TestAValidationRefusalOfThePolicyRouteIsNotStored(t *testing.T) {
 
 func TestAConcurrentDuplicateOfARetryableRefusalRunsTheWorkItself(t *testing.T) {
 	w := newReplayWorld(t)
-	w.seed("asg-dup", false)
+	w.seed("asg-dup", stageQueued)
 	w.repo.losses.Store(2)
 	release := w.repo.holdNext()
 
