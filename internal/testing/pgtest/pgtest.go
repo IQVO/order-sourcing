@@ -212,3 +212,25 @@ func CountRows(t *testing.T, pool *pgxpool.Pool, table string) int {
 	}
 	return n
 }
+
+// IdempotencyKeys returns the keys held by idempotency_keys, sorted.
+func IdempotencyKeys(t *testing.T, pool *pgxpool.Pool) []string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `SELECT key FROM idempotency_keys ORDER BY key`)
+	if err != nil {
+		t.Fatalf("list idempotency keys: %v", err)
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			t.Fatalf("scan idempotency key: %v", err)
+		}
+		keys = append(keys, k)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("list idempotency keys: %v", err)
+	}
+	return keys
+}
