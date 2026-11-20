@@ -17,8 +17,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/postgres"
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/postgres/pgtx"
 	"github.com/claudioed/order-sourcing/internal/testing/pgtest"
@@ -430,13 +428,26 @@ func TestPanicIsNotStored(t *testing.T) {
 // pool, a different connection, so only committed writes count; KeyRows counts idempotency_keys.
 
 type repoAdapter struct {
-	pool *pgxpool.Pool
-	errs map[string]error // slug -> an error the production catalogue maps to it
+	mw    func(http.Handler) http.Handler // the production middleware over this adapter's pool
+	count func(t *testing.T, query string, args ...any) int
+	errs  map[string]error // slug -> an error the production catalogue maps to it
 }
 
 func newReplayAdapter(t *testing.T) replayAdapter {
 	t.Helper()
-	a := &repoAdapter{pool: pgtest.NewPool(t), errs: map[string]error{}}
+	pool := pgtest.NewPool(t)
+	a := &repoAdapter{
+		mw: RequireIdempotencyKey(pool, postgres.BindTx),
+		count: func(t *testing.T, query string, args ...any) int {
+			t.Helper()
+			var n int
+			if err := pool.QueryRow(context.Background(), query, args...).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			return n
+		},
+		errs: map[string]error{},
+	}
 	for _, e := range problemCatalogue {
 		if _, seen := a.errs[e.p.slug]; !seen {
 			a.errs[e.p.slug] = e.err
@@ -458,7 +469,7 @@ func (a *repoAdapter) Catalogue() []problemEntry {
 }
 
 func (a *repoAdapter) Middleware(_ *testing.T, next http.Handler) http.Handler {
-	return RequireIdempotencyKey(a.pool, postgres.BindTx)(next)
+	return a.mw(next)
 }
 
 func (a *repoAdapter) Refuse(w http.ResponseWriter, r *http.Request, e problemEntry) {
@@ -482,13 +493,4 @@ func (a *repoAdapter) Committed(t *testing.T, tag string) int {
 func (a *repoAdapter) KeyRows(t *testing.T, key string) int {
 	t.Helper()
 	return a.count(t, `SELECT count(*) FROM idempotency_keys WHERE key = $1`, key)
-}
-
-func (a *repoAdapter) count(t *testing.T, query string, args ...any) int {
-	t.Helper()
-	var n int
-	if err := a.pool.QueryRow(context.Background(), query, args...).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n
 }

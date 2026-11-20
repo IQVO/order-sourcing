@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/claudioed/order-sourcing/internal/adapters/outbound/postgres"
 	"github.com/claudioed/order-sourcing/internal/adapters/outbound/postgres/pgtx"
 	"github.com/claudioed/order-sourcing/internal/application/ports"
 )
@@ -37,7 +36,7 @@ func keyRow(t *testing.T, a replayAdapter, key string) int { return a.KeyRows(t,
 func TestAFinalRefusalFromAnAbortedTransactionCommitsTheOutcome(t *testing.T) {
 	a := newReplayAdapter(t)
 	var calls atomic.Int32
-	mw := RequireIdempotencyKey(a.(*repoAdapter).pool, postgres.BindTx)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw := a.Middleware(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		poisonTx(t, r)
 		writeError(w, r, errMalformedRequest)
@@ -61,7 +60,7 @@ func TestAFinalRefusalFromAnAbortedTransactionCommitsTheOutcome(t *testing.T) {
 func TestARetryableRefusalFromAnAbortedTransactionReleasesTheKey(t *testing.T) {
 	a := newReplayAdapter(t)
 	var calls atomic.Int32
-	mw := RequireIdempotencyKey(a.(*repoAdapter).pool, postgres.BindTx)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw := a.Middleware(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {
 			poisonTx(t, r)
 			writeError(w, r, ports.ErrConcurrentUpdate)
@@ -82,7 +81,7 @@ func TestARetryableRefusalFromAnAbortedTransactionReleasesTheKey(t *testing.T) {
 func TestA2xxFromAnAbortedTransactionIsNeverCached(t *testing.T) {
 	a := newReplayAdapter(t)
 	var calls atomic.Int32
-	mw := RequireIdempotencyKey(a.(*repoAdapter).pool, postgres.BindTx)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw := a.Middleware(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if calls.Add(1) == 1 {
 			poisonTx(t, r)
 		}
