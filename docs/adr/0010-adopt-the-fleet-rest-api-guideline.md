@@ -40,3 +40,7 @@ lists. The guideline removes each divergence with a hard cutover: no aliases, no
 - Breaking: new URL, new list envelope, key now global. Deploy with the REST cutover set.
 - Migration 0002 deletes stored idempotency rows (at most 24 hours old, all for the retired route).
 - Consumers: the repo's `web/` remote (route, key, `items`); no sibling service calls this REST API.
+
+## Addendum 2026-11-20: idempotency replay classes
+
+Point 2 says the stored outcome is replayed whatever it is below 500. What a repeat under the same key answers now depends on the replay class of the first answer: only a 2xx and a FINAL refusal are replayed, a RETRYABLE refusal releases the key. The Decision text above is unchanged; [ADR 0019](./0019-every-problem-type-has-a-replay-class.md) holds the rule and the class of every problem type.

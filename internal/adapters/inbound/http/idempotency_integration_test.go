@@ -57,16 +57,18 @@ func TestIdempotencyKeyOnPostgres(t *testing.T) {
 		t.Fatalf("the same key on another request is 409 idempotency-key-reused: %d %s calls=%d", other.Code, other.Body, calls.Load())
 	}
 
+	// A refusal that carries no replay class (this handler writes the status itself, not through
+	// the catalogue) is released like a RETRYABLE one: the retry runs the handler again (ADR 0019).
 	status.Store(409)
 	c1, c2 := post(h, "/assignments/a/reoptimisations", "k409"), post(h, "/assignments/a/reoptimisations", "k409")
-	if c1.Code != 409 || c2.Code != 409 || calls.Load() != 2 || c2.Header().Get("Idempotency-Replayed") != "true" {
-		t.Fatalf("a 4xx is stored and replayed: %d %d calls=%d", c1.Code, c2.Code, calls.Load())
+	if c1.Code != 409 || c2.Code != 409 || calls.Load() != 3 || c2.Header().Get("Idempotency-Replayed") != "" || pgtest.CountRows(t, pool, "idempotency_keys") != 1 {
+		t.Fatalf("an unclassified 4xx is not stored: %d %d calls=%d rows=%d", c1.Code, c2.Code, calls.Load(), pgtest.CountRows(t, pool, "idempotency_keys"))
 	}
 
 	status.Store(500)
 	post(h, "/assignments/a/reoptimisations", "k500")
 	status.Store(200)
-	if r := post(h, "/assignments/a/reoptimisations", "k500"); r.Code != 200 || r.Header().Get("Idempotency-Replayed") != "" || calls.Load() != 4 {
+	if r := post(h, "/assignments/a/reoptimisations", "k500"); r.Code != 200 || r.Header().Get("Idempotency-Replayed") != "" || calls.Load() != 5 {
 		t.Fatalf("a 5xx is never stored, the key retries the real work: %d calls=%d", r.Code, calls.Load())
 	}
 }

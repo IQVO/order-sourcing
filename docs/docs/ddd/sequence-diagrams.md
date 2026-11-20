@@ -91,7 +91,7 @@ sequenceDiagram
     AD->>UC: reoptimise(assignmentId, assignmentVersion?)
     opt http with a known Idempotency-Key
         UC->>R: idempotency_keys lookup
-        R-->>AD: replay stored response
+        R-->>AD: replay stored response (a 2xx or a FINAL refusal; a RETRYABLE one is never stored, ADR 0019)
     end
     UC->>R: BEGIN, load assignment
     alt not found

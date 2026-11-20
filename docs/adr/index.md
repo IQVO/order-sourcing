@@ -32,3 +32,4 @@ The *Status* column is copied from each ADR's own `## Status` section.
 | [0016](./0016-consolidated-delivery-day-search-and-latest-pickup-hold.md) | the CONSOLIDATED delivery day: window start bounds the search, latest-pickup hold | Accepted (2026-11-10) |
 | [0017](./0017-carbon-emission-estimate.md) | the carbon estimate of a released path (planner-declared gCO2e beside the cents, ranking unchanged) | Accepted (2026-11-14) |
 | [0018](./0018-split-shipment-rate-on-the-sourcing-mix-report.md) | the split-shipment rate on the sourcing-mix report (shipment groups per sourced order, bounded 1/2/3/4+; no collection-point counter) | Accepted (2026-11-18) |
+| [0019](./0019-every-problem-type-has-a-replay-class.md) | every problem type has a replay class; a retryable refusal is not stored under its Idempotency-Key | Accepted (2026-11-20) |

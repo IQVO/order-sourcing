@@ -163,7 +163,7 @@ to the source topic with your Kafka tooling; the inbox on the CloudEvents `id` m
 
 Every `SWEEP_INTERVAL` (default 15 s) the sweep releases due assignments and re-optimises the queued ones page by page (100 rows).
 It logs `queue sweep` with `released`, `reoptimised` and `skipped` only when it did something, and `queue sweep pass failed` at
-ERROR on a database error. To force one assignment, call `POST /assignments/{id}/reoptimisations` with an `Idempotency-Key` header
+ERROR on a database error. To force one assignment, call `POST /assignments/{id}/reoptimisations` with an `Idempotency-Key` header (a refusal other than `malformed-request` and `assignment-locked` is not stored: the same key retries it)
 ([API overview](/docs/api-reference)). There is no REST operation that releases early.
 
 ## Alerts and dashboards (from `warehouse-infra` `origin/develop`)
@@ -203,7 +203,7 @@ Symptom-by-symptom tables are in [Troubleshooting](/docs/operations/troubleshoot
 | Read logs | Grafana Loki `{app="order-sourcing"}`; JSON fields include `consumer`, `topic`, `error`, `outbox_id`, `trace_id`, `request_id` |
 | Change configuration | change the Helm values (a config change is a rollout); consumer group changes re-read the topic from the start |
 | Inspect an assignment | `GET /assignments/{id}` or the MCP tool `get_assignment` ([MCP tools](/docs/mcp/tools)) |
-| Publish a sourcing policy | `PUT /sourcing-policy` with an `Idempotency-Key` and the whole document, for example `{"crossRegionSurchargeCents": 250, "maxCostDeviationPercent": 20}` (ranges 0..100000 and 0..200, an omitted field is 0 = off; see "Publishing a sourcing policy" below). `GET /sourcing-policy` shows the current version (version 0 = defaults) |
+| Publish a sourcing policy | `PUT /sourcing-policy` with an `Idempotency-Key` and the whole document, for example `{"crossRegionSurchargeCents": 250, "maxCostDeviationPercent": 20}` (ranges 0..100000 and 0..200, an omitted field is 0 = off; a `422 validation-failed` or `409 concurrent-update` is not stored, so the retry under the same key runs the publish again; see "Publishing a sourcing policy" below). `GET /sourcing-policy` shows the current version (version 0 = defaults) |
 | Re-optimise one queued assignment | `POST /assignments/{id}/reoptimisations` with `Idempotency-Key` and optionally `{"assignmentVersion": N}` |
 | Prune bookkeeping tables | nothing prunes `idempotency_keys`, `processed_events` or published `outbox_events`; plan retention in SQL yourself (keep `processed_events` as long as a topic can be re-read) |
 

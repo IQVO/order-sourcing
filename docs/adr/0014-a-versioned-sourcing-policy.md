@@ -111,3 +111,7 @@ order.
   (acknowledged silently) until a report needs it.
 - Deploy: no environment variable, topic or chart change; the analytics topic
   already exists.
+
+## Addendum 2026-11-20: idempotency replay classes
+
+Point 5 says a retried publish replays. That holds for a 2xx; a refusal of `PUT /sourcing-policy` (`validation-failed`, `concurrent-update`) is RETRYABLE and releases the key: the retry under the same key (or any body under it) runs the publish again, and the 409 text "retry with a new Idempotency-Key" no longer applies. The Decision text above is unchanged; [ADR 0019](./0019-every-problem-type-has-a-replay-class.md) holds the rule and the class of every problem type.

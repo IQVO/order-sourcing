@@ -64,7 +64,7 @@ Every error is `application/problem+json` with `type = https://errors.order-sour
 | 400 | `idempotency-key-required` | `POST /assignments/{id}/reoptimisations` without an `Idempotency-Key` header | Send a unique key per logical request |
 | 400 | `idempotency-key-invalid` | The `Idempotency-Key` is not 1 to 128 printable ASCII characters | Send a UUID |
 | 400 | `invalid-limit` / `invalid-cursor` / `unknown-query-parameter` | `GET /assignments` with a bad `limit`, an undecodable `cursor`, or a parameter it does not declare (`after`, `offset`, `nextToken`) | Use `limit` and the `nextCursor` of the previous page |
-| 409 | `idempotency-key-reused` | The `Idempotency-Key` was already used with a different method, path or body | A new logical request needs a new key; do not retry blindly |
+| 409 | `idempotency-key-reused` | The `Idempotency-Key` was already used with a different method, path or body, and the first answer was stored (a 2xx, `malformed-request` or `assignment-locked`). After a RETRYABLE refusal the key is released and a different body under it is a new request, not this error | A new logical request needs a new key; do not retry blindly |
 | 404 | `not-found` | Unknown assignment id | Normal for a wrong id |
 | 404 | `resource-not-found` | A path that names no resource, or a NUL in the path | Fix the path |
 | 405 | `method-not-allowed` | Method not allowed on the path | Use the documented method |
@@ -72,7 +72,7 @@ Every error is `application/problem+json` with `type = https://errors.order-sour
 | 409 | `release-in-flight` | Re-optimise while a release is `PENDING` (state `RELEASED`) | Wait for the node's answer |
 | 409 | `node-excluded` | A candidate on a node that refused this promise revision | Internal guard; the search never proposes an excluded node |
 | 409 | `stale-assignment-version` | `assignmentVersion` in the body differs from the current version | `GET` the assignment and retry with its version, or omit the field |
-| 409 | `concurrent-update` | Two writers raced on one aggregate; the loser's version guard failed (the use case already retries once) | Retry |
+| 409 | `concurrent-update` | Two writers raced on one aggregate; the loser's version guard failed (the use case already retries once). Not stored: the key is released | Retry with the same `Idempotency-Key`; a retry that answers without `Idempotency-Replayed` executed again |
 | 409 | `illegal-transition` | Re-optimise on `UNSOURCEABLE` or `CANCELLED` | None |
 | 422 | `validation-failed` | `limit` not 1 to 500, unknown `state`, `assignmentVersion` negative, or an `Idempotency-Key` over 128 characters | Use the `detail` text |
 | 422 | `candidate-breaks-promise` | The search result's ETA is after `deliverByLatest` | Internal guard |
@@ -81,10 +81,15 @@ Every error is `application/problem+json` with `type = https://errors.order-sour
 
 ### Idempotency in practice
 
-- Only `POST /assignments/{id}/reoptimisations` is wrapped; `GET` never needs a key.
-- The key is scoped to the method and path. A key with a stored answer replays that answer byte for byte, whatever its status (2xx
-  and 4xx are stored), with the header `Idempotency-Replayed: true`. The request body is not compared, so reusing a key with a
-  different `assignmentVersion` returns the first answer.
-- A 5xx or a panic rolls everything back and is never stored, so the same key can retry real work.
-- Two concurrent requests with one new key are serialised by a transaction-scoped advisory lock; the second replays the first.
+- `POST /assignments/{id}/reoptimisations` and `PUT /sourcing-policy` are wrapped; `GET` never needs a key.
+- The key is global (looked up alone); the stored fingerprint is method + path + body hash. A key with a stored answer replays that
+  answer byte for byte with the header `Idempotency-Replayed: true`; another method, path or body under it is
+  `409 idempotency-key-reused`.
+- What is stored is decided by the replay class of the first answer (ADR 0019): a 2xx, `malformed-request` and `assignment-locked`
+  are stored. A RETRYABLE refusal (`release-in-flight`, `node-excluded`, `stale-assignment-version`, `candidate-breaks-promise`,
+  `not-found`, `concurrent-update`, `illegal-transition`, `validation-failed`), a 5xx or a panic rolls everything back, the key row
+  included, and is never stored: the same key runs the request again (an answer without `Idempotency-Replayed` was executed), and a
+  different body under that key is a new request.
+- Two concurrent requests with one new key are serialised by a transaction-scoped advisory lock; the second replays the first if it
+  was stored, and runs the request itself if the first ended RETRYABLE or 5xx.
 - An answer older than 24 hours is not replayed; the next use overwrites the row. Nothing deletes old rows.
