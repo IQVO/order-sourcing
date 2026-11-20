@@ -130,6 +130,7 @@ in [Troubleshooting](/docs/operations/troubleshooting#rest-problem-types). Probl
 | `assignment.ErrCandidateBreaksPromise` | 422 | `candidate-breaks-promise` |
 | `ports.ErrNotFound` | 404 | `not-found` |
 | `ports.ErrConcurrentUpdate` | 409 | `concurrent-update` |
+| `policy.ErrVersionNotNext` | 409 | `policy-version-not-next` |
 | `shared.ErrIllegalTransition` | 409 | `illegal-transition` |
 | `shared.ErrValidation` | 422 | `validation-failed` |
 | malformed body or query | 400 | `malformed-request` |

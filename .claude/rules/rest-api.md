@@ -34,7 +34,7 @@ not by REST (ADR 0002).
   fingerprint = method + path + body hash); same key + same request replays the stored answer when it is final
   (`Idempotency-Replayed: true`), same key + other request is 409 `idempotency-key-reused`,
   missing key 400 `idempotency-key-required`, a key outside 1-128 printable ASCII 400
-  `idempotency-key-invalid`; keys live 24 h in `idempotency_keys`. The handler runs in a SAVEPOINT.
+  `idempotency-key-invalid`; keys live 24 h in `idempotency_keys` (`IdempotencyTTL`, one constant for the read check and the purge; a background purge, `cmd/api/main_purge.go`, deletes expired rows hourly in batches of 500). The handler runs in a SAVEPOINT.
   Every catalogue entry declares a replay class (`errors.go`, ADR 0019; no class fails
   `TestEveryCatalogueEntryDeclaresAReplayClass`): a 2xx and a FINAL refusal (`malformed-request`,
   `assignment-locked`) are stored and replayed, an OUTCOME refusal commits its writes with the stored answer
