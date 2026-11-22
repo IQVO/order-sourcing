@@ -73,9 +73,7 @@ func NewRouter(s *Server, logger *slog.Logger, serviceName string) http.Handler 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, notFound, "no resource matches the requested path")
 	})
-	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		writeProblem(w, r, methodNotAllowed, "the reports are read-only: only GET is supported")
-	})
+	r.MethodNotAllowed(methodNotAllowedFor(r, "the reports are read-only: only GET is supported"))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, statusBody{Status: "ok"}) })
 	r.Get("/readyz", s.handleReadyz)
 	r.Get("/reports/sourcing-mix", s.handleSourcingMix)
@@ -126,9 +124,22 @@ func serveRange[T any](s *Server, w http.ResponseWriter, r *http.Request, query 
 	writeJSON(w, http.StatusOK, body(rg, days))
 }
 
+// mixFacts is what the sourcing-mix report reads: the day counts and the
+// shipment counts of the split-shipment block (ADR 0018).
+type mixFacts struct {
+	days      []report.MixDay
+	shipments []report.ShipmentCount
+}
+
 func (s *Server) handleSourcingMix(w http.ResponseWriter, r *http.Request) {
-	serveRange(s, w, r, func(rg report.Range) ([]report.MixDay, error) { return s.Reader.SourcingMix(r.Context(), rg) },
-		func(rg report.Range, days []report.MixDay) any { return mixBody(rg, report.SourcingMix(days)) })
+	serveRange(s, w, r, func(rg report.Range) (mixFacts, error) {
+		days, err := s.Reader.SourcingMix(r.Context(), rg)
+		if err != nil {
+			return mixFacts{}, err
+		}
+		shipments, err := s.Reader.SplitShipment(r.Context(), rg)
+		return mixFacts{days: days, shipments: shipments}, err
+	}, func(rg report.Range, f mixFacts) any { return mixBody(rg, report.SourcingMix(f.days, f.shipments)) })
 }
 
 func (s *Server) handleOrderSplits(w http.ResponseWriter, r *http.Request) {

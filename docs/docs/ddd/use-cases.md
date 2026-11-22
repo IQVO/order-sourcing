@@ -130,6 +130,7 @@ in [Troubleshooting](/docs/operations/troubleshooting#rest-problem-types). Probl
 | `assignment.ErrCandidateBreaksPromise` | 422 | `candidate-breaks-promise` |
 | `ports.ErrNotFound` | 404 | `not-found` |
 | `ports.ErrConcurrentUpdate` | 409 | `concurrent-update` |
+| `policy.ErrVersionNotNext` | 409 | `policy-version-not-next` |
 | `shared.ErrIllegalTransition` | 409 | `illegal-transition` |
 | `shared.ErrValidation` | 422 | `validation-failed` |
 | malformed body or query | 400 | `malformed-request` |
@@ -138,6 +139,10 @@ in [Troubleshooting](/docs/operations/troubleshooting#rest-problem-types). Probl
 | `Idempotency-Key` reused with another request | 409 | `idempotency-key-reused` |
 | bad `limit`, bad `cursor`, undeclared query parameter on `GET /assignments` | 400 | `invalid-limit`, `invalid-cursor`, `unknown-query-parameter` |
 | anything else | 500 | `internal-error` |
+
+Each catalogue entry also declares the replay class of its problem (ADR 0019): `malformed-request` and `assignment-locked` are FINAL
+(stored and replayed under the same `Idempotency-Key`); every other entry is RETRYABLE (nothing is stored, the key is released and a retry
+executes again); no entry is OUTCOME, because no refusal commits state first.
 
 `assignment.ErrCancelAfterLock`, `ErrReleaseNotPending` and `ErrStaleRevision` have no REST route that can raise them; they
 only occur on the Kafka path.

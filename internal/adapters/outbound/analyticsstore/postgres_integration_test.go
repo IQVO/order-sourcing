@@ -196,3 +196,20 @@ func TestDecisionCostCheckIsAnIntegrityRule(t *testing.T) {
 		t.Fatal("cents with costComplete false must be refused by the schema")
 	}
 }
+
+// The shipment key column of migration 0002 (ADR 0018) is NULL (its own
+// shipment) or a non-empty carrier id; an empty string is an integrity error.
+func TestCarrierAssignmentIDIsNullOrNonEmpty(t *testing.T) {
+	pool, _ := migratedPool(t)
+	insert := `INSERT INTO sourcing_decisions (assignment_id, release_no, order_id, node_id, legs, cost_complete, units, candidate_count,
+		decided_at, event_id, carrier_assignment_id) VALUES ($1, 1, 'o', 'n', 0, false, 1, 1, now(), 'e', $2)`
+	if _, err := pool.Exec(ctx, insert, "a", nil); err != nil {
+		t.Fatalf("a NULL carrier must be accepted: %v", err)
+	}
+	if _, err := pool.Exec(ctx, insert, "b", "a"); err != nil {
+		t.Fatalf("a carrier id must be accepted: %v", err)
+	}
+	if _, err := pool.Exec(ctx, insert, "c", ""); err == nil {
+		t.Fatal("an empty carrier id must be refused by the schema")
+	}
+}

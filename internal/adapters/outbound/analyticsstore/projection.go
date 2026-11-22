@@ -41,14 +41,15 @@ const (
 	// One decision per (assignment, release): a republish carries the same facts.
 	upsertDecisionSQL = `
 	INSERT INTO sourcing_decisions (assignment_id, release_no, order_id, group_no, node_id, node_region_id,
-	    destination_region_id, in_region, legs, estimated_cost_cents, cost_complete, units, candidate_count, decided_at, event_id)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+	    destination_region_id, in_region, legs, estimated_cost_cents, cost_complete, units, candidate_count, decided_at, event_id, carrier_assignment_id)
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 	ON CONFLICT (assignment_id, release_no) DO UPDATE
 	SET order_id = EXCLUDED.order_id, group_no = EXCLUDED.group_no, node_id = EXCLUDED.node_id,
 	    node_region_id = EXCLUDED.node_region_id, destination_region_id = EXCLUDED.destination_region_id,
 	    in_region = EXCLUDED.in_region, legs = EXCLUDED.legs, estimated_cost_cents = EXCLUDED.estimated_cost_cents,
 	    cost_complete = EXCLUDED.cost_complete, units = EXCLUDED.units, candidate_count = EXCLUDED.candidate_count,
-	    decided_at = EXCLUDED.decided_at, event_id = EXCLUDED.event_id`
+	    decided_at = EXCLUDED.decided_at, event_id = EXCLUDED.event_id,
+	    carrier_assignment_id = EXCLUDED.carrier_assignment_id`
 
 	insertUnsourceableSQL = `
 	INSERT INTO unsourceable_declarations (event_id, assignment_id, order_id, declared_at)
@@ -94,7 +95,7 @@ func project(ctx context.Context, tx pgx.Tx, e report.Event) error {
 		d := e.Decision
 		_, err := tx.Exec(ctx, upsertDecisionSQL, e.AssignmentID, d.ReleaseNo, e.OrderID, nullInt(e.GroupNo), d.NodeID,
 			nullText(d.NodeRegionID), nullText(d.DestinationRegionID), d.InRegion, d.Legs, d.EstimatedCostCents, d.CostComplete,
-			d.Units, d.CandidateCount, e.OccurredAt, e.EventID)
+			d.Units, d.CandidateCount, e.OccurredAt, e.EventID, nullText(d.CarrierAssignmentID))
 		return err
 	}
 	if e.Kind == report.KindFulfillmentUnsourceable {

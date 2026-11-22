@@ -15,6 +15,10 @@ metadata:
   labels:
     {{- include "order-sourcing.labels" . | nindent 4 }}
     app.kubernetes.io/component: a2a
+  {{- with include "order-sourcing.kongPluginNames" . }}
+  annotations:
+    konghq.com/plugins: {{ . | quote }}
+  {{- end }}
 spec:
   parentRefs:
     {{- range .Values.a2a.route.parentRefs }}

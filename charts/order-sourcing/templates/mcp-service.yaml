@@ -10,12 +10,12 @@ spec:
   type: {{ .Values.mcp.service.type }}
   ports:
     - port: {{ .Values.mcp.service.port }}
-      targetPort: http
+      targetPort: {{ ternary "mcp" "http" (eq (include "order-sourcing.agentsColocated" .) "true") }}
       protocol: TCP
       name: http
   # component=mcp keeps this Service on exactly one Deployment
   # (tests/test_service_selectors.py).
   selector:
     {{- include "order-sourcing.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: mcp
+    app.kubernetes.io/component: {{ ternary "agents" "mcp" (eq (include "order-sourcing.agentsColocated" .) "true") }}
 {{- end }}

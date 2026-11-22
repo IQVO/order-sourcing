@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -119,6 +120,8 @@ func TestPutSourcingPolicyMapsTheDomainErrorsToProblems(t *testing.T) {
 	}{
 		{shared.Invalid("crossRegionSurchargeCents must be between 0 and 100000"), 422, "validation-failed"},
 		{ports.ErrConcurrentUpdate, 409, "concurrent-update"},
+		// The stored version cannot be incremented (policy.Publish, current >= MaxVersion): a 409, not an opaque 500.
+		{fmt.Errorf("%w: current version %d", policy.ErrVersionNotNext, policy.MaxVersion), 409, "policy-version-not-next"},
 	}
 	for _, c := range cases {
 		rec := callPolicy(&fakePolicy{err: c.err}, http.MethodPut, `{"crossRegionSurchargeCents":100001}`)

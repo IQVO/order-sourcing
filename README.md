@@ -166,7 +166,7 @@ consumers. The chart's `otel.*` values render the env.
 
 Contract: [`apis/openapi.yaml`](apis/openapi.yaml). No authentication. Errors are RFC 9457 `application/problem+json` (`type` is a slug such as
 `not-found`, `illegal-transition`, `concurrent-update`, `validation-failed`, `assignment-locked`, `release-in-flight`, `stale-assignment-version`).
-Every state-changing request needs an `Idempotency-Key` header: a repeat with the same request replays the first response for 24 hours (header `Idempotency-Replayed: true`); the same key with another request is `409 idempotency-key-reused`; a missing key is `400 idempotency-key-required`, a key that is not 1 to 128 printable ASCII characters `400 idempotency-key-invalid`. `GET /assignments` answers `{items, nextCursor}` (query `limit`, `cursor` and the filters; any other parameter is `400 unknown-query-parameter`).
+Every state-changing request needs an `Idempotency-Key` header: a repeat with the same request replays the first response for 24 hours (header `Idempotency-Replayed: true`) when it is final: a 2xx, `malformed-request` or `assignment-locked`. A refusal that depends on state that can change (`release-in-flight`, `node-excluded`, `stale-assignment-version`, `candidate-breaks-promise`, `not-found`, `concurrent-update`, `policy-version-not-next`, `illegal-transition`, `validation-failed`) is not stored: the key is released and the same request under the same key runs again (ADR 0019); the same key with another request is `409 idempotency-key-reused`; a missing key is `400 idempotency-key-required`, a key that is not 1 to 128 printable ASCII characters `400 idempotency-key-invalid`. `GET /assignments` answers `{items, nextCursor}` (query `limit`, `cursor` and the filters; any other parameter is `400 unknown-query-parameter`).
 
 | Method and path | Operation |
 | --- | --- |
@@ -269,7 +269,7 @@ on pre-commit and `make check` on pre-push. The harness itself:
 
 ## Architecture Decision Records
 
-Index: [`docs/adr/index.md`](docs/adr/index.md) — 16 ADRs (0001–0016): the
+Index: [`docs/adr/index.md`](docs/adr/index.md) — 18 ADRs (0001–0018): the
 bounded context (0001), aggregates, invariants and assumptions (0002),
 consumed contracts and local read models (0003), the CloudEvents catalogue
 (0004), outbox relay, attempt cap, sweep and shutdown (0005), the MCP server
@@ -279,7 +279,8 @@ money-denominated assignment cost (0011), owner-aware availability and
 sourcing (0012), the analytics read side and the sourcing-decision fact
 (0013), a versioned sourcing policy (0014), carrier and follower consolidation
 at release (0015), the consolidated delivery day, search window and
-latest-pickup hold (0016).
+latest-pickup hold (0016), the carbon estimate of a released path (0017), the
+split-shipment rate on the sourcing-mix report (0018).
 
 ## License
 

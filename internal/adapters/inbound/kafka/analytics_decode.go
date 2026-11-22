@@ -101,7 +101,7 @@ func toEvent(kind report.Kind, evt ce.Event) (report.Event, error) {
 		e.Decision = report.Decision{
 			ReleaseNo: d.ReleaseNo, NodeID: d.NodeID, NodeRegionID: d.NodeRegionID, DestinationRegionID: d.DestinationRegionID,
 			InRegion: d.InRegion, Legs: d.Legs, EstimatedCostCents: followerCost(d), CostComplete: d.CostComplete,
-			Units: d.Units, CandidateCount: d.CandidateCount,
+			Units: d.Units, CandidateCount: d.CandidateCount, CarrierAssignmentID: d.CarrierAssignmentID,
 		}
 	}
 	if err := e.Validate(); err != nil {

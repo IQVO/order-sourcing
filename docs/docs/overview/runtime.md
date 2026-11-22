@@ -43,11 +43,11 @@ makes concurrent starts safe. `cmd/a2a` validates `A2A_AGENT_URL` and `DATABASE_
 ## Shutdown
 
 `cmd/api`, on SIGINT or SIGTERM: `/readyz` flips to 503 `{"status":"not_ready"}`, wait `SHUTDOWN_DRAIN_DELAY` (default 5 s;
-`0` skips), close the HTTP listener and drain in-flight requests (10 s bound), stop the consumers and the sweep and await each
+`0` skips), close the HTTP listener and drain in-flight requests (10 s bound), stop the consumers, the sweep and the idempotency purge and await each
 (10 s bound), stop the relay and await it (10 s bound), close the pool, flush telemetry (5 s bound). The sum with the default
 delay is 35 s, which is why the chart refuses a `terminationGracePeriodSeconds` that does not exceed `shutdownDrainDelay` + 30 s.
 
-If any background worker (a consumer, the sweep or the relay) returns on its own, or the listener fails, the process stops
+If any background worker (a consumer, the sweep, the idempotency purge or the relay) returns on its own, or the listener fails, the process stops
 the rest and exits non-zero (`<worker> stopped unexpectedly: exiting so the orchestrator restarts the service`).
 
 `cmd/mcp` and `cmd/a2a` have no readiness gate and no drain delay: on SIGINT or SIGTERM they close the listener with a 10 s
@@ -101,9 +101,8 @@ after the handler returned (there is no auto-commit), so delivery is at-least-on
   table with `attempts` and `last_error`. Fix the cause, then re-arm it:
   `UPDATE outbox_events SET attempts = 0 WHERE id = <id>;`. While a row is skipped, later events of the same assignment can
   overtake it.
-- Idempotency keys older than 24 h are ignored on lookup (the row is overwritten on the next use of the same key). Nothing in
-  the code deletes rows from `idempotency_keys`, `processed_events` or published `outbox_events`; they grow until an operator
-  prunes them.
+- Idempotency keys older than 24 h are ignored on lookup, and the idempotency purge deletes them: once at start and then every hour, up to 500 rows per statement and repeated until a batch comes back short (`cmd/api/main_purge.go`; `FOR UPDATE SKIP LOCKED`, so a key a request holds is skipped, never waited for; the window is the single constant `IdempotencyTTL`, shared with the read check). What a retry under a key gets depends on the replay class of the first answer (ADR 0019, `internal/adapters/inbound/http/errors.go`): a 2xx and a FINAL refusal (`malformed-request`, `assignment-locked`) are stored and replayed; a RETRYABLE refusal (`release-in-flight`, `node-excluded`, `stale-assignment-version`, `candidate-breaks-promise`, `not-found`, `concurrent-update`, `policy-version-not-next`, `illegal-transition`, `validation-failed`), an answer with no class, a 5xx and a panic roll everything back, key row included, and store nothing, so the same key runs the request again and a different body under it is a new request. A concurrent duplicate waits on the key (advisory lock); when the first ends RETRYABLE it finds no row and runs the request itself. Nothing in
+  the code deletes rows from `processed_events` or published `outbox_events`; they grow until an operator prunes them.
 - Every Postgres connection has `statement_timeout = 5s` and the pool holds at most 10 connections per process
   (`internal/adapters/outbound/postgres/pool.go`).
 

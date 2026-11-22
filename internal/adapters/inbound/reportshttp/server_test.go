@@ -20,6 +20,8 @@ import (
 // fakeReader answers fixed rows and records the range it was asked for.
 type fakeReader struct {
 	mix    []report.MixDay
+	ships  []report.ShipmentCount
+	shipEr error
 	splits []report.SplitDay
 	cost   []report.CostDay
 	last   *time.Time
@@ -30,6 +32,11 @@ type fakeReader struct {
 func (f *fakeReader) SourcingMix(_ context.Context, r report.Range) ([]report.MixDay, error) {
 	f.asked = r
 	return f.mix, f.err
+}
+
+func (f *fakeReader) SplitShipment(_ context.Context, r report.Range) ([]report.ShipmentCount, error) {
+	f.asked = r
+	return f.ships, f.shipEr
 }
 
 func (f *fakeReader) OrderSplits(_ context.Context, r report.Range) ([]report.SplitDay, error) {
@@ -74,22 +81,41 @@ func TestSourcingMixReport(t *testing.T) {
 	r := &fakeReader{mix: []report.MixDay{
 		{Day: nov3, Releases: 4, InRegion: 2, OutOfRegion: 1, UnknownRegion: 1, Legs: 6, Reassignments: 1, Unsourceable: 2},
 		{Day: nov3.Add(24 * time.Hour), Unsourceable: 1},
-	}}
+	}, ships: []report.ShipmentCount{{Day: nov3, Groups: 1, Decisions: 2}, {Day: nov3, Groups: 2, Decisions: 1}, {Day: nov3, Groups: 6, Decisions: 1}}}
 	code, ct, body := serve(t, &reportshttp.Server{Reader: r}, http.MethodGet, "/reports/sourcing-mix?from=2026-11-01&to=2026-11-07")
 	if code != http.StatusOK || ct != "application/json" {
 		t.Fatalf("status %d content-type %s", code, ct)
 	}
 	want := map[string]any{"from": "2026-11-01", "to": "2026-11-07", "days": []any{
 		map[string]any{"day": "2026-11-03", "groupsReleased": 4.0, "inRegionShare": 2.0 / 3, "unknownRegionCount": 1.0, "meanLegs": 1.5,
-			"reassignmentRate": 0.25, "unsourceableCount": 2.0},
+			"reassignmentRate": 0.25, "unsourceableCount": 2.0, "splitShipment": splitBlock(4, 2, 0.5, 2, 1, 0, 1)},
 		map[string]any{"day": "2026-11-04", "groupsReleased": 0.0, "inRegionShare": nil, "unknownRegionCount": 0.0, "meanLegs": nil,
-			"reassignmentRate": nil, "unsourceableCount": 1.0},
+			"reassignmentRate": nil, "unsourceableCount": 1.0, "splitShipment": map[string]any{"decisions": 0.0, "splitDecisions": 0.0, "splitShare": nil,
+				"groupsPerDecision": []any{bucket("1", 0), bucket("2", 0), bucket("3", 0), bucket("4+", 0)}}},
 	}}
 	if !reflect.DeepEqual(body, want) {
 		t.Fatalf("body = %v\nwant %v", body, want)
 	}
 	if !r.asked.From.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) || !r.asked.To.Equal(time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("asked range = %+v, want [11-01, 11-08)", r.asked)
+	}
+}
+
+func bucket(label string, n float64) map[string]any {
+	return map[string]any{"bucket": label, "decisions": n}
+}
+
+// splitBlock is the wire form of a split-shipment block with the four buckets.
+func splitBlock(decisions, split, share, b1, b2, b3, b4 float64) map[string]any {
+	return map[string]any{"decisions": decisions, "splitDecisions": split, "splitShare": share,
+		"groupsPerDecision": []any{bucket("1", b1), bucket("2", b2), bucket("3", b3), bucket("4+", b4)}}
+}
+
+func TestSourcingMixSplitShipmentFailureIsAProblem(t *testing.T) {
+	r := &fakeReader{mix: []report.MixDay{{Day: nov3, Releases: 1}}, shipEr: errors.New("boom")}
+	code, ct, body := serve(t, &reportshttp.Server{Reader: r}, http.MethodGet, "/reports/sourcing-mix")
+	if code != http.StatusInternalServerError || ct != "application/problem+json" || strings.Contains(body["detail"].(string), "boom") {
+		t.Fatalf("%d %s %v; want a 500 problem that does not leak the cause", code, ct, body)
 	}
 }
 

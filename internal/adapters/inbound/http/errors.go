@@ -6,6 +6,7 @@ import (
 
 	"github.com/claudioed/order-sourcing/internal/application/ports"
 	"github.com/claudioed/order-sourcing/internal/domain/assignment"
+	"github.com/claudioed/order-sourcing/internal/domain/policy"
 	"github.com/claudioed/order-sourcing/internal/domain/shared"
 )
 
@@ -40,31 +41,73 @@ var (
 	unknownQueryParameter = problem{http.StatusBadRequest, "unknown-query-parameter", "Unknown query parameter"}
 )
 
+// catalogueEntry is one typed error, its problem and the replay class of that
+// problem: what the Idempotency-Key middleware does with the answer (ADR 0019).
+type catalogueEntry struct {
+	err    error
+	p      problem
+	replay replayClass
+}
+
 // problemCatalogue maps every typed error to its problem, in match order. The
 // specific domain errors come before the shared categories they wrap.
-var problemCatalogue = []struct {
-	err error
-	p   problem
-}{
-	{errMalformedRequest, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
-	{assignment.ErrAssignmentLocked, problem{http.StatusConflict, "assignment-locked", "Assignment is locked"}},
-	{assignment.ErrReleaseInFlight, problem{http.StatusConflict, "release-in-flight", "A release is pending"}},
-	{assignment.ErrNodeExcluded, problem{http.StatusConflict, "node-excluded", "Node is excluded"}},
-	{assignment.ErrStaleAssignmentVersion, problem{http.StatusConflict, "stale-assignment-version", "Stale assignment version"}},
-	{assignment.ErrCandidateBreaksPromise, problem{http.StatusUnprocessableEntity, "candidate-breaks-promise", "Candidate breaks the promise"}},
-	{ports.ErrNotFound, problem{http.StatusNotFound, "not-found", "Resource not found"}},
-	{ports.ErrConcurrentUpdate, problem{http.StatusConflict, "concurrent-update", "The resource was modified concurrently"}},
-	{shared.ErrIllegalTransition, problem{http.StatusConflict, "illegal-transition", "Illegal transition"}},
-	{shared.ErrValidation, problem{http.StatusUnprocessableEntity, "validation-failed", "Validation failed"}},
+//
+// Every entry declares its replay class (ADR 0019 holds the reason of each):
+// FINAL when the answer is a function of the request alone, OUTCOME when the
+// command committed state and then refused (none here: a refused request
+// commits nothing), RETRYABLE when nothing was committed and the answer
+// depends on state that can change (an optimistic-lock conflict, an assignment
+// an event has not created yet, the state or version of the aggregate). When
+// unsure the class is RETRYABLE: the refusal committed nothing, so running it
+// again costs one more execution. A new entry without a class fails
+// TestEveryCatalogueEntryDeclaresAReplayClass.
+var problemCatalogue = []catalogueEntry{
+	// The body is not what the operation takes: a function of the request alone, FINAL.
+	{errMalformedRequest, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}, replayFinal},
+	// LOCKED, SHIPPED and DELIVERED never go back to QUEUED and an assignment is never deleted: the same
+	// request can never pass, FINAL (ADR 0019, the lines of guardMovable and of the transitions into QUEUED).
+	{assignment.ErrAssignmentLocked, problem{http.StatusConflict, "assignment-locked", "Assignment is locked"}, replayFinal},
+	// A node's refusal or a promise revision moves the aggregate on; the state is not reached YET: RETRYABLE.
+	{assignment.ErrReleaseInFlight, problem{http.StatusConflict, "release-in-flight", "A release is pending"}, replayRetryable},
+	{assignment.ErrNodeExcluded, problem{http.StatusConflict, "node-excluded", "Node is excluded"}, replayRetryable},
+	// The caller's version can be behind OR ahead of the stored one, and the stored one moves: RETRYABLE.
+	{assignment.ErrStaleAssignmentVersion, problem{http.StatusConflict, "stale-assignment-version", "Stale assignment version"}, replayRetryable},
+	// The candidate comes from event-fed read models and the promise can be revised: RETRYABLE.
+	{assignment.ErrCandidateBreaksPromise, problem{http.StatusUnprocessableEntity, "candidate-breaks-promise", "Candidate breaks the promise"}, replayRetryable},
+	// Assignments are created by FulfillmentQueued events, never by REST: the target may arrive later: RETRYABLE.
+	{ports.ErrNotFound, problem{http.StatusNotFound, "not-found", "Resource not found"}, replayRetryable},
+	{ports.ErrConcurrentUpdate, problem{http.StatusConflict, "concurrent-update", "The resource was modified concurrently"}, replayRetryable},
+	// PUT /sourcing-policy computes version n+1 from the stored one; the stored one cannot be incremented (it is
+	// at the ceiling, or out of range). A conflict with the state of the policy, not with the request: nothing was
+	// committed, and an operator can repair the state, so it is not terminal for the key: RETRYABLE (ADR 0019 addendum).
+	{policy.ErrVersionNotNext, problem{http.StatusConflict, "policy-version-not-next", "The policy version cannot be incremented"}, replayRetryable},
+	{shared.ErrIllegalTransition, problem{http.StatusConflict, "illegal-transition", "Illegal transition"}, replayRetryable},
+	// One slug for request-only causes (the policy ranges) and state-derived ones (a candidate built from read models): RETRYABLE.
+	{shared.ErrValidation, problem{http.StatusUnprocessableEntity, "validation-failed", "Validation failed"}, replayRetryable},
 }
 
 // problemFor returns the problem of the first catalogue entry err matches,
 // or the internal-error problem.
 func problemFor(err error) problem {
-	for _, entry := range problemCatalogue {
-		if errors.Is(err, entry.err) {
-			return entry.p
-		}
+	if entry, ok := entryFor(err); ok {
+		return entry.p
 	}
 	return internalProblem
+}
+
+// entryFor returns the first catalogue entry err matches.
+func entryFor(err error) (catalogueEntry, bool) {
+	for _, entry := range problemCatalogue {
+		if errors.Is(err, entry.err) {
+			return entry, true
+		}
+	}
+	return catalogueEntry{}, false
+}
+
+// replayOf returns the replay class of the first catalogue entry err matches;
+// replayUnset for an error the catalogue does not know (an unmapped 5xx).
+func replayOf(err error) replayClass {
+	entry, _ := entryFor(err)
+	return entry.replay
 }

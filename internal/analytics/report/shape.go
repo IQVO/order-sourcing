@@ -8,17 +8,22 @@ import (
 
 // MixRow is a MixDay plus the KPIs of ADR 0013: the in-region share over the
 // decisions with a known region, the mean legs and the reassignment rate over
-// the releases. Each is nil when its denominator is 0.
+// the releases. Each is nil when its denominator is 0. SplitShipment is the
+// split-shipment block of ADR 0018 (the zero block on a day without decisions).
 type MixRow struct {
 	MixDay
 	InRegionShare    *float64
 	MeanLegs         *float64
 	ReassignmentRate *float64
+	SplitShipment    SplitShipment
 }
 
-// SourcingMix derives each day's KPIs. Order is preserved; a nil input yields
-// an empty, non-nil slice.
-func SourcingMix(days []MixDay) []MixRow {
+// SourcingMix derives each day's KPIs and joins the day's shipment counts
+// (ADR 0018). Order is preserved; a nil input yields an empty, non-nil slice.
+// A shipment count of a day that has no MixDay is not reported: a decision
+// day always has a release.
+func SourcingMix(days []MixDay, shipments []ShipmentCount) []MixRow {
+	blocks := splitShipments(shipments)
 	out := make([]MixRow, 0, len(days))
 	for _, d := range days {
 		out = append(out, MixRow{
@@ -26,6 +31,7 @@ func SourcingMix(days []MixDay) []MixRow {
 			InRegionShare:    Share(d.InRegion, d.InRegion+d.OutOfRegion),
 			MeanLegs:         Share(d.Legs, d.Releases),
 			ReassignmentRate: Share(d.Reassignments, d.Releases),
+			SplitShipment:    blocks[FormatDay(d.Day)],
 		})
 	}
 	return out

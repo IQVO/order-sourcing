@@ -22,10 +22,11 @@ const (
 	IdempotencyReplayedHeader = "Idempotency-Replayed"
 )
 
-const (
-	maxKeyLen      = 128
-	idempotencyTTL = 24 * time.Hour
-)
+const maxKeyLen = 128
+
+// IdempotencyTTL is how long a stored key answers replays: the one constant the read check
+// (replay) and the retention purge (PurgeExpiredIdempotencyKeys) both use.
+const IdempotencyTTL = 24 * time.Hour
 
 // TxBinder returns a child context carrying tx, so the use case's own unit of
 // work JOINS the transaction the middleware opened. cmd wires the outbound
@@ -34,9 +35,16 @@ type TxBinder func(ctx context.Context, tx pgx.Tx) context.Context
 
 // RequireIdempotencyKey is the transactional Idempotency-Key middleware of a
 // route. A transaction-scoped advisory lock serialises two requests with the same
-// key; the stored outcome (4xx included) is replayed for 24 hours; the
-// handler's writes, the outbox rows and the stored outcome commit together. A
-// 5xx or a panic rolls everything back and is never stored, so the key can retry.
+// key. What happens to the answer is its replay class (ADR 0019), declared on
+// the catalogue entry of its problem type and marked on the capture by
+// writeError: a 2xx is stored with the handler's writes, the outbox rows and the
+// key row in one commit; a FINAL refusal is stored and replayed for 24 hours (its
+// writes roll back); an OUTCOME refusal commits the handler's writes with the
+// stored problem; a RETRYABLE refusal, a refusal with no class, a 5xx and a panic
+// roll everything back, key row included, and are never stored, so the same key
+// runs the real work again. A request waiting on the key meanwhile finds no row
+// and runs the handler itself. A different body under a released key is a new
+// request, not idempotency-key-reused.
 func RequireIdempotencyKey(pool *pgxpool.Pool, bind TxBinder) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,16 +84,6 @@ func validKey(key string) bool {
 
 // serve runs a genuinely new key: capture the response, persist the outcome in
 // the same transaction, commit, and only then write to the real client.
-//
-// The handler runs behind a SAVEPOINT. A mapped domain conflict (a racing
-// request losing on a unique index, say) fails a statement on the server and
-// leaves the transaction ABORTED even though the handler answers a truthful
-// 4xx. Releasing the savepoint exposes that: the release fails, ROLLBACK TO
-// SAVEPOINT discards the half-done work and heals the transaction, and the 4xx
-// outcome is recorded and committed like any other (otherwise the outcome write
-// hits SQLSTATE 25P02 and the client sees a 500). A 2xx answer behind a failed
-// release is a lie (its writes are gone), so it rolls everything back and fails
-// the request instead, and the same key retries the real work.
 func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBinder, key, fingerprint string, next http.Handler) {
 	ctx := r.Context()
 	tx, err := pool.Begin(ctx)
@@ -115,6 +113,21 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 		}
 		return
 	}
+	runFreshRequest(ctx, w, r, tx, bind, key, fingerprint, next)
+}
+
+// runFreshRequest runs the handler behind a SAVEPOINT of tx and settles the answer by its verdict.
+//
+// The savepoint exists because a mapped domain conflict (a racing request losing
+// on a unique index, say) fails a statement on the server and leaves the
+// transaction ABORTED even though the handler answers a truthful 4xx. A FINAL
+// refusal is settled with ROLLBACK TO SAVEPOINT, which discards the handler's
+// partial writes and heals the transaction, so the refusal is stored and
+// committed like any other (otherwise the key write hits SQLSTATE 25P02 and the
+// client sees a 500). A 2xx or OUTCOME answer behind a failed RELEASE is a lie
+// (its writes are gone): everything rolls back and the request fails, and the
+// same key retries the real work.
+func runFreshRequest(ctx context.Context, w http.ResponseWriter, r *http.Request, tx pgx.Tx, bind TxBinder, key, fingerprint string, next http.Handler) {
 	if _, err := tx.Exec(ctx, "SAVEPOINT handler_run"); err != nil {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 		writeError(w, r, err)
@@ -125,12 +138,15 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 	if rec.code == 0 {
 		rec.code = http.StatusOK
 	}
-	if rec.code >= http.StatusInternalServerError {
+	v := rec.verdict()
+	if v == releaseKey {
+		// A 5xx and a RETRYABLE refusal are never cached: roll everything back,
+		// the key row included, so the same key can run the real work again.
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 		flush(w, rec)
 		return
 	}
-	if err := releaseHandlerSavepoint(ctx, tx, rec); err != nil {
+	if err := settleHandlerSavepoint(ctx, tx, v); err != nil {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
 		writeError(w, r, err)
 		return
@@ -147,23 +163,15 @@ func serve(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, bind TxBi
 	flush(w, rec)
 }
 
-// releaseHandlerSavepoint closes the handler's savepoint. When the release
-// fails the handler aborted the transaction: ROLLBACK TO SAVEPOINT discards only
-// its partial writes and heals the transaction, which is fine for a 4xx answer.
-// A success answer whose writes are gone, or a failed heal, returns the error so
-// the caller rolls back and fails the request (the key retries).
-func releaseHandlerSavepoint(ctx context.Context, tx pgx.Tx, rec *capture) error {
-	err := execOnly(ctx, tx, "RELEASE SAVEPOINT handler_run")
-	if err == nil {
-		return nil
+// settleHandlerSavepoint closes the handler's savepoint by the verdict: a 2xx or
+// an OUTCOME refusal keeps its writes (RELEASE; a failure means the transaction
+// is aborted and the writes are gone, so the caller fails the request), a FINAL
+// refusal discards them (ROLLBACK TO heals an aborted transaction).
+func settleHandlerSavepoint(ctx context.Context, tx pgx.Tx, v verdict) error {
+	if v == storeRefusal {
+		return execOnly(ctx, tx, "ROLLBACK TO SAVEPOINT handler_run")
 	}
-	if rerr := execOnly(ctx, tx, "ROLLBACK TO SAVEPOINT handler_run"); rerr != nil {
-		return err
-	}
-	if rec.code < http.StatusBadRequest {
-		return err
-	}
-	return nil
+	return execOnly(ctx, tx, "RELEASE SAVEPOINT handler_run")
 }
 
 func execOnly(ctx context.Context, tx pgx.Tx, sql string) error {
@@ -181,7 +189,7 @@ func replay(ctx context.Context, tx pgx.Tx, w http.ResponseWriter, key, fingerpr
 		stored string
 	)
 	err = tx.QueryRow(ctx, `SELECT fingerprint, status, body, headers FROM idempotency_keys WHERE key = $1 AND created_at > now() - $2::interval`,
-		key, idempotencyTTL.String()).Scan(&stored, &status, &body, &raw)
+		key, IdempotencyTTL.String()).Scan(&stored, &status, &body, &raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, nil
 	}
@@ -222,9 +230,35 @@ type capture struct {
 	header http.Header
 	code   int
 	body   bytes.Buffer
+	// class is the replay class writeError marked (replayMarker); replayUnset
+	// when the handler answered without a catalogue problem.
+	class replayClass
 }
 
 func (c *capture) Header() http.Header { return c.header }
+
+// MarkReplay implements replayMarker.
+func (c *capture) MarkReplay(class replayClass) { c.class = class }
+
+// verdict is the whole of what the middleware decides about an answer: a 2xx is
+// stored with its writes, a 5xx is never stored, and every other answer is ruled
+// by the replay class its catalogue entry declares. A refusal that declares none
+// is not stored either: the key stays free.
+func (c *capture) verdict() verdict {
+	switch {
+	case c.code >= http.StatusOK && c.code < http.StatusMultipleChoices:
+		return storeAndKeep
+	case c.code >= http.StatusInternalServerError:
+		return releaseKey
+	}
+	switch c.class {
+	case replayFinal:
+		return storeRefusal
+	case replayOutcome:
+		return storeAndKeep
+	}
+	return releaseKey
+}
 
 func (c *capture) WriteHeader(code int) {
 	if c.code == 0 {
