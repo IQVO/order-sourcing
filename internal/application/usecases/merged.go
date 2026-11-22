@@ -100,7 +100,7 @@ func (w writer) dissolve(ctx context.Context, trigger *assignment.Assignment, re
 			return err
 		}
 	}
-	slog.InfoContext(ctx, "consolidation dissolved", "carrierAssignmentId", carrier.ID(), "memberAssignmentIds", ids, "reason", reason,
-		"triggerAssignmentId", trigger.ID())
+	slog.InfoContext(ctx, "consolidation dissolved", "carrierAssignmentId", sanitizeLog(string(carrier.ID())), "memberAssignmentIds", ids, "reason", sanitizeLog(reason),
+		"triggerAssignmentId", sanitizeLog(string(trigger.ID())))
 	return nil
 }

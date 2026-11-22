@@ -155,7 +155,7 @@ func sweepOnce(ctx context.Context, sweep *usecases.SweepQueue, logger *slog.Log
 	for ctx.Err() == nil {
 		res, err := sweep.Execute(ctx, after, defaultSweepPageSize)
 		if err != nil && ctx.Err() == nil {
-			logger.ErrorContext(ctx, "queue sweep pass failed", "error", err)
+			logger.ErrorContext(ctx, "queue sweep pass failed", "error", sanitizeErr(err))
 		}
 		if res.Released+res.Reoptimised > 0 {
 			logger.InfoContext(ctx, "queue sweep", "released", res.Released, "reoptimised", res.Reoptimised, "skipped", res.Skipped)

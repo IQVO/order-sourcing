@@ -162,7 +162,7 @@ func (uc *LockAssignment) Execute(ctx context.Context, cmd LockAssignmentCommand
 		})
 	if errors.Is(err, assignment.ErrReleaseNotPending) {
 		uc.consolidationMetrics().StaleAccept(ctx)
-		slog.WarnContext(ctx, "acceptance for a release that is not pending", "assignmentId", cmd.AssignmentID, "releaseNo", cmd.ReleaseNo)
+		slog.WarnContext(ctx, "acceptance for a release that is not pending", "assignmentId", sanitizeLog(string(cmd.AssignmentID)), "releaseNo", cmd.ReleaseNo)
 	}
 	return v, err
 }

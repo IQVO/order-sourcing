@@ -64,7 +64,7 @@ func (uc *ReleaseToNode) Execute(ctx context.Context, id assignment.ID) (views.A
 	}
 	if len(out.members) > 1 {
 		uc.consolidationMetrics().Consolidated(ctx, len(out.members)-1)
-		slog.InfoContext(ctx, "consolidated release", "carrierAssignmentId", out.carrier, "memberAssignmentIds", out.members, "nodeId", out.node)
+		slog.InfoContext(ctx, "consolidated release", "carrierAssignmentId", sanitizeLog(string(out.carrier)), "memberAssignmentIds", out.members, "nodeId", sanitizeLog(out.node))
 	}
 	return v, nil
 }

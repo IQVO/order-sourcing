@@ -49,7 +49,7 @@ func purgeOnce(ctx context.Context, purge purgeBatch, batch int, logger *slog.Lo
 		n, err := purge(ctx, batch)
 		if err != nil {
 			if ctx.Err() == nil {
-				logger.ErrorContext(ctx, "idempotency purge failed", "error", err, "purged", total)
+				logger.ErrorContext(ctx, "idempotency purge failed", "error", sanitizeErr(err), "purged", total)
 			}
 			break
 		}
