@@ -188,6 +188,15 @@ Fully qualified name of the A2A agent Deployment/Service (<release>-a2a, cmd/a2a
 {{- include "order-sourcing.fullname" . }}-a2a
 {{- end }}
 
+{{/* agents.colocate (warehouse-infra ADR 0012): "true" iff colocate, mcp and a2a are all on; else empty. */}}
+{{- define "order-sourcing.agentsColocated" -}}
+{{- if and (.Values.agents | default dict).colocate .Values.mcp.enabled .Values.a2a.enabled }}true{{ end -}}
+{{- end }}
+
+{{- define "order-sourcing.agentsFullname" -}}
+{{- printf "%s-agents" (include "order-sourcing.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{/*
 Fully qualified names of the analytics read side (ADR 0013): the projector
 Deployment (no Service: it serves only its admin probes) and the reports
