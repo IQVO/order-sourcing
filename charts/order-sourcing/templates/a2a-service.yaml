@@ -10,12 +10,12 @@ spec:
   type: {{ .Values.a2a.service.type }}
   ports:
     - port: {{ .Values.a2a.service.port }}
-      targetPort: http
+      targetPort: {{ ternary "a2a" "http" (eq (include "order-sourcing.agentsColocated" .) "true") }}
       protocol: TCP
       name: http
   # component=a2a keeps this Service on exactly one Deployment
   # (tests/test_service_selectors.py).
   selector:
     {{- include "order-sourcing.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: a2a
+    app.kubernetes.io/component: {{ ternary "agents" "a2a" (eq (include "order-sourcing.agentsColocated" .) "true") }}
 {{- end }}
