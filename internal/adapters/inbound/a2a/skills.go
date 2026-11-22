@@ -245,7 +245,7 @@ func problemFromUseCase(ctx context.Context, err error) *problem {
 	case errors.Is(err, shared.ErrValidation):
 		return newProblem(422, "validation-failed", "Validation failed", err.Error())
 	default:
-		slog.ErrorContext(ctx, "a2a skill failed with an unexpected error", "error", err)
+		slog.ErrorContext(ctx, "a2a skill failed with an unexpected error", "error", logReplacer.Replace(err.Error()))
 		return newProblem(500, "internal-error", "Internal server error", "the skill failed; see server logs (trace id in the response metadata)")
 	}
 }
