@@ -78,9 +78,9 @@ var problemCatalogue = []catalogueEntry{
 	{ports.ErrNotFound, problem{http.StatusNotFound, "not-found", "Resource not found"}, replayRetryable},
 	{ports.ErrConcurrentUpdate, problem{http.StatusConflict, "concurrent-update", "The resource was modified concurrently"}, replayRetryable},
 	// PUT /sourcing-policy computes version n+1 from the stored one; the stored one cannot be incremented (it is
-	// at the ceiling, or out of range). A conflict with the state of the policy, not with the request: nothing was
-	// committed, and an operator can repair the state, so it is not terminal for the key: RETRYABLE (ADR 0019 addendum).
-	{policy.ErrVersionNotNext, problem{http.StatusConflict, "policy-version-not-next", "The policy version cannot be incremented"}, replayRetryable},
+	// at the ceiling, or out of range). Nothing can lower the ceiling and no use case repairs the state, so the same
+	// request can never pass: FINAL, stored and replayed (ADR 0019 addenda 2026-11-20/2026-11-23).
+	{policy.ErrVersionNotNext, problem{http.StatusConflict, "policy-version-not-next", "The policy version cannot be incremented"}, replayFinal},
 	{shared.ErrIllegalTransition, problem{http.StatusConflict, "illegal-transition", "Illegal transition"}, replayRetryable},
 	// One slug for request-only causes (the policy ranges) and state-derived ones (a candidate built from read models): RETRYABLE.
 	{shared.ErrValidation, problem{http.StatusUnprocessableEntity, "validation-failed", "Validation failed"}, replayRetryable},

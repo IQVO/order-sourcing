@@ -43,7 +43,7 @@ info:
     idempotency-key-reused). The problem types that release the key
     (RETRYABLE): release-in-flight, node-excluded, stale-assignment-version,
     candidate-breaks-promise, not-found, concurrent-update,
-    policy-version-not-next, illegal-transition, validation-failed. A 5xx is never stored (ADR 0019).
+    illegal-transition, validation-failed. A 5xx is never stored (ADR 0019).
 servers:
   - url: http://localhost:8080
 tags:
@@ -301,9 +301,11 @@ paths:
         transaction. An omitted field takes its default, 0 (the lever is off);
         an empty body is 400. Every call publishes a NEW version, so it takes
         an Idempotency-Key like a POST: the same key with the same body replays
-        the first answer for 24 hours instead of publishing twice; a refusal
-        (validation-failed, concurrent-update, policy-version-not-next) is not stored, so the retry
-        under the same key publishes; the same key with another request that
+        the first answer for 24 hours instead of publishing twice; a retryable refusal
+        (validation-failed, concurrent-update) is not stored, so the retry
+        under the same key publishes; policy-version-not-next (the policy
+        version is at its ceiling) is stored and replayed instead. The same
+        key with another request that
         was stored is 409 idempotency-key-reused. Searches that
         started before the publish keep the version they read.
       parameters:
@@ -347,9 +349,9 @@ paths:
             concurrent-update (another publish took the same version number;
             not stored: retry with the same Idempotency-Key),
             policy-version-not-next (the stored policy version is at its
-            ceiling and cannot be incremented; not stored, read GET
-            /sourcing-policy and retry with the same Idempotency-Key once the
-            policy state is repaired) or idempotency-key-reused (the key was already used with a different
+            ceiling and cannot be incremented; stored and replayed: the same
+            request under the same key replays this answer, because no use
+            case can lower the ceiling and the retry cannot pass) or idempotency-key-reused (the key was already used with a different
             request).
           headers:
             Idempotency-Replayed:
