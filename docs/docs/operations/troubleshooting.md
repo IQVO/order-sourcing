@@ -73,7 +73,7 @@ Every error is `application/problem+json` with `type = https://errors.order-sour
 | 409 | `node-excluded` | A candidate on a node that refused this promise revision | Internal guard; the search never proposes an excluded node |
 | 409 | `stale-assignment-version` | `assignmentVersion` in the body differs from the current version | `GET` the assignment and retry with its version, or omit the field |
 | 409 | `concurrent-update` | Two writers raced on one aggregate; the loser's version guard failed (the use case already retries once). Not stored: the key is released | Retry with the same `Idempotency-Key`; a retry that answers without `Idempotency-Replayed` executed again |
-| 409 | `policy-version-not-next` | `PUT /sourcing-policy` when the stored policy version cannot be incremented (it is at `2147483647`, or out of range). Cannot occur in normal operation; the request carries no version, so it is not a stale caller. Not stored: the key is released | `GET /sourcing-policy` to read the stored version; an operator repairs `sourcing_policies`, then the same key retries |
+| 409 | `policy-version-not-next` | `PUT /sourcing-policy` when the stored policy version cannot be incremented (it is at `2147483647`, or out of range). Cannot occur in normal operation; the request carries no version, so it is not a stale caller. Stored and replayed (FINAL): the same request under the same key replays this answer, because nothing can lower the ceiling | An operator repairs `sourcing_policies`; the replayed refusal then tells any caller that nothing changed |
 | 409 | `illegal-transition` | Re-optimise on `UNSOURCEABLE` or `CANCELLED` | None |
 | 422 | `validation-failed` | `limit` not 1 to 500, unknown `state`, `assignmentVersion` negative, or an `Idempotency-Key` over 128 characters | Use the `detail` text |
 | 422 | `candidate-breaks-promise` | The search result's ETA is after `deliverByLatest` | Internal guard |
@@ -88,7 +88,7 @@ Every error is `application/problem+json` with `type = https://errors.order-sour
   `409 idempotency-key-reused`.
 - What is stored is decided by the replay class of the first answer (ADR 0019): a 2xx, `malformed-request` and `assignment-locked`
   are stored. A RETRYABLE refusal (`release-in-flight`, `node-excluded`, `stale-assignment-version`, `candidate-breaks-promise`,
-  `not-found`, `concurrent-update`, `policy-version-not-next`, `illegal-transition`, `validation-failed`), a 5xx or a panic rolls everything back, the key row
+  `not-found`, `concurrent-update`, `illegal-transition`, `validation-failed`), a 5xx or a panic rolls everything back, the key row
   included, and is never stored: the same key runs the request again (an answer without `Idempotency-Replayed` was executed), and a
   different body under that key is a new request.
 - Two concurrent requests with one new key are serialised by a transaction-scoped advisory lock; the second replays the first if it

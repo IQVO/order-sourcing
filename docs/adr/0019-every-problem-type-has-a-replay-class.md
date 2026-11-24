@@ -204,9 +204,18 @@ retry": there is no caller version to fix, `GET /sourcing-policy` only shows the
 
 | Problem type | Class | Status | Reason |
 | --- | --- | --- | --- |
-| `policy-version-not-next` | RETRYABLE | 409 | `policy.Publish` (`policy.go` 77-79): the stored version is at `MaxVersion` or out of range, so n+1 does not exist; a state of the policy that an operator can repair, nothing committed |
+| `policy-version-not-next` | FINAL | 409 | `policy.Publish` (`policy.go` 77-79): the stored version is at `MaxVersion` or out of range, so n+1 does not exist; nothing can lower the ceiling and no use case repairs the state, so the same request can never pass (flipped 2026-11-23, see the addendum below) |
 
 `TestEveryTypedErrorHasItsProblem` and `TestPutSourcingPolicyMapsTheDomainErrorsToProblems` pin the 409 and its slug;
 `TestTheADRDeclaresTheClassOfEveryProblem` holds the row above equal to the catalogue and
 `TestTheSpecListsTheRetryableProblemTypes` the RETRYABLE sentence of `apis/openapi.yaml`. No route, status code or
 response of the spec is added: `PUT /sourcing-policy` already documents 409.
+
+## Addendum 2026-11-23: `policy-version-not-next` is FINAL
+
+Owner decision of 2026-11-23. The 2026-11-20 addendum above classed the refusal RETRYABLE on the premise that an
+operator can repair `sourcing_policies` and the same key then re-executes. On review the premise fails the class test
+the rule applies: no use case can lower the version ceiling, so the identical request can never pass, and a stored
+FINAL answer is never wrong — while a released RETRYABLE one re-runs a doomed `PUT /sourcing-policy` on every retry.
+The row in the table above and the catalogue entry are now FINAL. The premise text of the 2026-11-20 addendum is
+superseded, not edited.
