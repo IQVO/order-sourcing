@@ -192,6 +192,10 @@ mcp:
   route:
     enabled: false
     path: "/api/mcp/order-sourcing"
+    # Route timeout (HTTPRoute rule timeouts.request). "0s" disables it: Envoy's 15s
+    # default would cut MCP Streamable HTTP responses that stream over SSE.
+    timeouts:
+      request: "0s"
     parentRefs:
       - name: ""
         namespace: ""
@@ -219,7 +223,7 @@ a2a:
   httpAddr: ":8093"                  # A2A_ADDR; its port must equal a2a.service.targetPort (8090 is the mcp port)
   # Absolute URL advertised on the Agent Card (A2A_AGENT_URL, mandatory for the
   # binary). Empty defaults to this release's in-cluster Service DNS
-  # (http://<release>-a2a.<ns>.svc.cluster.local:8093/); set it to the Kong
+  # (http://<release>-a2a.<ns>.svc.cluster.local:8093/); set it to the Agent Router
   # URL when the agent must be reachable off-cluster.
   agentUrl: ""
   # SERVICE_VERSION reported at boot and on the card; empty = the image tag
@@ -238,6 +242,10 @@ a2a:
   route:
     enabled: false
     path: "/api/a2a/order-sourcing"
+    # Route timeout (HTTPRoute rule timeouts.request). "0s" disables it: Envoy's 15s
+    # default would cut long A2A calls and streamed (SSE) responses.
+    timeouts:
+      request: "0s"
     parentRefs:
       - name: ""
         namespace: ""
