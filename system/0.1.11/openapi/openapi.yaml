@@ -1,0 +1,1060 @@
+openapi: 3.0.3
+info:
+  title: Order Sourcing API
+  version: 0.1.0
+  contact:
+    name: order-sourcing maintainers
+    url: https://github.com/IQVO/order-sourcing
+  description: >-
+    REST contract of the order-sourcing bounded context of the retail network,
+    derived from retail-network-docs model/model.yaml
+    (contexts[order-sourcing].rest) and adjusted by the cross-context decisions
+    G5, G10, G12, G13, G14, G20 and G26. Order Sourcing decides which vendor
+    node and path fulfil each shipment group: it keeps a FulfillmentAssignment
+    per group in a virtual queue, re-optimises it until its release point,
+    releases it to one node (a purchase order through vendor-connectivity),
+    reassigns on rejection or expiry, and locks it when the node accepts. This
+    surface is the network-ops planner's: list and inspect assignments, ask
+    for an immediate re-optimisation of a QUEUED one, and read and publish the
+    versioned sourcing policy (ADR 0014). Every other change
+    arrives as a Kafka event (see apis/asyncapi.yaml). No PII is held or
+    returned by this context. No authentication, consistent with the rest of
+    the network. Errors are RFC 9457 problem details whose type is the URI
+    https://errors.order-sourcing.retail-network.example/ followed by the slug
+    (for example .../assignment-locked); detail and instance are always set.
+    The shared problem types are not-found (404), resource-not-found (404, a
+    path that names no resource), method-not-allowed (405), malformed-request
+    (400), illegal-transition (409), concurrent-update (409), validation-failed
+    (422) and internal-error (500); the idempotency problems are
+    idempotency-key-required and idempotency-key-invalid (400) and
+    idempotency-key-reused (409); the model's Err names add assignment-locked,
+    release-in-flight, node-excluded, stale-assignment-version (409) and
+    candidate-breaks-promise (422), and policy-version-not-next (409,
+    PUT /sourcing-policy only: the stored policy version cannot be incremented). The read-only analytics reports (tag
+    reports, ADR 0013) are served by cmd/os-reports on its own port (per-path
+    server) from the separate analytical database; their range problem is
+    invalid-report-range (400). A repeat with the same Idempotency-Key and the
+    same request replays the first response for 24 hours with the
+    Idempotency-Replayed header when that response is final: a 2xx, or a
+    refusal the same request cannot pass later (malformed-request,
+    assignment-locked). A refusal that depends on state that can change is not
+    stored: the key is released and the same request retried under the same key
+    runs again (a different body under a released key is a new request, not
+    idempotency-key-reused). The problem types that release the key
+    (RETRYABLE): release-in-flight, node-excluded, stale-assignment-version,
+    candidate-breaks-promise, not-found, concurrent-update,
+    policy-version-not-next, illegal-transition, validation-failed. A 5xx is never stored (ADR 0019).
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Assignments
+    description: FulfillmentAssignment, one per shipment group of a customer order.
+  - name: Sourcing policy
+    description: >-
+      The versioned SourcingPolicy (ADR 0014): a cross-region surcharge and a
+      regional cost-deviation budget the candidate search reads once per search.
+      Everything defaults to 0 (off) until an operator publishes a version.
+  - name: reports
+    description: >-
+      Read-only analytics reports (ADR 0013), served by cmd/os-reports from the
+      separate analytical database the projector feeds from this context's own
+      events and analytics topics. Days are UTC calendar days; from and to are
+      inclusive dates. A share, mean or rate is null when its denominator is 0.
+paths:
+  /assignments:
+    get:
+      tags: [Assignments]
+      operationId: listAssignments
+      summary: List fulfillment assignments (ListAssignments)
+      description: >-
+        Filters combine with AND; an empty result is 200 with an empty list.
+        nodeId matches the current candidate node (QUEUED), or the node of the
+        latest release (RELEASED and later). Results are ordered by
+        assignmentId ascending (keyset pagination: limit and cursor, nextCursor is absent on the last page).
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AssignmentState'
+        - name: nodeId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: orderId
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: One page of the matching assignments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentPage'
+        '400':
+          description: >-
+            invalid-limit (limit is not an integer in 1..500), invalid-cursor
+            (the cursor does not decode) or unknown-query-parameter (any query
+            parameter other than state, nodeId, orderId, limit, cursor), or
+            malformed-request (a NUL character in the query string).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: validation-failed (ErrValidation), a state query parameter that is not an assignment state.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /assignments/{assignmentId}:
+    get:
+      tags: [Assignments]
+      operationId: getAssignment
+      summary: Get one fulfillment assignment (GetAssignment)
+      description: One assignment with its release history, excluded nodes and current candidate.
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+      responses:
+        '200':
+          description: The assignment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assignment'
+        '404':
+          description: >-
+            not-found (ErrNotFound), no assignment has that id; or
+            resource-not-found (the path contains a NUL character).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /assignments/{assignmentId}/reoptimisations:
+    post:
+      tags: [Assignments]
+      operationId: reoptimiseAssignment
+      summary: Re-optimise a queued assignment now (ReoptimiseAssignment)
+      description: >-
+        Re-runs the candidate search (AssignmentCost = legs + crossRegionPenalty
+        + scorecardPenalty + bookPressurePenalty, ties to the witness node)
+        over the current read models, skipping excluded nodes and any candidate
+        whose eta is after deliverByLatest. Allowed only while QUEUED. If the
+        best node changes the assignment moves (FulfillmentReassigned is
+        published) and releaseAt follows the new candidate (VirtualQueue); if no
+        candidate is left the assignment becomes UNSOURCEABLE at once
+        (FulfillmentUnsourceable, gap G26). A repeat on unchanged read models
+        changes nothing. A retry with the same Idempotency-Key replays the stored
+        response for 24 hours when it is final (a 200, malformed-request or
+        assignment-locked); a refusal that state can still change is not
+        stored and the retry runs again. The same key with another request is
+        409 idempotency-key-reused.
+      parameters:
+        - $ref: '#/components/parameters/AssignmentId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReoptimiseRequest'
+      responses:
+        '200':
+          description: >-
+            The assignment after re-optimisation (unchanged if the best
+            candidate is the current one). A replay of the first answer carries
+            Idempotency-Replayed: true (a stored 2xx is replayed; a 5xx and
+            a refusal that releases the key are never stored).
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Assignment'
+        '400':
+          description: >-
+            idempotency-key-required (no Idempotency-Key header) or
+            idempotency-key-invalid (not 1 to 128 printable ASCII characters), or
+            malformed-request (the body is not valid JSON, has a field other
+            than assignmentVersion, has trailing data after the JSON value, or
+            carries a NUL character).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: >-
+            not-found (ErrNotFound), no assignment has that id; or
+            resource-not-found (the path contains a NUL character).
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '409':
+          description: >-
+            assignment-locked (ErrAssignmentLocked), release-in-flight
+            (ErrReleaseInFlight), node-excluded (ErrNodeExcluded),
+            stale-assignment-version (ErrStaleAssignmentVersion),
+            illegal-transition (ErrIllegalTransition, the assignment is
+            UNSOURCEABLE or CANCELLED), concurrent-update (ErrConcurrentUpdate),
+            or idempotency-key-reused (the Idempotency-Key was already used with
+            a different request). Only assignment-locked is stored and
+            replayed; the other refusals release the key, so a retry under the
+            same Idempotency-Key runs again.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              examples:
+                locked:
+                  value:
+                    type: https://errors.order-sourcing.retail-network.example/assignment-locked
+                    title: Assignment is locked
+                    status: 409
+                    detail: The node accepted the purchase order; the assignment can no longer move.
+                    instance: /assignments/asg-1/reoptimisations
+                inFlight:
+                  value:
+                    type: https://errors.order-sourcing.retail-network.example/release-in-flight
+                    title: A release is pending
+                    status: 409
+                    detail: The group is released to a node and awaits its acknowledgement.
+                    instance: /assignments/asg-1/reoptimisations
+        '422':
+          description: >-
+            candidate-breaks-promise (ErrCandidateBreaksPromise), or
+            validation-failed (ErrValidation), a negative assignmentVersion.
+            Neither is stored: the key is released and a retry runs again.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sourcing-policy:
+    get:
+      tags: [Sourcing policy]
+      operationId: getSourcingPolicy
+      summary: Get the current sourcing policy (GetSourcingPolicy)
+      description: >-
+        The current version of the sourcing policy, or the defaults with
+        version 0 (both levers 0, no publishedAt) when nothing was published.
+        Every published version is kept; only the highest one is read.
+      responses:
+        '200':
+          description: The current sourcing policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcingPolicy'
+              examples:
+                published:
+                  value:
+                    version: 2
+                    crossRegionSurchargeCents: 250
+                    maxCostDeviationPercent: 20
+                    consolidationMaxAssignments: 4
+                    publishedAt: '2026-11-09T12:00:00Z'
+                defaults:
+                  value:
+                    version: 0
+                    crossRegionSurchargeCents: 0
+                    maxCostDeviationPercent: 0
+                    consolidationMaxAssignments: 0
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Sourcing policy]
+      operationId: putSourcingPolicy
+      summary: Publish the next sourcing policy version (PublishSourcingPolicy)
+      description: >-
+        Replaces the whole policy document: validates every range, stores
+        version n+1 (n is the highest stored version, 0 when none) and raises
+        the analytics-only SourcingPolicyPublished event in the same
+        transaction. An omitted field takes its default, 0 (the lever is off);
+        an empty body is 400. Every call publishes a NEW version, so it takes
+        an Idempotency-Key like a POST: the same key with the same body replays
+        the first answer for 24 hours instead of publishing twice; a refusal
+        (validation-failed, concurrent-update, policy-version-not-next) is not stored, so the retry
+        under the same key publishes; the same key with another request that
+        was stored is 409 idempotency-key-reused. Searches that
+        started before the publish keep the version they read.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourcingPolicyRequest'
+            example:
+              crossRegionSurchargeCents: 250
+              maxCostDeviationPercent: 20
+              consolidationMaxAssignments: 4
+      responses:
+        '200':
+          description: >-
+            The published version. A replay of the first answer carries
+            Idempotency-Replayed: true.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcingPolicy'
+        '400':
+          description: >-
+            idempotency-key-required (no Idempotency-Key header) or
+            idempotency-key-invalid (not 1 to 128 printable ASCII characters),
+            or malformed-request (no body, not valid JSON, a field that is not
+            an integer, an unknown field, trailing data, or a NUL character).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '409':
+          description: >-
+            concurrent-update (another publish took the same version number;
+            not stored: retry with the same Idempotency-Key),
+            policy-version-not-next (the stored policy version is at its
+            ceiling and cannot be incremented; not stored, read GET
+            /sourcing-policy and retry with the same Idempotency-Key once the
+            policy state is repaired) or idempotency-key-reused (the key was already used with a different
+            request).
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: >-
+            validation-failed (ErrValidation), crossRegionSurchargeCents outside
+            0..100000, maxCostDeviationPercent outside 0..200 or consolidationMaxAssignments outside 0..10.
+            Not stored: the key is released and a retry runs again.
+          headers:
+            Idempotency-Replayed:
+              $ref: '#/components/headers/IdempotencyReplayed'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                type: https://errors.order-sourcing.retail-network.example/validation-failed
+                title: Validation failed
+                status: 422
+                detail: 'validation failed: maxCostDeviationPercent must be between 0 and 200'
+                instance: /sourcing-policy
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /reports/sourcing-mix:
+    servers:
+      - url: http://localhost:8092
+    get:
+      tags: [reports]
+      operationId: getSourcingMixReport
+      x-pagination-exempt: report
+      summary: Sourcing mix (in-region share, legs, reassignments), per day
+      description: >-
+        Per UTC day of release (decidedAt of FulfillmentSourcingDecided):
+        groupsReleased = the releases of that day; inRegionShare = releases
+        whose node is in the destination's region / releases with both regions
+        known, with unknownRegionCount = releases with an unknown region;
+        meanLegs = the departures after the pickup per release;
+        reassignmentRate = releases with releaseNo > 1 / groupsReleased;
+        unsourceableCount = the FulfillmentUnsourceable events of that day;
+        splitShipment = the split-shipment rate of the day (ADR 0018): the
+        sourced orders whose first sourcing decision is on that day, those
+        released as 2 or more shipment groups (a follower merged into its
+        carrier shares the carrier's shipment) and the distribution of shipment
+        groups per order over the buckets 1, 2, 3 and 4+. A day appears when it
+        has a release or an unsourceable declaration.
+      parameters:
+        - $ref: '#/components/parameters/ReportFrom'
+        - $ref: '#/components/parameters/ReportTo'
+      responses:
+        '200':
+          description: The report for the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourcingMixReport'
+        '400':
+          $ref: '#/components/responses/InvalidReportRange'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /reports/order-splits:
+    servers:
+      - url: http://localhost:8092
+    get:
+      tags: [reports]
+      operationId: getOrderSplitsReport
+      x-pagination-exempt: report
+      summary: Order splits (groups per order), per day
+      description: >-
+        Per UTC day of FulfillmentQueued (an order belongs to the day its first
+        group was queued): ordersQueued = the distinct orders; groupsPerOrder =
+        their queued groups / ordersQueued; splitOrderShare = orders with more
+        than one group / ordersQueued. Days without a queued order are omitted.
+      parameters:
+        - $ref: '#/components/parameters/ReportFrom'
+        - $ref: '#/components/parameters/ReportTo'
+      responses:
+        '200':
+          description: The report for the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderSplitsReport'
+        '400':
+          $ref: '#/components/responses/InvalidReportRange'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /reports/cost-to-serve:
+    servers:
+      - url: http://localhost:8092
+    get:
+      tags: [reports]
+      operationId: getCostToServeReport
+      x-pagination-exempt: report
+      summary: Cost to serve per unit, per day
+      description: >-
+        Over the LAST sourcing decision of each assignment (highest releaseNo),
+        per UTC day of its decidedAt: costCompleteShare = decisions with a
+        complete estimate / decisions; costPerUnitCents = the sum of
+        estimatedCostCents of the complete decisions / the sum of their units
+        (null when undefined); p50CostCentsPerGroup and p90CostCentsPerGroup =
+        the continuous percentiles of estimatedCostCents per group over the
+        complete decisions (null without one). Estimates are planner-declared
+        cents per package-unit (ADR 0011). Days without a decision are omitted.
+      parameters:
+        - $ref: '#/components/parameters/ReportFrom'
+        - $ref: '#/components/parameters/ReportTo'
+      responses:
+        '200':
+          description: The report for the range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostToServeReport'
+        '400':
+          $ref: '#/components/responses/InvalidReportRange'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /reports/freshness:
+    servers:
+      - url: http://localhost:8092
+    get:
+      tags: [reports]
+      operationId: getReportFreshness
+      summary: How far the analytics projection is behind
+      description: >-
+        asOf is the CloudEvents time of the newest event the projector
+        applied; lagSeconds is now minus asOf, never negative. Both are null
+        until the first event. One endpoint for every report: they all read
+        the same projection.
+      responses:
+        '200':
+          description: The projection's freshness.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportFreshness'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  responses:
+    MethodNotAllowed:
+      description: method-not-allowed, the method is not served on this path.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalError:
+      description: internal-error, an unexpected failure (the detail never carries the internal message).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InvalidReportRange:
+      description: invalid-report-range. from or to is not a date (YYYY-MM-DD), from is after to, or the range exceeds 366 days.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  parameters:
+    ReportFrom:
+      name: from
+      in: query
+      required: false
+      description: First UTC day of the range, inclusive. Omitted = 29 days before `to` (a 30-day range).
+      schema:
+        type: string
+        format: date
+    ReportTo:
+      name: to
+      in: query
+      required: false
+      description: Last UTC day of the range, inclusive. Omitted = today. At most 366 days from `from`.
+      schema:
+        type: string
+        format: date
+    AssignmentId:
+      name: assignmentId
+      in: path
+      required: true
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items returned. Defaults to 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque token from the previous page's nextCursor; filters are repeated on every page request.
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        1 to 128 printable ASCII characters, one per logical submit. A repeated
+        key with the same request returns the stored response of the first call
+        when that response is final (24 hours, header Idempotency-Replayed:
+        true); with another stored request it is 409 idempotency-key-reused.
+        A refusal that a retry could pass (the RETRYABLE problem types of the
+        API description) and a 5xx are not stored: the key is released, the
+        retry under the same key executes again, and a different body under a
+        released key is a new request.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  headers:
+    IdempotencyReplayed:
+      description: Present, with the value true, only when the response is a replay of the first answer.
+      schema:
+        type: string
+        enum: ["true"]
+  schemas:
+    SourcingMixReport:
+      type: object
+      required: [from, to, days]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourcingMixDay'
+    SourcingMixDay:
+      type: object
+      required: [day, groupsReleased, inRegionShare, unknownRegionCount, meanLegs, reassignmentRate, unsourceableCount, splitShipment]
+      properties:
+        day:
+          type: string
+          format: date
+        groupsReleased:
+          type: integer
+          minimum: 0
+          description: The releases (sourcing decisions) of the day.
+        inRegionShare:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: Releases in the destination's region / releases with both regions known; null when none is known.
+        unknownRegionCount:
+          type: integer
+          minimum: 0
+          description: Releases whose node or destination region is unknown.
+        meanLegs:
+          type: number
+          minimum: 0
+          nullable: true
+          description: The mean departures after the pickup per release; null without a release.
+        reassignmentRate:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: Releases with releaseNo > 1 / groupsReleased; null without a release.
+        unsourceableCount:
+          type: integer
+          minimum: 0
+          description: FulfillmentUnsourceable events of the day.
+        splitShipment:
+          $ref: '#/components/schemas/SplitShipment'
+    SplitShipment:
+      type: object
+      description: >-
+        The split-shipment rate of one day (ADR 0018). A decision is a sourced
+        order, on the UTC day of its first sourcing decision; its shipment
+        groups are the distinct shipments of the current releases of its
+        assignments, a follower of a merged release sharing its carrier's
+        shipment. All zero and splitShare null on a day without such an order.
+      required: [decisions, splitDecisions, splitShare, groupsPerDecision]
+      properties:
+        decisions:
+          type: integer
+          minimum: 0
+          description: The sourced orders of the day.
+        splitDecisions:
+          type: integer
+          minimum: 0
+          description: The decisions with 2 or more shipment groups (the sum of the buckets 2, 3 and 4+).
+        splitShare:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: splitDecisions / decisions; null without a decision.
+        groupsPerDecision:
+          type: array
+          minItems: 4
+          maxItems: 4
+          description: The shipment groups per decision, always the four buckets 1, 2, 3 and 4+ in this order; the counts sum to decisions.
+          items:
+            $ref: '#/components/schemas/ShipmentGroupBucket'
+    ShipmentGroupBucket:
+      type: object
+      required: [bucket, decisions]
+      properties:
+        bucket:
+          type: string
+          enum: ["1", "2", "3", "4+"]
+          description: The number of shipment groups; 4+ holds 4 or more.
+        decisions:
+          type: integer
+          minimum: 0
+          description: The decisions in this bucket.
+    OrderSplitsReport:
+      type: object
+      required: [from, to, days]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderSplitsDay'
+    OrderSplitsDay:
+      type: object
+      required: [day, ordersQueued, groupsPerOrder, splitOrderShare]
+      properties:
+        day:
+          type: string
+          format: date
+        ordersQueued:
+          type: integer
+          minimum: 1
+          description: Distinct orders whose first group was queued that day.
+        groupsPerOrder:
+          type: number
+          minimum: 1
+          nullable: true
+          description: The mean queued groups per order.
+        splitOrderShare:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: Orders with more than one group / ordersQueued.
+    CostToServeReport:
+      type: object
+      required: [from, to, days]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: '#/components/schemas/CostToServeDay'
+    CostToServeDay:
+      type: object
+      required: [day, costCompleteShare, costPerUnitCents, p50CostCentsPerGroup, p90CostCentsPerGroup]
+      properties:
+        day:
+          type: string
+          format: date
+        costCompleteShare:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+          description: Last decisions with a complete estimate / last decisions of the day.
+        costPerUnitCents:
+          type: number
+          minimum: 0
+          nullable: true
+          description: Sum of estimatedCostCents / sum of units over the complete last decisions; null when undefined.
+        p50CostCentsPerGroup:
+          type: number
+          minimum: 0
+          nullable: true
+          description: Median estimatedCostCents per group over the complete last decisions; null without one.
+        p90CostCentsPerGroup:
+          type: number
+          minimum: 0
+          nullable: true
+          description: 90th-percentile estimatedCostCents per group over the complete last decisions; null without one.
+    ReportFreshness:
+      type: object
+      required: [asOf, lagSeconds]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          nullable: true
+        lagSeconds:
+          type: number
+          minimum: 0
+          nullable: true
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      required: [type, title, status, detail, instance]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: >-
+            Problem type URI: the base
+            https://errors.order-sourcing.retail-network.example/ followed by the
+            slug, for example
+            https://errors.order-sourcing.retail-network.example/assignment-locked.
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+          description: The escaped request path.
+    AssignmentState:
+      type: string
+      enum: [QUEUED, RELEASED, LOCKED, SHIPPED, DELIVERED, UNSOURCEABLE, CANCELLED]
+    Tier:
+      type: string
+      enum: [SAME_DAY, NEXT_DAY, TWO_DAY, STANDARD, CONSOLIDATED]
+    ReleaseOutcome:
+      type: string
+      enum: [ACCEPTED, REJECTED, EXPIRED, WITHDRAWN, PENDING]
+    PromiseConstraint:
+      type: object
+      required: [promiseId, tier, deliverByLatest, witnessNodeId, revisionNo]
+      properties:
+        promiseId:
+          type: string
+        tier:
+          $ref: '#/components/schemas/Tier'
+        deliverByEarliest:
+          type: string
+          format: date-time
+          description: The start of the promised delivery window (a CONSOLIDATED day starts it). Absent when unknown.
+        deliverByLatest:
+          type: string
+          format: date-time
+        witnessNodeId:
+          type: string
+          description: The node of the promise's witness path; the assigned node may differ.
+        revisionNo:
+          type: integer
+          minimum: 0
+          description: The promise revision applied (0 until delivery-promise revises it, gap G13). Node exclusions reset when it changes.
+    Candidate:
+      type: object
+      required: [nodeId, pickupDepartureId, legs, deliveryWaveId, eta, cost, pickupCutoffAt]
+      properties:
+        nodeId:
+          type: string
+        pickupDepartureId:
+          type: string
+        pickupCutoffAt:
+          type: string
+          format: date-time
+          description: The pickup departure's cutoff at this node; the requiredShipBy of a release.
+        legs:
+          type: array
+          description: Departure ids after the pickup, in travel order.
+          items:
+            type: string
+        deliveryWaveId:
+          type: string
+        eta:
+          type: string
+          format: date-time
+        cost:
+          type: integer
+          minimum: 0
+          description: AssignmentCost in cost points (ADR 0002, A12); the legacy ordinal tie-break score (ADR 0011).
+        estimatedCostCents:
+          type: integer
+          minimum: 0
+          description: 'The money-denominated AssignmentCost estimate of the path in planner-declared cents: the
+            per-unit lane costs of every leg plus the final wave''s per-stop cost (ADR 0011). Optional: absent
+            when the estimate is incomplete (a lane or the wave had no declared cost).'
+        policyVersion:
+          type: integer
+          minimum: 1
+          description: >-
+            The sourcing policy version the search read (ADR 0014). Optional,
+            absent when no policy version was published.
+        effectiveCostCents:
+          type: integer
+          minimum: 0
+          description: >-
+            The estimate's cents plus the policy's cross-region surcharge (ADR 0014).
+            Optional, absent unless a surcharge changed the cost, that is when it
+            differs from the estimate's cents; present even when the estimate is
+            incomplete (a surcharge applies to an incomplete estimate too).
+        estimatedCo2eGrams:
+          type: integer
+          minimum: 0
+          description: 'The carbon estimate of the path in planner-declared grams of CO2e: the
+            per-unit lane emissions of every leg plus the final wave''s per-stop emission
+            (ADR 0017). Optional: absent when the estimate is incomplete (a lane or the
+            wave had no declared emission); ranking never uses it.'
+    Release:
+      type: object
+      required: [releaseNo, nodeId, releasedAt, requiredShipBy, outcome]
+      properties:
+        releaseNo:
+          type: integer
+          minimum: 1
+        nodeId:
+          type: string
+        releasedAt:
+          type: string
+          format: date-time
+        requiredShipBy:
+          type: string
+          format: date-time
+        outcome:
+          $ref: '#/components/schemas/ReleaseOutcome'
+        reasonCode:
+          type: string
+          description: Present when the node rejected (the vendor's reason code).
+    ExcludedNode:
+      type: object
+      required: [nodeId, reason]
+      properties:
+        nodeId:
+          type: string
+        reason:
+          type: string
+    Line:
+      type: object
+      required: [lineNo, catalogItemId, quantity]
+      properties:
+        lineNo:
+          type: integer
+          minimum: 1
+        catalogItemId:
+          type: string
+        listingId:
+          type: string
+          description: The listing of the released node; absent while QUEUED.
+        ownerRef:
+          type: string
+          description: >-
+            The seller (sellerId) whose stock the released line takes, chosen by the OwnerChoice rule at the
+            released node (ADR 0012). Absent while QUEUED and when the line is operator-owned.
+        quantity:
+          type: integer
+          minimum: 1
+    Assignment:
+      type: object
+      required: [assignmentId, orderId, groupNo, destinationPostalPrefix, state, assignmentVersion, promise, lines, releases, excludedNodes, trackingNumbers]
+      properties:
+        assignmentId:
+          type: string
+        orderId:
+          type: string
+        groupNo:
+          type: integer
+          minimum: 1
+        destinationPostalPrefix:
+          type: string
+          description: The postal prefix of the destination (from CustomerOrderPlaced); never an address.
+        state:
+          $ref: '#/components/schemas/AssignmentState'
+        assignmentVersion:
+          type: integer
+          minimum: 1
+        promise:
+          $ref: '#/components/schemas/PromiseConstraint'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/Line'
+        candidate:
+          allOf:
+            - $ref: '#/components/schemas/Candidate'
+          description: The current best candidate; absent when none meets deliverByLatest (UNSOURCEABLE) or the assignment is CANCELLED.
+        releaseAt:
+          type: string
+          format: date-time
+          description: VirtualQueue release point (best candidate's pickup cutoff - node handling time - vendor ack budget); present while QUEUED.
+        releases:
+          type: array
+          items:
+            $ref: '#/components/schemas/Release'
+        excludedNodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExcludedNode'
+        lockedAt:
+          type: string
+          format: date-time
+        lockReason:
+          type: string
+        pickupDepartureId:
+          type: string
+          description: The pickup departure of the locked path; follows BookingMoved.
+        trackingNumbers:
+          type: array
+          items:
+            type: string
+        shippedAt:
+          type: string
+          format: date-time
+        deliveredAt:
+          type: string
+          format: date-time
+        cancelReason:
+          type: string
+        consolidatedInto:
+          type: string
+          description: The carrier of the merged release this assignment follows (ADR 0015). Absent unless the assignment is a follower.
+        consolidatedWith:
+          type: array
+          description: The followers of the merged release this assignment carries (ADR 0015). Absent unless the assignment is a carrier.
+          items:
+            type: string
+    AssignmentPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Assignment'
+        nextCursor:
+          type: string
+          description: Opaque cursor of the next page; absent on the last page.
+    ReoptimiseRequest:
+      type: object
+      properties:
+        assignmentVersion:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            Optional. The version the caller last read; a mismatch is 409
+            stale-assignment-version. Absent or 0 skips the check; a negative
+            value is 422 validation-failed. Unknown fields are 400
+            malformed-request. The whole body may be omitted.
+    SourcingPolicy:
+      type: object
+      required: [version, crossRegionSurchargeCents, maxCostDeviationPercent]
+      properties:
+        version:
+          type: integer
+          minimum: 0
+          description: The policy version; 0 is the built-in default (nothing published).
+        crossRegionSurchargeCents:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Added to the effective cost of a candidate whose node region differs from the delivery
+            area region (both known). 0 = off.
+        maxCostDeviationPercent:
+          type: integer
+          minimum: 0
+          maximum: 200
+          description: 'The regional budget: among candidates whose effective cost is within cheapest +
+            floor(cheapest * percent / 100), an in-region candidate beats a cross-region one. 0 = off.'
+        consolidationMaxAssignments:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: The most shipment groups of one shopper released as one merged package (ADR 0015). 0 and 1 = off. Absent reads as 0.
+        publishedAt:
+          type: string
+          format: date-time
+          description: When the version was published. Absent on version 0.
+    SourcingPolicyRequest:
+      type: object
+      properties:
+        crossRegionSurchargeCents:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          default: 0
+        maxCostDeviationPercent:
+          type: integer
+          minimum: 0
+          maximum: 200
+          default: 0
+        consolidationMaxAssignments:
+          type: integer
+          minimum: 0
+          maximum: 10
+          default: 0

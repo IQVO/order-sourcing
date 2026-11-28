@@ -1,0 +1,625 @@
+# order-sourcing 0.1.11 (v0.1.11, f7508f8) - System Assets & Interaction Standard v0.4
+# Interactions of order-sourcing (STANDARD.md Part B): every call this context MAKES and every event it consumes.
+#
+# order-sourcing calls NO sibling (ADR 0003, sync_calls: []): there is no rest/mcp/a2a interaction. Its MCP
+# server and A2A agent are read-only queries (get_assignment / find_assignments ...), so no use case that
+# raises an event is reachable from them.
+# Published events leave through the transactional outbox (always-on relay): best-effort / outbox-retry.
+# The trigger of a use case that no REST call reaches is the consumed CloudEvents type or the queue-sweep
+# worker (cmd/api startSweep, tick SWEEP_INTERVAL default 15s).
+apiVersion: warehouse/interactions/v1
+application: application.yaml
+
+interactions:
+
+  - id: queue-assignment-publish-fulfillment-queued-analytics
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingAnalytics
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.analytics, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentQueued }
+    business:
+      capability: sourcing.virtual-queue
+      process: virtual-queueing
+      useCase: QueueAssignment
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced, actor: system }
+      purpose: "Analytics-only fact that a shipment group of a placed order entered the VirtualQueue (no node chosen yet)."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: queue-assignment-publish-fulfillment-unsourceable
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentUnsourceable }
+    business:
+      capability: sourcing.virtual-queue
+      process: virtual-queueing
+      useCase: QueueAssignment
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced, actor: system }
+      purpose: "Tell the sibling contexts that a newly queued group has no candidate node and is UNSOURCEABLE at once."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: queue-assignment-publish-fulfillment-released-to-node
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode }
+    business:
+      capability: sourcing.node-release
+      process: node-release
+      useCase: QueueAssignment
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced, actor: system }
+      purpose: "Send a SAME_DAY group to its best node at once, without waiting in the VirtualQueue."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: queue-assignment-publish-fulfillment-sourcing-decided-analytics
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingAnalytics
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.analytics, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentSourcingDecided }
+    business:
+      capability: sourcing.node-release
+      process: node-release
+      useCase: QueueAssignment
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced, actor: system }
+      purpose: "Analytics-only record of the facts the search knew when a SAME_DAY group was released at once."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: release-to-node-publish-fulfillment-released-to-node
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleasedToNode }
+    business:
+      capability: sourcing.node-release
+      process: node-release
+      useCase: ReleaseToNode
+      triggers:
+        - { kind: schedule, ref: queue-sweep, actor: system }
+      purpose: "Send the group (or the merged carrier release) to the best node chosen by the release re-check, at the release point."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: release-to-node-publish-fulfillment-sourcing-decided-analytics
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingAnalytics
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.analytics, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentSourcingDecided }
+    business:
+      capability: sourcing.node-release
+      process: node-release
+      useCase: ReleaseToNode
+      triggers:
+        - { kind: schedule, ref: queue-sweep, actor: system }
+      purpose: "Analytics-only record of the sourcing decision (candidates, cost, policy version) taken at release."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: release-to-node-publish-fulfillment-unsourceable
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentUnsourceable }
+    business:
+      capability: sourcing.node-release
+      process: node-release
+      useCase: ReleaseToNode
+      triggers:
+        - { kind: schedule, ref: queue-sweep, actor: system }
+      purpose: "Tell the sibling contexts that no candidate node is left at release, so the group is UNSOURCEABLE."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: release-to-node-publish-fulfillment-reassigned
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReassigned }
+    business:
+      capability: sourcing.node-release
+      process: node-release
+      useCase: ReleaseToNode
+      triggers:
+        - { kind: schedule, ref: queue-sweep, actor: system }
+      purpose: "Tell the sibling contexts that the release re-check chose a different node than the queued candidate."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: release-to-node-publish-assignments-consolidated-analytics
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingAnalytics
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.analytics, type: com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsConsolidated }
+    business:
+      capability: sourcing.consolidation
+      process: consolidated-release
+      useCase: ReleaseToNode
+      triggers:
+        - { kind: schedule, ref: queue-sweep, actor: system }
+      purpose: "Analytics-only fact that a carrier release merged several keyed CONSOLIDATED groups into one purchase order (ADR 0015)."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: reoptimise-assignment-publish-fulfillment-reassigned
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReassigned }
+    business:
+      capability: sourcing.virtual-queue
+      process: queue-reoptimisation
+      useCase: ReoptimiseAssignment
+      triggers:
+        - { kind: api, via: rest, ref: reoptimiseAssignment, actor: "human:planner" }
+        - { kind: schedule, ref: queue-sweep, actor: system }
+      purpose: "Tell the sibling contexts that re-optimising a QUEUED group moved its candidate to another node."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: reoptimise-assignment-publish-fulfillment-unsourceable
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentUnsourceable }
+    business:
+      capability: sourcing.virtual-queue
+      process: queue-reoptimisation
+      useCase: ReoptimiseAssignment
+      triggers:
+        - { kind: api, via: rest, ref: reoptimiseAssignment, actor: "human:planner" }
+        - { kind: schedule, ref: queue-sweep, actor: system }
+      purpose: "Tell the sibling contexts that re-optimising a QUEUED group left no candidate, so it is UNSOURCEABLE."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: handle-node-refusal-publish-fulfillment-reassigned
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReassigned }
+    business:
+      capability: sourcing.node-release
+      process: node-refusal-handling
+      useCase: HandleNodeRefusal
+      triggers:
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderRejected, actor: system }
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderExpired, actor: system }
+      purpose: "Tell the sibling contexts that a refused or expired release was re-queued on the next best node."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: handle-node-refusal-publish-fulfillment-unsourceable
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentUnsourceable }
+    business:
+      capability: sourcing.node-release
+      process: node-refusal-handling
+      useCase: HandleNodeRefusal
+      triggers:
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderRejected, actor: system }
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderExpired, actor: system }
+      purpose: "Tell the sibling contexts that no node is left after a refusal, so the group is UNSOURCEABLE."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: handle-node-refusal-publish-assignments-deconsolidated-analytics
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingAnalytics
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.analytics, type: com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsDeconsolidated }
+    business:
+      capability: sourcing.consolidation
+      process: consolidated-release
+      useCase: HandleNodeRefusal
+      triggers:
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderRejected, actor: system }
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderExpired, actor: system }
+      purpose: "Analytics-only fact that a refused carrier release ended the merge of its member groups (ADR 0015)."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: lock-assignment-publish-fulfillment-locked
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentLocked }
+    business:
+      capability: sourcing.fulfilment-lifecycle
+      process: release-lock
+      useCase: LockAssignment
+      triggers:
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderAccepted, actor: system }
+      purpose: "Tell the sibling contexts that the node accepted the release, so the assignment is LOCKED and the node never changes."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: mark-shipped-publish-fulfillment-shipped
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentShipped }
+    business:
+      capability: sourcing.fulfilment-lifecycle
+      process: shipment-tracking
+      useCase: MarkShipped
+      triggers:
+        - { kind: event, ref: com.retailnetwork.partner.vendor-connectivity.purchaseorder.VendorShipmentConfirmed, actor: system }
+      purpose: "Tell the sibling contexts that the vendor shipped the LOCKED group, with its tracking numbers."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: mark-delivered-publish-fulfillment-delivered-analytics
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingAnalytics
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.analytics, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentDelivered }
+    business:
+      capability: sourcing.fulfilment-lifecycle
+      process: delivery-confirmation
+      useCase: MarkDelivered
+      triggers:
+        - { kind: event, ref: com.retailnetwork.logistics.shipping-and-tracking.journey.PackageDelivered, actor: system }
+      purpose: "Analytics-only fact that the last package of the group was delivered."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: cancel-assignment-publish-fulfillment-cancelled
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelled }
+    business:
+      capability: sourcing.order-cancellation
+      process: order-cancellation
+      useCase: CancelAssignment
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderCancelled, actor: system }
+      purpose: "Tell the sibling contexts that a requested cancel was accepted before the lock."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: cancel-assignment-publish-fulfillment-cancel-refused
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentCancelRefused }
+    business:
+      capability: sourcing.order-cancellation
+      process: order-cancellation
+      useCase: CancelAssignment
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderCancelled, actor: system }
+      purpose: "Tell the sibling contexts that a cancel was refused because the group is already locked or is a member of a live merge."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: apply-revised-promise-publish-fulfillment-constraint-revised
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentConstraintRevised }
+    business:
+      capability: sourcing.promise-revision
+      process: promise-revision
+      useCase: ApplyRevisedPromise
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.delivery-promise.promise.PromiseRevised, actor: system }
+      purpose: "Tell the sibling contexts that the revised promise constraint (revisionNo, deliverByLatest) was applied."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: apply-revised-promise-publish-fulfillment-unsourceable
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentUnsourceable }
+    business:
+      capability: sourcing.promise-revision
+      process: promise-revision
+      useCase: ApplyRevisedPromise
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.delivery-promise.promise.PromiseRevised, actor: system }
+      purpose: "Tell the sibling contexts that no candidate satisfies the revised promise, so the group is UNSOURCEABLE."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: apply-revised-promise-publish-fulfillment-reassigned
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReassigned }
+    business:
+      capability: sourcing.promise-revision
+      process: promise-revision
+      useCase: ApplyRevisedPromise
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.delivery-promise.promise.PromiseRevised, actor: system }
+      purpose: "Tell the sibling contexts that the revised promise (or a dissolved merge) moved the candidate to another node."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: apply-revised-promise-publish-fulfillment-release-withdrawn
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingEvents
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.events, type: com.retailnetwork.commerce.order-sourcing.assignment.FulfillmentReleaseWithdrawn }
+    business:
+      capability: sourcing.consolidation
+      process: consolidated-release
+      useCase: ApplyRevisedPromise
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.delivery-promise.promise.PromiseRevised, actor: system }
+      purpose: "Ask vendor-connectivity to cancel the purchase order of a merged release whose delivery window the revised promise broke (ADR 0015)."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: apply-revised-promise-publish-assignments-deconsolidated-analytics
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingAnalytics
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.analytics, type: com.retailnetwork.commerce.order-sourcing.assignment.AssignmentsDeconsolidated }
+    business:
+      capability: sourcing.consolidation
+      process: consolidated-release
+      useCase: ApplyRevisedPromise
+      triggers:
+        - { kind: event, ref: com.retailnetwork.commerce.delivery-promise.promise.PromiseRevised, actor: system }
+      purpose: "Analytics-only fact that a promise revision dissolved a merged release (ADR 0015)."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+  - id: sourcing-policies-publish-sourcing-policy-published-analytics
+    technology: event.publish
+    operation:
+      asset: order-sourcing/asyncapi
+      id: publishOrderSourcingAnalytics
+      effect: write
+      event: { channel: retailnetwork.order-sourcing.analytics, type: com.retailnetwork.commerce.order-sourcing.policy.SourcingPolicyPublished }
+    business:
+      capability: sourcing.sourcing-policy
+      process: sourcing-policy-publication
+      useCase: SourcingPolicies
+      triggers:
+        - { kind: api, via: rest, ref: putSourcingPolicy, actor: "human:operator" }
+      purpose: "Analytics-only fact that a new SourcingPolicy version was published (ADR 0014)."
+      criticality: best-effort
+      onFailure: outbox-retry
+
+subscriptions:
+
+  - id: consume-customer-ordering-customer-order-placed
+    operation:
+      asset: customer-ordering/asyncapi
+      id: publishCustomerOrderingEvents
+      consumerOperation: consumeCustomerOrdering
+      event: { channel: retailnetwork.customer-ordering.events, types: [com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderPlaced] }
+    business:
+      capability: sourcing.virtual-queue
+      process: virtual-queueing
+      useCases: [QueueAssignment]
+      purpose: "Queue one FulfillmentAssignment per shipment group of a placed order."
+
+  - id: consume-customer-ordering-customer-order-cancelled
+    operation:
+      asset: customer-ordering/asyncapi
+      id: publishCustomerOrderingEvents
+      consumerOperation: consumeCustomerOrdering
+      event: { channel: retailnetwork.customer-ordering.events, types: [com.retailnetwork.commerce.customer-ordering.customerorder.CustomerOrderCancelled] }
+    business:
+      capability: sourcing.order-cancellation
+      process: order-cancellation
+      useCases: [CancelAssignment]
+      purpose: "Answer the cancel request of the listed groups: cancel before the lock, refuse after it."
+
+  - id: consume-delivery-promise-promise-revised
+    operation:
+      asset: delivery-promise/asyncapi
+      id: publishDeliveryPromiseEvents
+      consumerOperation: consumeDeliveryPromise
+      event: { channel: retailnetwork.delivery-promise.events, types: [com.retailnetwork.commerce.delivery-promise.promise.PromiseRevised] }
+    business:
+      capability: sourcing.promise-revision
+      process: promise-revision
+      useCases: [ApplyRevisedPromise]
+      purpose: "Apply the revised promise constraint to the assignment of that promise and re-search while it is still movable."
+
+  - id: consume-delivery-promise-promise-book-exhausted
+    operation:
+      asset: delivery-promise/asyncapi
+      id: publishDeliveryPromiseEvents
+      consumerOperation: consumeDeliveryPromise
+      event: { channel: retailnetwork.delivery-promise.events, types: [com.retailnetwork.commerce.delivery-promise.promisebook.PromiseBookExhausted] }
+    business:
+      capability: sourcing.network-read-models
+      process: read-model-maintenance
+      projection: ReadModels
+      purpose: "Keep the PromiseBookPressureView current (book pressure feeds the candidate cost)."
+
+  - id: consume-vendor-connectivity-purchase-order-accepted
+    operation:
+      asset: vendor-connectivity/asyncapi
+      id: publishVendorConnectivityEvents
+      consumerOperation: consumeVendorConnectivity
+      event: { channel: retailnetwork.vendor-connectivity.events, types: [com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderAccepted] }
+    business:
+      capability: sourcing.fulfilment-lifecycle
+      process: release-lock
+      useCases: [LockAssignment]
+      purpose: "Lock the assignment (and its merged followers) on the acceptance of its pending release."
+
+  - id: consume-vendor-connectivity-purchase-order-refused
+    operation:
+      asset: vendor-connectivity/asyncapi
+      id: publishVendorConnectivityEvents
+      consumerOperation: consumeVendorConnectivity
+      event: { channel: retailnetwork.vendor-connectivity.events, types: [com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderRejected, com.retailnetwork.partner.vendor-connectivity.purchaseorder.PurchaseOrderExpired] }
+    business:
+      capability: sourcing.node-release
+      process: node-refusal-handling
+      useCases: [HandleNodeRefusal]
+      purpose: "Exclude the refusing node and re-queue the group on the next best candidate, or declare it UNSOURCEABLE."
+
+  - id: consume-vendor-connectivity-vendor-shipment-confirmed
+    operation:
+      asset: vendor-connectivity/asyncapi
+      id: publishVendorConnectivityEvents
+      consumerOperation: consumeVendorConnectivity
+      event: { channel: retailnetwork.vendor-connectivity.events, types: [com.retailnetwork.partner.vendor-connectivity.purchaseorder.VendorShipmentConfirmed] }
+    business:
+      capability: sourcing.fulfilment-lifecycle
+      process: shipment-tracking
+      useCases: [MarkShipped]
+      purpose: "Record the shipment of a LOCKED assignment with its tracking numbers."
+
+  - id: consume-shipping-and-tracking-package-delivered
+    operation:
+      asset: shipping-and-tracking/asyncapi
+      id: publishShippingAndTrackingEvents
+      consumerOperation: consumeShippingAndTracking
+      event: { channel: retailnetwork.shipping-and-tracking.events, types: [com.retailnetwork.logistics.shipping-and-tracking.journey.PackageDelivered] }
+    business:
+      capability: sourcing.fulfilment-lifecycle
+      process: delivery-confirmation
+      useCases: [MarkDelivered]
+      purpose: "Record one delivered package; the last package delivers the group."
+
+  - id: consume-linehaul-transportation-booking-moved
+    operation:
+      asset: linehaul-transportation/asyncapi
+      id: publishLinehaulEvents
+      consumerOperation: consumeLinehaulTransportation
+      event: { channel: retailnetwork.linehaul-transportation.events, types: [com.retailnetwork.logistics.linehaul-transportation.departure.BookingMoved] }
+    business:
+      capability: sourcing.fulfilment-lifecycle
+      process: pickup-follow-up
+      useCases: [RecordPickupMoved]
+      purpose: "Point a LOCKED assignment at the departure its booking was moved to."
+
+  - id: consume-linehaul-transportation-booking-failed
+    operation:
+      asset: linehaul-transportation/asyncapi
+      id: publishLinehaulEvents
+      consumerOperation: consumeLinehaulTransportation
+      event: { channel: retailnetwork.linehaul-transportation.events, types: [com.retailnetwork.logistics.linehaul-transportation.departure.BookingFailed] }
+    business:
+      capability: sourcing.fulfilment-lifecycle
+      process: pickup-follow-up
+      useCases: [RecordProcessed]
+      purpose: "Claim the inbox row of a failed booking; the consumer only logs it and no assignment changes."
+
+  - id: consume-linehaul-transportation-departure-events
+    operation:
+      asset: linehaul-transportation/asyncapi
+      id: publishLinehaulEvents
+      consumerOperation: consumeLinehaulTransportation
+      event: { channel: retailnetwork.linehaul-transportation.events, types: [com.retailnetwork.logistics.linehaul-transportation.departure.DepartureScheduled, com.retailnetwork.logistics.linehaul-transportation.departure.DepartureCapacityChanged, com.retailnetwork.logistics.linehaul-transportation.departure.DepartureCancelled] }
+    business:
+      capability: sourcing.network-read-models
+      process: read-model-maintenance
+      projection: ReadModels
+      purpose: "Keep the departures of the NetworkGraphView current (pickup departures and their remaining capacity)."
+
+  - id: consume-last-mile-delivery-wave-events
+    operation:
+      asset: last-mile-delivery/asyncapi
+      id: publishLastMileEvents
+      consumerOperation: consumeLastMileDelivery
+      event: { channel: retailnetwork.last-mile-delivery.events, types: [com.retailnetwork.logistics.last-mile-delivery.wave.DeliveryWaveScheduled, com.retailnetwork.logistics.last-mile-delivery.wave.DeliveryWaveCapacityChanged, com.retailnetwork.logistics.last-mile-delivery.wave.DeliveryWaveCancelled, com.retailnetwork.logistics.last-mile-delivery.wave.WaveCostDeclared, com.retailnetwork.logistics.last-mile-delivery.wave.WaveEmissionDeclared] }
+    business:
+      capability: sourcing.network-read-models
+      process: read-model-maintenance
+      projection: ReadModels
+      purpose: "Keep the delivery waves of the NetworkGraphView current: schedule, remaining stops, declared cost and emission per stop."
+
+  - id: consume-node-performance-node-scorecard-updated
+    operation:
+      asset: node-performance/asyncapi
+      id: publishNodePerformanceEvents
+      consumerOperation: consumeNodePerformance
+      event: { channel: retailnetwork.node-performance.events, types: [com.retailnetwork.partner.node-performance.scorecard.NodeScorecardUpdated] }
+    business:
+      capability: sourcing.network-read-models
+      process: read-model-maintenance
+      projection: ReadModels
+      purpose: "Keep the ScorecardView current (node grade feeds the candidate cost)."
+
+  - id: consume-node-topology-events
+    operation:
+      asset: node-topology/asyncapi
+      id: publishNodeTopologyEvents
+      consumerOperation: consumeNodeTopology
+      event: { channel: retailnetwork.node-topology.events, types: [com.retailnetwork.logistics.node-topology.node.NodeRegistered, com.retailnetwork.logistics.node-topology.node.NodeOperationalProfileDeclared, com.retailnetwork.logistics.node-topology.node.NodeActivated, com.retailnetwork.logistics.node-topology.node.NodeSuspended, com.retailnetwork.logistics.node-topology.node.NodeRetired, com.retailnetwork.logistics.node-topology.lane.LaneOpened, com.retailnetwork.logistics.node-topology.lane.LaneClosed, com.retailnetwork.logistics.node-topology.lane.LaneCostDeclared, com.retailnetwork.logistics.node-topology.lane.LaneEmissionDeclared, com.retailnetwork.logistics.node-topology.servicearea.ServiceAreaAssigned, com.retailnetwork.logistics.node-topology.region.RegionDefined] }
+    business:
+      capability: sourcing.network-read-models
+      process: read-model-maintenance
+      projection: ReadModels
+      purpose: "Keep the NodeProfileView and NetworkGraphView current: nodes, lanes with declared cost and emission, service areas, regions."
+
+  - id: consume-offer-availability-events
+    operation:
+      asset: offer-availability/asyncapi
+      id: publishOfferAvailabilityEvents
+      consumerOperation: consumeOfferAvailability
+      event: { channel: retailnetwork.offer-availability.events, types: [com.retailnetwork.commerce.offer-availability.listing.ListingCreated, com.retailnetwork.commerce.offer-availability.listing.ListingAvailabilityChanged, com.retailnetwork.commerce.offer-availability.listing.ListingSuppressed, com.retailnetwork.commerce.offer-availability.listing.ListingRestored, com.retailnetwork.commerce.offer-availability.catalogitem.CatalogItemDiscontinued] }
+    business:
+      capability: sourcing.network-read-models
+      process: read-model-maintenance
+      projection: ReadModels
+      purpose: "Keep the AvailabilityView current: which node lists which catalogue item, its quantity, suppression and discontinuation."

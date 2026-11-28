@@ -1,0 +1,52 @@
+# order-sourcing 0.1.11 (v0.1.11, f7508f8) - System Assets & Interaction Standard v0.4
+apiVersion: warehouse/system-assets/v1
+application: application.yaml
+release:
+  version: 0.1.11
+  tag: v0.1.11
+  commit: f7508f8c07fd5dd0251376334c6ae712d94728ec
+  chart: oci://ghcr.io/iqvo/order-sourcing:0.1.11
+  images:
+  - ghcr.io/iqvo/warehouse-infra/order-sourcing:f7508f8-arm64
+  drift:
+  - MCP initialize serverInfo order-sourcing-mcp@'1.0.0' != release 0.1.11 (MC-5)
+  - MCP server negotiates 2025-11-25, fleet target is 2026-07-28
+  - served A2A Agent Card version 'f7508f8-arm64' != release 0.1.11 (SERVICE_VERSION is rendered from
+    the image tag)
+  - cluster runs chart 'order-sourcing-0.1.0', not the released chart order-sourcing-0.1.11
+assets:
+- id: order-sourcing/openapi
+  kind: openapi
+  path: openapi/openapi.yaml
+  spec:
+    name: openapi
+    version: 3.0.3
+  version: 0.1.0
+  exposure: kong
+- id: order-sourcing/asyncapi
+  kind: asyncapi
+  path: asyncapi/asyncapi.yaml
+  spec:
+    name: asyncapi
+    version: 3.0.0
+  version: 1.0.0
+  exposure: kafka
+- id: order-sourcing/mcp
+  kind: mcp
+  documents:
+    serverCard: mcp/server-card.json
+    primitives: mcp/primitives.json
+  spec:
+    name: mcp
+    version: '2025-11-25'
+    serverCard: sep-2127
+  version: 0.1.11
+  exposure: agent-router
+- id: order-sourcing/a2a
+  kind: a2a
+  path: a2a/agent-card.json
+  spec:
+    name: a2a
+    version: 1.0.0
+  version: 0.1.11
+  exposure: agent-router
