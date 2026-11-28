@@ -1,0 +1,593 @@
+{
+  "apiVersion": "warehouse/mcp-primitives/v1",
+  "server": "com.retailnetwork.commerce/order-sourcing",
+  "tools": [
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Read one fulfillment assignment in full by id: the promise constraint it must keep (tier, deliverByLatest, witness node), its lines, the current candidate node and path with the cost in cost points, the VirtualQueue release point, the whole release history with each outcome (ACCEPTED, REJECTED, EXPIRED, WITHDRAWN, PENDING), the nodes that were excluded and why, and the lock, shipment and delivery facts once they apply. Read-only; fails with not-found for an unknown id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "assignmentId": {
+            "type": "string",
+            "description": "the assignment id, e.g. fa-1b4e28ba-2fa1-4d3c-8f6e-0a1b2c3d4e5f"
+          }
+        },
+        "required": [
+          "assignmentId"
+        ],
+        "additionalProperties": false
+      },
+      "name": "get_assignment",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "assignmentId": {
+            "type": "string"
+          },
+          "orderId": {
+            "type": "string"
+          },
+          "groupNo": {
+            "type": "integer"
+          },
+          "destinationPostalPrefix": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "assignmentVersion": {
+            "type": "integer"
+          },
+          "promise": {
+            "type": "object",
+            "properties": {
+              "promiseId": {
+                "type": "string"
+              },
+              "tier": {
+                "type": "string"
+              },
+              "deliverByEarliest": {
+                "type": "string"
+              },
+              "deliverByLatest": {
+                "type": "string"
+              },
+              "witnessNodeId": {
+                "type": "string"
+              },
+              "revisionNo": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "promiseId",
+              "tier",
+              "deliverByLatest",
+              "witnessNodeId",
+              "revisionNo"
+            ],
+            "additionalProperties": false
+          },
+          "lines": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "lineNo": {
+                  "type": "integer"
+                },
+                "catalogItemId": {
+                  "type": "string"
+                },
+                "listingId": {
+                  "type": "string"
+                },
+                "ownerRef": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "lineNo",
+                "catalogItemId",
+                "quantity"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "candidate": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "nodeId": {
+                "type": "string"
+              },
+              "pickupDepartureId": {
+                "type": "string"
+              },
+              "pickupCutoffAt": {
+                "type": "string"
+              },
+              "legs": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "deliveryWaveId": {
+                "type": "string"
+              },
+              "eta": {
+                "type": "string"
+              },
+              "cost": {
+                "type": "integer"
+              },
+              "estimatedCostCents": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "estimatedCo2eGrams": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              }
+            },
+            "required": [
+              "nodeId",
+              "pickupDepartureId",
+              "pickupCutoffAt",
+              "legs",
+              "deliveryWaveId",
+              "eta",
+              "cost"
+            ],
+            "additionalProperties": false
+          },
+          "releaseAt": {
+            "type": "string"
+          },
+          "releases": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "releaseNo": {
+                  "type": "integer"
+                },
+                "nodeId": {
+                  "type": "string"
+                },
+                "releasedAt": {
+                  "type": "string"
+                },
+                "requiredShipBy": {
+                  "type": "string"
+                },
+                "outcome": {
+                  "type": "string"
+                },
+                "reasonCode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "releaseNo",
+                "nodeId",
+                "releasedAt",
+                "requiredShipBy",
+                "outcome"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "excludedNodes": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "nodeId": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "nodeId",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "lockedAt": {
+            "type": "string"
+          },
+          "lockReason": {
+            "type": "string"
+          },
+          "pickupDepartureId": {
+            "type": "string"
+          },
+          "trackingNumbers": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "shippedAt": {
+            "type": "string"
+          },
+          "deliveredAt": {
+            "type": "string"
+          },
+          "cancelReason": {
+            "type": "string"
+          },
+          "consolidatedInto": {
+            "type": "string"
+          },
+          "consolidatedWith": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "assignmentId",
+          "orderId",
+          "groupNo",
+          "destinationPostalPrefix",
+          "state",
+          "assignmentVersion",
+          "promise",
+          "lines",
+          "releases",
+          "excludedNodes",
+          "trackingNumbers"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "description": "List fulfillment assignments, ordered by assignmentId ascending: which vendor node and path will fulfil each shipment group of a customer order, in which state (QUEUED, RELEASED, LOCKED, SHIPPED, DELIVERED, UNSOURCEABLE, CANCELLED). Filters combine with AND and are all optional: state, orderId, and nodeId (the current candidate node while QUEUED, the node of the latest release later). Each item carries the promise constraint, the lines, the current candidate with its cost, the releaseAt point and a cap of limit items (default 100, maximum 500). Read-only; an unknown state or a limit outside 1..500 fails with validation-failed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "optional filter: keep only assignments in this state, one of QUEUED, RELEASED, LOCKED, SHIPPED, DELIVERED, UNSOURCEABLE or CANCELLED; omitted means every state"
+          },
+          "nodeId": {
+            "type": "string",
+            "description": "optional filter: keep only assignments currently on this node (the QUEUED candidate's node, or the node of the latest release); omitted means every node"
+          },
+          "orderId": {
+            "type": "string",
+            "description": "optional filter: keep only assignments of this order; omitted means every order"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "optional page size, 1..500; omitted or 0 means the default of 100"
+          }
+        },
+        "additionalProperties": false
+      },
+      "name": "list_assignments",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "assignments": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "object",
+              "properties": {
+                "assignmentId": {
+                  "type": "string"
+                },
+                "orderId": {
+                  "type": "string"
+                },
+                "groupNo": {
+                  "type": "integer"
+                },
+                "destinationPostalPrefix": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "assignmentVersion": {
+                  "type": "integer"
+                },
+                "promise": {
+                  "type": "object",
+                  "properties": {
+                    "promiseId": {
+                      "type": "string"
+                    },
+                    "tier": {
+                      "type": "string"
+                    },
+                    "deliverByEarliest": {
+                      "type": "string"
+                    },
+                    "deliverByLatest": {
+                      "type": "string"
+                    },
+                    "witnessNodeId": {
+                      "type": "string"
+                    },
+                    "revisionNo": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "promiseId",
+                    "tier",
+                    "deliverByLatest",
+                    "witnessNodeId",
+                    "revisionNo"
+                  ],
+                  "additionalProperties": false
+                },
+                "lines": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "lineNo": {
+                        "type": "integer"
+                      },
+                      "catalogItemId": {
+                        "type": "string"
+                      },
+                      "listingId": {
+                        "type": "string"
+                      },
+                      "ownerRef": {
+                        "type": "string"
+                      },
+                      "quantity": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "lineNo",
+                      "catalogItemId",
+                      "quantity"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "candidate": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "nodeId": {
+                      "type": "string"
+                    },
+                    "pickupDepartureId": {
+                      "type": "string"
+                    },
+                    "pickupCutoffAt": {
+                      "type": "string"
+                    },
+                    "legs": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "deliveryWaveId": {
+                      "type": "string"
+                    },
+                    "eta": {
+                      "type": "string"
+                    },
+                    "cost": {
+                      "type": "integer"
+                    },
+                    "estimatedCostCents": {
+                      "type": [
+                        "null",
+                        "integer"
+                      ]
+                    },
+                    "estimatedCo2eGrams": {
+                      "type": [
+                        "null",
+                        "integer"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "nodeId",
+                    "pickupDepartureId",
+                    "pickupCutoffAt",
+                    "legs",
+                    "deliveryWaveId",
+                    "eta",
+                    "cost"
+                  ],
+                  "additionalProperties": false
+                },
+                "releaseAt": {
+                  "type": "string"
+                },
+                "releases": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "releaseNo": {
+                        "type": "integer"
+                      },
+                      "nodeId": {
+                        "type": "string"
+                      },
+                      "releasedAt": {
+                        "type": "string"
+                      },
+                      "requiredShipBy": {
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "type": "string"
+                      },
+                      "reasonCode": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "releaseNo",
+                      "nodeId",
+                      "releasedAt",
+                      "requiredShipBy",
+                      "outcome"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "excludedNodes": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "nodeId": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "nodeId",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "lockedAt": {
+                  "type": "string"
+                },
+                "lockReason": {
+                  "type": "string"
+                },
+                "pickupDepartureId": {
+                  "type": "string"
+                },
+                "trackingNumbers": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "shippedAt": {
+                  "type": "string"
+                },
+                "deliveredAt": {
+                  "type": "string"
+                },
+                "cancelReason": {
+                  "type": "string"
+                },
+                "consolidatedInto": {
+                  "type": "string"
+                },
+                "consolidatedWith": {
+                  "type": [
+                    "null",
+                    "array"
+                  ],
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "assignmentId",
+                "orderId",
+                "groupNo",
+                "destinationPostalPrefix",
+                "state",
+                "assignmentVersion",
+                "promise",
+                "lines",
+                "releases",
+                "excludedNodes",
+                "trackingNumbers"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "assignments"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "resources": [],
+  "resourceTemplates": [],
+  "prompts": []
+}

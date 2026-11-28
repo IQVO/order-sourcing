@@ -1,0 +1,20 @@
+{
+  "name": "com.retailnetwork.commerce/order-sourcing",
+  "version": "0.1.11",
+  "title": "Order Sourcing MCP",
+  "description": "Decides, as late as the promise allows, which node and path will actually fulfil each shipment group.",
+  "websiteUrl": "https://iqvo.github.io/order-sourcing/",
+  "repository": {
+    "url": "https://github.com/IQVO/order-sourcing",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "http://localhost:8010/api/mcp/order-sourcing",
+      "protocolVersions": [
+        "2025-11-25"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+# order-sourcing 0.1.11 (v0.1.11, f7508f8) - System Assets & Interaction Standard v0.4
+apiVersion: warehouse/application/v1
+application:
+  id: order-sourcing
+  name: Order Sourcing
+  kind: bounded-context
+  version: 0.1.11
+  description: Order Sourcing — assigns customer-order lines to fulfilment nodes (virtual queue, re-optimisation,
+    release); consumes nine retail-network topics and publishes Assignment events on retailnetwork.order-sourcing.events
+  repository: https://github.com/IQVO/order-sourcing
+  owners:
+  - claudioed
+  lifecycle: production
+subdomain:
+  id: retail-network
+  name: Retail Network
+  summary: 'The retail fulfillment network: a separate organization owning the customer, the catalogue,
+    the delivery promise, order sourcing and the parcel network.'
+boundedContext:
+  id: order-sourcing
+  name: Order Sourcing
+  classification: Core
+  tier: Retail Network, commerce tier
+  purpose: Decides, as late as the promise allows, which node and path will actually fulfil each shipment
+    group. Keeps assignments in a virtual queue, re-optimises them against current capacity and cost until
+    the release point, sends the group to the node, reassigns on rejection or expiry, and locks the assignment
+    once the node commits.
+  publishes:
+  - retailnetwork.order-sourcing.analytics
+  - retailnetwork.order-sourcing.events
+tags:
+- assignment
+assets: system-assets.yaml
+interactions: interactions.yaml
